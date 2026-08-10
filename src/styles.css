@@ -1,3 +1,16 @@
+/* ============================================================================
+   עיצוב התוסף — שיקוף של מסכי אוצריא.
+
+   כל מספר בקובץ הזה נלקח מהווידג'ט המקביל באוצריא, והמקור מצוין בהערה.
+   הכלל: צבעים מגיעים מ-theme (ראה theme.ts), הצורות והמרווחים מ-AppTokens,
+   וגדלי הסרגלים/הכפתורים הם px קשיחים — בדיוק כמו בקוד של אוצריא, שאינו גוזר
+   אותם מגודל גופן הספר.
+   ============================================================================ */
+
+/* גופן הממשק — Segoe UI, אותו גופן שבו נראה טקסט הממשק העברי של אוצריא
+   ב-Windows (Roboto של Flutter נופל אליו בהיעדר אותיות עבריות). גופן טקסט
+   הספר לא נארז כאן: הוא מגיע מה-API (theme.typography.fontFamily) ואוצריא
+   מזריקה עבורו @font-face ל-WebView. */
 @font-face {
   font-family: 'Segoe UI';
   font-style: normal;
@@ -31,167 +44,1818 @@
 }
 
 :root {
+  /* ── ColorScheme (ברירות מחדל של M3; מוחלפות ב-applyTheme) ─────────────── */
   --color-primary: #6750a4;
   --color-on-primary: #ffffff;
   --color-primary-container: #eaddff;
   --color-on-primary-container: #21005d;
+  --color-secondary: #625b71;
+  --color-on-secondary: #ffffff;
+  --color-secondary-container: #e8def8;
+  --color-on-secondary-container: #1d192b;
+  --color-tertiary-container: #ffd8e4;
+  --color-on-tertiary-container: #31111d;
   --color-surface: #fffbfe;
   --color-on-surface: #1c1b1f;
   --color-on-surface-variant: #49454f;
-  --color-surface-low: #f7f2fa;
-  --color-surface-high: #ece6f0;
-  --color-surface-highest: #e6e0e9;
-  --color-outline: #79747e;
-  --color-outline-variant: #cac4d0;
+  --color-surface-container-lowest: #ffffff;
+  --color-surface-container-low: #f7f2fa;
+  --color-surface-container: #f3edf7;
+  --color-surface-container-high: #ece6f0;
+  --color-surface-container-highest: #e6e0e9;
   --color-error: #b3261e;
+  --color-on-error: #ffffff;
   --color-error-container: #f9dedc;
   --color-on-error-container: #410e0b;
+  --color-outline: #79747e;
+  --color-outline-variant: #cac4d0;
+  --color-inverse-surface: #313033;
+  --color-on-inverse-surface: #f4eff4;
+  --color-shadow: #000000;
   --color-scrim: #000000;
-  --font-main: 'Segoe UI', 'Segoe', 'David', sans-serif;
-  --font-size-base: 18px;
-  --line-height: 1.5;
-  --radius-sm: 8px;
-  --radius-md: 12px;
-  --radius-lg: 20px;
+
+  /* ── AppSurfaces (lib/theme/app_surfaces.dart) ──────────────────────────── */
+  --surface-reader: var(--color-surface);
+  --surface-panel: color-mix(in srgb, var(--color-surface-container-highest) 47.5%, var(--color-surface));
+  --surface-top-bar: var(--color-surface-container-high);
+  --surface-card: var(--color-surface);
+  /* ThemeData.dividerColor ב-M3 = colorScheme.outlineVariant */
+  --color-divider: var(--color-outline-variant);
+  /* AppColors.pageWhite — רקע דף PDF (lib/theme/app_colors.dart) */
+  --page-white: #ffffff;
+
+  /* ── AppTokens (lib/theme/app_tokens.dart) ──────────────────────────────── */
+  --radius: 8px;
+  /* OutlineInputBorder ללא ארגומנטים — ברירת המחדל של Flutter */
+  --radius-input: 4px;
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 16px;
+  --space-lg: 24px;
+  --space-xl: 32px;
+
+  /* ── טיפוגרפיה ──────────────────────────────────────────────────────────── */
+  --font-ui: 'Segoe UI', 'Segoe', 'Helvetica Neue', Arial, sans-serif;
+  --font-book: 'FrankRuhlCLM', 'David', serif;
+  --font-size-book: 18px;
+  --line-height-book: 1.5;
+
+  /* ── מידות סרגלים (AppTopBar / AppTokens) ──────────────────────────────── */
   --top-bar-height: 56px;
+  --top-bar-padding-inline: 8px;
+  --top-bar-padding-block: 8px;
+  --bar-button-size: 40px;
+  --bar-button-gap: 8px;
+  --bar-divider-height: 24px;
+  --panel-tab-height: 44px;
+
+  /* ── צללים (kElevationToShadow של Flutter) ─────────────────────────────── */
+  --elevation-1:
+    0 2px 1px -1px color-mix(in srgb, var(--color-shadow) 20%, transparent),
+    0 1px 1px color-mix(in srgb, var(--color-shadow) 14%, transparent),
+    0 1px 3px color-mix(in srgb, var(--color-shadow) 12%, transparent);
+  --elevation-2:
+    0 3px 1px -2px color-mix(in srgb, var(--color-shadow) 20%, transparent),
+    0 2px 2px color-mix(in srgb, var(--color-shadow) 14%, transparent),
+    0 1px 5px color-mix(in srgb, var(--color-shadow) 12%, transparent);
+  --elevation-4:
+    0 2px 4px -1px color-mix(in srgb, var(--color-shadow) 20%, transparent),
+    0 4px 5px color-mix(in srgb, var(--color-shadow) 14%, transparent),
+    0 1px 10px color-mix(in srgb, var(--color-shadow) 12%, transparent);
 }
 
-* { box-sizing: border-box; }
-html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; }
-body { background: var(--color-surface); color: var(--color-on-surface); font-family: var(--font-main); font-size: var(--font-size-base); line-height: var(--line-height); }
-button, input, select { font: inherit; }
-button { color: inherit; }
-button, input, select { outline-offset: 2px; }
-svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
-.hidden { display: none !important; }
-.visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
-
-#app-shell { height: 100%; display: grid; grid-template-rows: var(--top-bar-height) minmax(0, 1fr); }
-.app-top-bar { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(240px, 2fr) minmax(180px, 1fr); align-items: center; min-height: var(--top-bar-height); padding: 0 12px; background: var(--color-surface-high); border-bottom: 1px solid var(--color-outline-variant); z-index: 20; }
-.top-bar-side { display: flex; align-items: center; gap: 8px; }
-.top-bar-leading { justify-content: flex-start; }
-.top-bar-actions { justify-content: flex-end; }
-.top-bar-title-group { min-width: 0; display: flex; align-items: center; justify-content: center; gap: 12px; }
-.top-bar-title-group h1 { margin: 0; font-size: 1rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.screen { min-height: 0; }
-
-.icon-button { width: 40px; height: 40px; display: inline-grid; place-items: center; border: 0; border-radius: 50%; background: transparent; cursor: pointer; }
-.icon-button:hover { background: color-mix(in srgb, var(--color-on-surface) 8%, transparent); }
-.icon-button:active { background: color-mix(in srgb, var(--color-on-surface) 12%, transparent); }
-.primary-button, .tonal-button, .text-button { min-height: 40px; border: 0; border-radius: var(--radius-sm); padding: 8px 18px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; cursor: pointer; font-weight: 600; }
-.primary-button { background: var(--color-primary); color: var(--color-on-primary); }
-.primary-button:hover { filter: brightness(.94); }
-.primary-button:disabled { opacity: .45; cursor: default; }
-.tonal-button { background: var(--color-surface-highest); color: var(--color-on-surface); }
-.tonal-button:hover, .text-button:hover { background: color-mix(in srgb, var(--color-primary) 12%, var(--color-surface)); }
-.text-button { background: transparent; color: var(--color-primary); }
-.compact { min-height: 34px; padding: 5px 12px; font-size: .84rem; }
-
-.status-badge { padding: 4px 10px; border-radius: 999px; font-size: .72rem; color: var(--color-on-surface-variant); background: var(--color-surface-highest); white-space: nowrap; }
-.status-badge.online { color: var(--color-primary); background: var(--color-primary-container); }
-.status-badge.offline { color: var(--color-on-error-container); background: var(--color-error-container); }
-.status-badge.checking::before { content: ''; display: inline-block; width: 8px; height: 8px; margin-inline-end: 7px; border: 2px solid currentColor; border-inline-start-color: transparent; border-radius: 50%; animation: spin .8s linear infinite; }
-.viewer-hidden { display: none !important; }
-
-.home-screen { overflow-y: auto; display: grid; place-items: center; padding: 24px; }
-.empty-library-card { width: min(100%, 460px); text-align: center; padding: 24px; }
-.hero-icon { width: 68px; height: 68px; margin-bottom: 18px; color: var(--color-on-surface-variant); stroke-width: 1.35; }
-.empty-library-card h2 { margin: 0; font-size: 1.35rem; font-weight: 700; }
-.empty-library-card > p { margin: 12px auto 28px; max-width: 390px; font-size: .9rem; color: var(--color-on-surface-variant); }
-.home-search-form { display: grid; gap: 12px; }
-.home-search-form input, .search-field-wrap, .options-grid input, .options-grid select { min-height: 48px; border: 1px solid var(--color-outline); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-on-surface); }
-.home-search-form input { width: 100%; padding: 10px 14px; }
-.home-search-form .primary-button { width: 100%; }
-.empty-library-card > .text-button { margin-top: 8px; }
-
-.results-screen { display: grid; grid-template-rows: auto auto minmax(0, 1fr); overflow: hidden; }
-.search-toolbar { padding: 16px clamp(16px, 4vw, 48px) 8px; display: grid; grid-template-columns: minmax(220px, 1fr) auto auto; gap: 10px; }
-.search-field-wrap { display: flex; align-items: center; gap: 8px; padding-inline: 12px; }
-.search-field-wrap svg { flex: 0 0 22px; color: var(--color-on-surface-variant); }
-.search-field-wrap input { min-width: 0; width: 100%; height: 46px; border: 0; outline: 0; background: transparent; color: var(--color-on-surface); }
-.results-heading { padding: 10px clamp(16px, 4vw, 48px) 8px; border-bottom: 1px solid var(--color-outline-variant); }
-.results-heading h2 { margin: 0; font-size: 1.05rem; }
-.results-heading p { margin: 2px 0 0; color: var(--color-on-surface-variant); font-size: .78rem; }
-.results-content { min-height: 0; overflow-y: auto; padding: 16px clamp(16px, 4vw, 48px) 40px; }
-.results-list { max-width: 980px; margin: 0 auto; padding: 0; list-style: none; }
-.result-card { margin-bottom: 12px; padding: 16px; display: flex; align-items: flex-start; gap: 16px; border: 1px solid var(--color-outline-variant); border-radius: var(--radius-md); background: var(--color-surface); transition: border-color .15s, background-color .15s; }
-.result-card:hover { border-color: var(--color-outline); background: var(--color-surface-low); }
-.result-number { flex: 0 0 34px; width: 34px; height: 34px; display: grid; place-items: center; border-radius: var(--radius-sm); background: var(--color-primary-container); color: var(--color-on-primary-container); font-size: .82rem; font-weight: 700; }
-.result-body { flex: 1; min-width: 0; }
-.result-title-row { display: flex; align-items: center; gap: 10px; }
-.result-title-row h3 { flex: 1; margin: 0; color: var(--color-primary); font-size: .92rem; overflow-wrap: anywhere; }
-.result-type { flex: 0 0 auto; padding: 2px 8px; border-radius: 999px; color: var(--color-primary); background: var(--color-primary-container); font-family: system-ui, sans-serif; font-size: .62rem; font-weight: 700; }
-.result-metadata, .result-details { margin: 5px 0 0; color: var(--color-on-surface-variant); font-size: .76rem; }
-.result-actions { display: flex; gap: 8px; margin-top: 12px; }
-.informative-state { min-height: 320px; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 24px; }
-.informative-state h3 { margin: 14px 0 4px; font-size: 1rem; }
-.informative-state p { max-width: 440px; margin: 0; color: var(--color-on-surface-variant); font-size: .8rem; }
-.state-icon { width: 56px; height: 56px; display: grid; place-items: center; color: var(--color-on-surface-variant); border: 2px solid currentColor; border-radius: 50%; font-size: 1.5rem; }
-.informative-state.error .state-icon { color: var(--color-error); }
-.spinner { width: 30px; height: 30px; border: 3px solid var(--color-outline-variant); border-top-color: var(--color-primary); border-radius: 50%; animation: spin .8s linear infinite; }
-
-.viewer-screen { display: grid; grid-template-columns: 280px minmax(0, 1fr); overflow: hidden; background: var(--color-surface-low); }
-.matches-panel { min-width: 0; overflow-y: auto; background: var(--color-surface); border-inline-end: 1px solid var(--color-outline-variant); transition: margin .18s ease, visibility .18s; }
-.matches-panel.closed { margin-inline-start: -280px; visibility: hidden; }
-.panel-heading { position: sticky; top: 0; padding: 14px 16px; display: flex; align-items: flex-start; justify-content: space-between; background: var(--color-surface); border-bottom: 1px solid var(--color-outline-variant); }
-.panel-heading h2 { margin: 0; font-size: .9rem; }
-.panel-heading p { margin: 2px 0 0; color: var(--color-on-surface-variant); font-size: .7rem; }
-.matches-panel ol { margin: 0; padding: 10px; list-style: none; }
-.match-button { width: 100%; min-height: 40px; padding: 8px 12px; text-align: start; border: 0; border-radius: var(--radius-sm); background: transparent; cursor: pointer; }
-.match-button:hover { background: var(--color-surface-high); }
-.match-button.active { background: var(--color-primary-container); color: var(--color-on-primary-container); font-weight: 700; }
-.pdf-stage-wrap { min-width: 0; min-height: 0; position: relative; display: flex; flex-direction: column; overflow: hidden; }
-.pdf-stage { flex: 1; min-height: 0; overflow: auto; padding: 24px; text-align: center; }
-#pdf-canvas { display: inline-block; background: white; box-shadow: 0 2px 8px color-mix(in srgb, var(--color-scrim) 26%, transparent); }
-.pdf-loading { position: absolute; inset: 0; z-index: 10; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; background: color-mix(in srgb, var(--color-surface) 88%, transparent); }
-.viewer-toolbar { align-self: center; position: absolute; bottom: 18px; display: flex; align-items: center; gap: 2px; padding: 6px 8px; border: 1px solid var(--color-outline-variant); border-radius: var(--radius-md); background: var(--color-surface-highest); box-shadow: 0 3px 12px color-mix(in srgb, var(--color-scrim) 18%, transparent); }
-.toolbar-divider { width: 1px; height: 24px; margin: 0 4px; background: var(--color-outline-variant); }
-.zoom-value { min-width: 62px; height: 36px; border: 0; border-radius: var(--radius-sm); background: transparent; cursor: pointer; font-size: .72rem; }
-.page-control { display: flex; align-items: center; direction: ltr; font-family: system-ui, sans-serif; font-size: .76rem; }
-.page-control input { width: 48px; height: 32px; text-align: center; border: 1px solid var(--color-outline); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-on-surface); }
-
-.options-dialog { width: min(680px, calc(100vw - 32px)); max-height: calc(100vh - 32px); padding: 0; border: 0; border-radius: var(--radius-lg); color: var(--color-on-surface); background: var(--color-surface); box-shadow: 0 12px 36px color-mix(in srgb, var(--color-scrim) 30%, transparent); }
-.options-dialog::backdrop { background: color-mix(in srgb, var(--color-scrim) 45%, transparent); }
-.dialog-card { padding: 20px; overflow-y: auto; }
-.dialog-heading { display: flex; justify-content: space-between; align-items: flex-start; }
-.dialog-heading h2 { margin: 0; font-size: 1.05rem; }
-.dialog-heading p { margin: 2px 0 0; color: var(--color-on-surface-variant); font-size: .75rem; }
-.options-grid { margin-top: 18px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
-.options-grid label { display: grid; gap: 4px; color: var(--color-on-surface-variant); font-size: .72rem; }
-.options-grid input, .options-grid select { width: 100%; padding: 6px 10px; }
-fieldset { margin: 18px 0 0; padding: 12px; border: 1px solid var(--color-outline-variant); border-radius: var(--radius-md); }
-legend { padding: 0 6px; font-size: .82rem; font-weight: 700; }
-.checkbox-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px 16px; }
-.checkbox-grid label { display: flex; gap: 8px; align-items: center; font-size: .76rem; }
-.checkbox-grid input { accent-color: var(--color-primary); }
-.dialog-actions { margin-top: 20px; display: flex; justify-content: flex-start; }
-.browser-notice { max-width: 520px; margin: 20vh auto; padding: 24px; text-align: center; }
-
-@keyframes spin { to { transform: rotate(360deg); } }
-
-@media (max-width: 760px) {
-  .app-top-bar { grid-template-columns: 48px minmax(0, 1fr) auto; }
-  .status-badge { max-width: 120px; overflow: hidden; text-overflow: ellipsis; }
-  .search-toolbar { grid-template-columns: minmax(0, 1fr) auto; }
-  .search-toolbar .tonal-button { display: none; }
-  .viewer-screen { grid-template-columns: minmax(0, 1fr); }
-  .matches-panel { position: absolute; inset-block: var(--top-bar-height) 0; inset-inline-start: 0; width: min(82vw, 300px); z-index: 15; box-shadow: 4px 0 16px color-mix(in srgb, var(--color-scrim) 18%, transparent); }
-  .matches-panel.closed { margin-inline-start: -100%; }
-  .viewer-toolbar .tonal-button { display: none; }
-  .checkbox-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+/* AppSurfaces במצב כהה: רקע קריאה AppColors.darkScaffold, רקע לוח שחור,
+   וכרטיס על surfaceContainer. */
+body.dark-mode {
+  --surface-reader: #242424;
+  --surface-panel: #000000;
+  --surface-card: var(--color-surface-container);
 }
 
-@media (max-width: 480px) {
-  .top-bar-actions .status-badge { display: none; }
-  .search-toolbar { padding-inline: 10px; }
-  .search-toolbar > .primary-button { padding-inline: 12px; }
-  .results-content, .results-heading { padding-inline: 10px; }
-  .result-card { gap: 10px; padding: 12px; }
-  .result-number { flex-basis: 30px; width: 30px; height: 30px; }
-  .options-grid, .checkbox-grid { grid-template-columns: 1fr; }
-  .viewer-toolbar { max-width: calc(100% - 16px); overflow-x: auto; bottom: 8px; }
+/* מסך צר = מצב compact של אוצריא (AppTopBar._kCompactHeight) */
+@media (max-width: 600px) {
+  :root {
+    --top-bar-height: 44px;
+    --top-bar-padding-inline: 6px;
+    --top-bar-padding-block: 4px;
+    --bar-button-size: 36px;
+    --bar-button-gap: 4px;
+    --bar-divider-height: 20px;
+  }
+}
+
+/* ── בסיס ──────────────────────────────────────────────────────────────────── */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+body {
+  background: var(--surface-panel);
+  color: var(--color-on-surface);
+  font-family: var(--font-ui);
+  font-size: 14px;
+  line-height: 1.4;
+  -webkit-font-smoothing: antialiased;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+h1,
+h2,
+h3,
+p,
+ol,
+ul {
+  margin: 0;
+  padding: 0;
+}
+
+ol,
+ul {
+  list-style: none;
+}
+
+.hidden {
+  display: none !important;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.icon {
+  display: block;
+  flex: none;
+  fill: currentColor;
+}
+
+/* ── Tooltip (TooltipThemeData ב-app_theme_data.dart) ──────────────────────── */
+
+[data-tooltip] {
+  position: relative;
+}
+
+[data-tooltip]::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  inset-inline-start: 50%;
+  top: calc(100% + 4px);
+  z-index: 400;
+  translate: 50% 0;
+  padding: 4px 16px;
+  min-height: 24px;
+  border: 1px solid var(--color-outline-variant);
+  border-radius: var(--radius);
+  background: var(--color-surface-container-high);
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--color-shadow) 22%, transparent);
+  color: var(--color-on-surface);
+  font-size: 14px;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms 400ms;
+}
+
+[data-tooltip]:hover::after {
+  opacity: 1;
+}
+
+[data-tooltip][data-tooltip-below='false']::after {
+  top: auto;
+  bottom: calc(100% + 4px);
+}
+
+/* ── שלד: סרגל עליון קבוע + תוכן גולל ─────────────────────────────────────── */
+
+#app-shell {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.screen {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface-reader);
+}
+
+/* גוף המסך — כל מה שמתחת לסרגל העליון, והוא זה שגולל */
+.screen-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── AppTopBar (lib/widgets/navigation/app_top_bar.dart) ──────────────────── */
+
+.top-bar {
+  flex: none;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  height: var(--top-bar-height);
+  padding: var(--top-bar-padding-block) var(--top-bar-padding-inline);
+  background: var(--surface-top-bar);
+  box-shadow: var(--elevation-2);
+  z-index: 30;
+}
+
+.top-bar-leading,
+.top-bar-trailing {
+  display: flex;
+  align-items: center;
+  gap: var(--bar-button-gap);
+  min-width: 0;
+}
+
+.top-bar-trailing {
+  justify-self: end;
+}
+
+/* NavigationToolbar.middleSpacing = 8 */
+.top-bar-center {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  margin: 0 8px;
+}
+
+.top-bar-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--color-on-surface);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: center;
+}
+
+.top-bar-count {
+  font-size: 14px;
+  color: color-mix(in srgb, var(--color-on-surface) 70%, transparent);
+  white-space: nowrap;
+}
+
+/* SearchTermsDisplay — מילות החיפוש במרכז הסרגל */
+.search-terms {
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.search-term-word {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--color-on-surface);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.search-term-abbr {
+  flex: none;
+  font-size: 10px;
+  color: var(--color-primary);
+}
+
+.top-bar-divider {
+  flex: none;
+  width: 1px;
+  height: var(--bar-divider-height);
+  margin: 0 4px;
+  background: color-mix(in srgb, var(--color-outline-variant) 50%, transparent);
+}
+
+/* ── BarButton.icon (lib/widgets/controls/bar_button.dart) ────────────────── */
+
+.bar-button {
+  flex: none;
+  width: var(--bar-button-size);
+  height: var(--bar-button-size);
+  margin: 0 2px;
+  display: inline-grid;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--color-on-surface-variant);
+  cursor: pointer;
+  transition: background-color 150ms ease-in-out;
+}
+
+.bar-button:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-primary) 8%, transparent);
+}
+
+.bar-button:active:not(:disabled),
+.bar-button:focus-visible {
+  background: color-mix(in srgb, var(--color-primary) 12%, transparent);
+}
+
+.bar-button[aria-pressed='true'] {
+  background: color-mix(in srgb, var(--color-on-surface) 12%, transparent);
+  color: var(--color-on-secondary-container);
+}
+
+.bar-button:disabled {
+  color: color-mix(in srgb, var(--color-on-surface) 38%, transparent);
+  cursor: default;
+}
+
+.bar-button .icon {
+  width: 20px;
+  height: 20px;
+}
+
+/* RtlIcon — חיצי ניווט מתהפכים ב-RTL */
+.icon-mirrored {
+  scale: -1 1;
+}
+
+/* ── ActionButton (lib/widgets/controls/action_buttons.dart) ──────────────── */
+
+.action-button {
+  min-height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 0 24px;
+  border: 0;
+  border-radius: var(--radius);
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: 0.1px;
+  line-height: 1.25;
+  cursor: pointer;
+  transition: background-color 150ms;
+}
+
+.action-button.has-icon {
+  padding-inline-start: 16px;
+}
+
+.action-button .icon {
+  width: 18px;
+  height: 18px;
+}
+
+.action-button.recommended {
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+}
+
+.action-button.recommended:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-on-primary) 8%, var(--color-primary));
+}
+
+.action-button.recommended:active:not(:disabled) {
+  background: color-mix(in srgb, var(--color-on-primary) 12%, var(--color-primary));
+}
+
+.action-button.neutral {
+  background: var(--color-secondary-container);
+  color: var(--color-on-secondary-container);
+}
+
+.action-button.neutral:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-on-secondary-container) 8%, var(--color-secondary-container));
+}
+
+.action-button.neutral:active:not(:disabled) {
+  background: color-mix(in srgb, var(--color-on-secondary-container) 12%, var(--color-secondary-container));
+}
+
+.action-button.ghost {
+  padding: 0 12px;
+  background: transparent;
+  color: var(--color-primary);
+}
+
+.action-button.ghost.has-icon {
+  padding-inline: 12px 16px;
+}
+
+.action-button.ghost:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-primary) 8%, transparent);
+}
+
+.action-button:disabled {
+  opacity: 0.38;
+  cursor: default;
+}
+
+.action-button.full-width {
+  width: 100%;
+}
+
+/* טקסט ממורכז עם אייקון צף בקצה — ActionButton._CenteredButtonContent */
+.action-button.centered-label {
+  position: relative;
+  padding: 8px 28px;
+  text-align: center;
+}
+
+.action-button.centered-label .icon {
+  position: absolute;
+  inset-inline-start: 16px;
+}
+
+/* ── IconButton רגיל (בתוך כרטיסים וחלוניות) ─────────────────────────────── */
+
+.compact-icon-button {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--color-on-surface-variant);
+  cursor: pointer;
+}
+
+.compact-icon-button:hover {
+  background: color-mix(in srgb, var(--color-primary) 8%, transparent);
+}
+
+.compact-icon-button .icon {
+  width: 16px;
+  height: 16px;
+}
+
+.dialog-close-button {
+  flex: none;
+  width: 40px;
+  height: 40px;
+  display: inline-grid;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--color-on-surface-variant);
+  cursor: pointer;
+}
+
+.dialog-close-button:hover {
+  background: color-mix(in srgb, var(--color-primary) 8%, transparent);
+}
+
+.dialog-close-button .icon {
+  width: 24px;
+  height: 24px;
+}
+
+/* ── מצב מידע (TantivySearchResults._buildInformativeEmptyState) ──────────── */
+
+.informative-state {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  text-align: center;
+}
+
+.informative-state .state-icon {
+  width: 56px;
+  height: 56px;
+  color: var(--color-on-surface-variant);
+}
+
+.informative-state h3 {
+  margin-top: 16px;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--color-on-surface);
+}
+
+.informative-state p {
+  margin-top: 8px;
+  max-width: 460px;
+  font-size: 14px;
+  color: var(--color-on-surface-variant);
+}
+
+.informative-state .action-button {
+  margin-top: 16px;
+}
+
+/* CircularProgressIndicator — 36×36, קו 4, בצבע primary */
+.progress-indicator {
+  width: 36px;
+  height: 36px;
+  border: 4px solid color-mix(in srgb, var(--color-primary) 24%, transparent);
+  border-top-color: var(--color-primary);
+  border-radius: 50%;
+  animation: spin 1.1s linear infinite;
+}
+
+.centered-progress {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  place-items: center;
+}
+
+@keyframes spin {
+  to {
+    rotate: 360deg;
+  }
+}
+
+/* ── מסך ספרייה ריקה (lib/empty_library/empty_library_screen.dart) ────────── */
+
+.library-body {
+  overflow-y: auto;
+  align-items: center;
+  justify-content: center;
+}
+
+.library-setup-view {
+  width: 100%;
+  max-width: 420px;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+.library-setup-view .hero-icon {
+  width: 64px;
+  height: 64px;
+  color: var(--color-on-surface-variant);
+}
+
+.library-setup-view h2 {
+  margin-top: 24px;
+  font-size: 24px;
+  font-weight: 700;
+}
+
+.library-setup-view p {
+  margin-top: 16px;
+  font-size: 16px;
+  color: var(--color-on-surface-variant);
+  white-space: pre-line;
+}
+
+.library-setup-view .action-button {
+  margin-top: 32px;
+}
+
+.library-status {
+  margin-top: 16px;
+  font-size: 12px;
+  color: var(--color-on-surface-variant);
+}
+
+.library-status.offline {
+  color: var(--color-error);
+}
+
+/* ── באנר תוצאות חלקיות (TantivySearchResults._buildTruncatedBanner) ─────── */
+
+.truncated-banner {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  background: var(--color-tertiary-container);
+  color: var(--color-on-tertiary-container);
+  font-size: 13px;
+}
+
+.truncated-banner .icon {
+  width: 18px;
+  height: 18px;
+}
+
+/* ── רשימת תוצאות (tantivy_search_results.dart) ───────────────────────────── */
+
+.results-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px;
+}
+
+.result-card {
+  margin-bottom: 12px;
+  border: 1px solid color-mix(in srgb, var(--color-outline) 30%, transparent);
+  border-radius: var(--radius);
+  background: transparent;
+}
+
+.result-card-body {
+  width: 100%;
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 16px;
+  border: 0;
+  border-radius: var(--radius);
+  background: transparent;
+  color: inherit;
+  text-align: start;
+  cursor: pointer;
+  font: inherit;
+}
+
+.result-card-body:hover {
+  background: color-mix(in srgb, var(--color-on-surface) 4%, transparent);
+}
+
+.result-index {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius);
+  background: var(--color-primary-container);
+  color: var(--color-on-primary-container);
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.result-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.result-title-row {
+  display: flex;
+  align-items: center;
+}
+
+.result-title-row .result-kind-icon {
+  width: 16px;
+  height: 16px;
+  margin-inline-end: 8px;
+  color: var(--color-primary);
+}
+
+.result-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--color-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.result-reference {
+  margin-top: 2px;
+  font-size: 13px;
+  color: var(--color-on-surface-variant);
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+
+.result-meta {
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--color-secondary);
+}
+
+.result-meta .icon {
+  width: 16px;
+  height: 16px;
+}
+
+/* ── דיאלוג החיפוש (lib/search/view/search_dialog.dart) ───────────────────── */
+
+.search-dialog {
+  width: clamp(640px, 70vw, 900px);
+  height: clamp(500px, 84vh, 720px);
+  max-width: calc(100vw - 24px);
+  max-height: calc(100vh - 24px);
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius);
+  background: var(--surface-panel);
+  color: var(--color-on-surface);
+  overflow: hidden;
+}
+
+/* AppColors.dialogBarrier = 0x22000000 */
+.search-dialog::backdrop {
+  background: rgba(0, 0, 0, 0.133);
+}
+
+.search-dialog-layout {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.dialog-header {
+  flex: none;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 16px 24px 14px 12px;
+  background: var(--surface-card);
+}
+
+[dir='rtl'] .dialog-header {
+  padding-inline: 24px 12px;
+}
+
+.dialog-header-icon {
+  flex: none;
+  padding: 9px;
+  border-radius: var(--radius);
+  background: var(--color-primary-container);
+  color: var(--color-on-primary-container);
+}
+
+.dialog-header-icon .icon {
+  width: 22px;
+  height: 22px;
+}
+
+.dialog-header-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.dialog-header-text h2 {
+  font-size: 20px;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dialog-header-text p {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--color-on-surface-variant);
+}
+
+.dialog-divider {
+  flex: none;
+  height: 1px;
+  background: var(--color-divider);
+}
+
+.dialog-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px 24px 16px;
+}
+
+@media (max-width: 600px) {
+  .dialog-body {
+    padding-inline: 16px;
+  }
+}
+
+.dialog-card {
+  padding: 16px;
+  border: 1px solid var(--color-outline-variant);
+  border-radius: var(--radius);
+  background: var(--surface-card);
+}
+
+.dialog-card + .dialog-card,
+.dialog-card + .mode-content,
+.mode-content {
+  margin-top: 12px;
+}
+
+.section-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-primary);
+}
+
+.section-label + * {
+  margin-top: 8px;
+}
+
+/* בורר סוג החיפוש — SearchDialog._buildModeSelector */
+.mode-selector {
+  padding: 4px;
+  border-radius: var(--radius);
+  background: var(--color-surface-container-high);
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  height: 44px;
+}
+
+.mode-segment {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 36px;
+  border: 0;
+  border-radius: var(--radius);
+  background: var(--color-surface-container-high);
+  color: var(--color-on-surface-variant);
+  font-size: 13px;
+  cursor: pointer;
+  transition: background-color 150ms ease-in-out;
+}
+
+.mode-segment .icon {
+  width: 18px;
+  height: 18px;
+}
+
+.mode-segment[aria-pressed='true'] {
+  background: var(--color-secondary-container);
+  color: var(--color-on-secondary-container);
+  font-weight: 600;
+}
+
+.mode-description {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--color-on-surface-variant);
+  text-align: center;
+}
+
+/* אזור אפשרויות המצב — SizedBox(height: 260) בדיאלוג של אוצריא */
+.mode-content {
+  min-height: 260px;
+}
+
+.options-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px;
+}
+
+.checkbox-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 8px 16px;
+}
+
+.checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.checkbox-row input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--color-primary);
+}
+
+.fuzzy-hint {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 8px;
+}
+
+.fuzzy-hint-icon {
+  flex: none;
+  padding: 10px;
+  border-radius: var(--radius);
+  background: var(--color-secondary-container);
+  color: var(--color-on-secondary-container);
+}
+
+.fuzzy-hint-icon .icon {
+  width: 24px;
+  height: 24px;
+}
+
+.fuzzy-hint h4 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.fuzzy-hint p {
+  margin-top: 4px;
+  font-size: 13px;
+  color: var(--color-on-surface-variant);
+}
+
+.dialog-footer {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 24px 16px;
+  background: var(--surface-card);
+}
+
+.dialog-footer .footer-hint {
+  flex: 1;
+  font-size: 12px;
+  color: var(--color-on-surface-variant);
+}
+
+/* ── שדות קלט (InputDecoration + OutlineInputBorder) ─────────────────────── */
+
+.text-field {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-height: 56px;
+  padding-inline: 12px;
+  gap: 8px;
+  border: 1px solid var(--color-outline);
+  border-radius: var(--radius-input);
+  background: var(--color-surface-container-high);
+}
+
+.text-field:focus-within {
+  border: 2px solid var(--color-primary);
+  padding-inline: 11px;
+}
+
+.text-field > input,
+.text-field > select {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  border: 0;
+  background: transparent;
+  outline: 0;
+  font-size: 16px;
+  color: var(--color-on-surface);
+}
+
+.text-field .field-icon {
+  width: 24px;
+  height: 24px;
+  color: var(--color-on-surface-variant);
+}
+
+.text-field:focus-within .field-icon {
+  color: var(--color-primary);
+}
+
+.text-field .field-label {
+  position: absolute;
+  top: 0;
+  inset-inline-start: 12px;
+  translate: 0 -50%;
+  padding-inline: 4px;
+  background: var(--color-surface-container-high);
+  font-size: 12px;
+  color: var(--color-on-surface-variant);
+  pointer-events: none;
+}
+
+.text-field:focus-within .field-label {
+  color: var(--color-primary);
+}
+
+/* AppDropdownField — DropdownMenu עם InputDecoration.labelText */
+.dropdown-field {
+  position: relative;
+  width: 183px;
+  padding: 4px 8px;
+}
+
+.dropdown-field select {
+  width: 100%;
+  /* InputDecorationTheme(isDense: true) בתוך סרגל בגובה 40 */
+  height: 32px;
+  padding-inline: 12px 32px;
+  border: 1px solid var(--color-outline);
+  border-radius: var(--radius-input);
+  background: transparent;
+  color: var(--color-on-surface);
+  font-size: 14px;
+  appearance: none;
+  cursor: pointer;
+}
+
+.dropdown-field .field-label {
+  position: absolute;
+  top: 4px;
+  inset-inline-start: 20px;
+  translate: 0 -50%;
+  padding-inline: 4px;
+  background: var(--surface-top-bar);
+  font-size: 12px;
+  color: var(--color-on-surface-variant);
+  pointer-events: none;
+}
+
+.dropdown-field .chevron {
+  position: absolute;
+  inset-inline-end: 18px;
+  top: 50%;
+  translate: 0 -50%;
+  width: 12px;
+  height: 12px;
+  color: var(--color-on-surface);
+  pointer-events: none;
+}
+
+/* ── ReaderNavCenter (lib/widgets/navigation/reader_nav_center.dart) ─────── */
+
+.reader-nav-center {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+/* ConstrainedBox(minWidth: 80, maxWidth: 340) סביב הכותרת — הרוחב המדויק
+   מחושב ב-updateNavCenter, כמו ב-LayoutBuilder של ReaderNavCenter. */
+.reader-nav-center .top-bar-title {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 340px;
+  margin: 0 4px;
+}
+
+.overflow-anchor {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.overflow-anchor .overflow-menu {
+  top: calc(100% + 8px);
+  inset-inline-end: 0;
+}
+
+/* ── מסך PDF (lib/pdf_book/view/pdf_book_screen.dart) ────────────────────── */
+
+.viewer-body {
+  flex-direction: row;
+  min-width: 0;
+  background: var(--surface-reader);
+}
+
+/* AdaptiveSidePane — חלונית הצד היא כרטיס צף עם מרווחים (14/10 אנכי,
+   12 פנימי ו-10 חיצוני), elevation 4 ורדיוס 8. הרוחב עצמו הוא
+   state.sidebarWidth (ברירת מחדל 300). */
+.reader-pane {
+  flex: none;
+  width: 322px;
+  min-width: 0;
+  padding-block: 14px 10px;
+  padding-inline: 12px 10px;
+  display: flex;
+  overflow: hidden;
+  transition: width 300ms ease-in-out, padding 300ms ease-in-out;
+}
+
+.reader-pane.closed {
+  width: 0;
+  padding-inline: 0;
+}
+
+.reader-pane-card {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: var(--radius);
+  background: var(--surface-card);
+  box-shadow: var(--elevation-4);
+}
+
+/* פריסה צרה — הפאנל נפתח כ-overlay מעל התוכן, עם scrim.
+   התנאי באוצריא: רוחב < רוחב הפאנל התפוס + minMainContentWidth (322+200). */
+@media (max-width: 521px) {
+  .viewer-body {
+    position: relative;
+  }
+
+  .reader-pane {
+    position: absolute;
+    z-index: 20;
+    inset-block: 14px 10px;
+    inset-inline-start: 0;
+    width: min(322px, 100%);
+    transition: opacity 200ms, translate 300ms ease-in-out;
+  }
+
+  .reader-pane.closed {
+    width: min(322px, 100%);
+    padding-inline: 12px 10px;
+    opacity: 0;
+    pointer-events: none;
+    translate: 100% 0;
+  }
+
+  .reader-scrim {
+    position: absolute;
+    inset: 0;
+    z-index: 19;
+    background: color-mix(in srgb, var(--color-scrim) 30%, transparent);
+    transition: opacity 200ms;
+  }
+
+  .reader-scrim.closed {
+    opacity: 0;
+    pointer-events: none;
+  }
+}
+
+@media (min-width: 522px) {
+  .reader-scrim {
+    display: none;
+  }
+}
+
+/* SidebarTabHeader — AppTokens.panelTab* */
+.panel-tab-header {
+  flex: none;
+  height: var(--panel-tab-height);
+  display: flex;
+  align-items: center;
+}
+
+.panel-tabs {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  height: 100%;
+}
+
+.panel-tab {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  border: 0;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--color-on-surface-variant);
+  font-size: 11px;
+  cursor: pointer;
+  transition: background-color 150ms;
+}
+
+.panel-tab .icon {
+  width: 16px;
+  height: 16px;
+}
+
+.panel-tab:hover {
+  background: color-mix(in srgb, var(--color-primary) 8%, transparent);
+}
+
+.panel-tab[aria-selected='true'] {
+  background: var(--color-secondary-container);
+  color: var(--color-on-surface);
+  font-weight: 600;
+}
+
+.pin-button {
+  flex: none;
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--color-on-surface-variant);
+  cursor: pointer;
+}
+
+.pin-button:hover {
+  background: color-mix(in srgb, var(--color-primary) 8%, transparent);
+}
+
+.pin-button .icon {
+  width: 20px;
+  height: 20px;
+  transition: rotate 150ms ease-in-out;
+}
+
+.pin-button[aria-pressed='true'] .icon {
+  rotate: 45deg;
+}
+
+.panel-view {
+  flex: 1;
+  min-height: 0;
+  display: none;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.panel-view.active {
+  display: flex;
+}
+
+/* OutlineView (pdf_outlines_screen.dart) */
+.outline-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.outline-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  border: 0;
+  border-bottom: 0.5px solid var(--color-divider);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+.outline-item:hover {
+  background: color-mix(in srgb, var(--color-on-surface) 4%, transparent);
+}
+
+.outline-item[aria-current='true'] {
+  background: color-mix(in srgb, var(--color-primary-container) 30%, transparent);
+}
+
+.outline-item .icon {
+  width: 18px;
+  height: 18px;
+  color: var(--color-secondary);
+}
+
+.outline-item .outline-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 14px;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+
+.outline-item.level-0 .icon {
+  width: 20px;
+  height: 20px;
+  color: var(--color-primary);
+}
+
+.outline-item.level-0 .outline-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--color-primary);
+}
+
+.outline-empty {
+  padding: 24px;
+  text-align: center;
+  font-size: 14px;
+  color: var(--color-on-surface);
+}
+
+/* SearchPaneBase + OtzariaSearchField */
+.pane-search-field-wrap {
+  flex: none;
+  padding: 8px;
+}
+
+.otzaria-search-field {
+  display: flex;
+  align-items: center;
+  height: 48px;
+  padding-inline: 4px;
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--color-on-surface) 7%, transparent);
+}
+
+.otzaria-search-field:focus-within {
+  background: color-mix(in srgb, var(--color-primary) 12%, transparent);
+}
+
+.otzaria-search-field .leading-icon {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  margin-inline: 12px;
+  color: var(--color-on-surface-variant);
+}
+
+.otzaria-search-field:focus-within .leading-icon {
+  color: var(--color-primary);
+}
+
+.otzaria-search-field input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  outline: 0;
+  font-size: 16px;
+  color: var(--color-on-surface);
+}
+
+.otzaria-search-field input::placeholder {
+  color: var(--color-on-surface-variant);
+}
+
+.pane-action-button {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--color-on-surface-variant);
+  cursor: pointer;
+}
+
+.pane-action-button:hover {
+  background: color-mix(in srgb, var(--color-primary) 8%, transparent);
+}
+
+.pane-action-button .icon {
+  width: 20px;
+  height: 20px;
+}
+
+.pane-result-count {
+  flex: none;
+  padding: 4px 16px;
+  font-size: 12px;
+  color: var(--color-on-surface-variant);
+}
+
+.pane-results {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 8px 0;
+}
+
+/* SearchResultTile */
+.pane-result-tile {
+  width: 100%;
+  display: block;
+  margin: 4px 16px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--color-outline) 30%, transparent);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--color-on-surface);
+  font-family: var(--font-book);
+  font-size: 16px;
+  line-height: 1.5;
+  text-align: start;
+  cursor: pointer;
+}
+
+.pane-result-tile:hover {
+  background: color-mix(in srgb, var(--color-on-surface) 4%, transparent);
+}
+
+.pane-result-tile[aria-current='true'] {
+  background: color-mix(in srgb, var(--color-primary-container) 30%, transparent);
+}
+
+.pane-empty {
+  flex: 1;
+  display: grid;
+  place-items: center;
+  font-size: 14px;
+  color: var(--color-on-surface);
+}
+
+/* ThumbnailsView (pdf_thumbnails_screen.dart) */
+.thumbnails-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.thumbnail-item {
+  height: 250px;
+  margin: 8px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  background: transparent;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+}
+
+.thumbnail-item[aria-current='true'] {
+  background: var(--color-secondary-container);
+  border-color: var(--color-outline-variant);
+}
+
+.thumbnail-frame {
+  height: 220px;
+  width: 100%;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+}
+
+.thumbnail-frame canvas {
+  max-width: 100%;
+  max-height: 100%;
+  background: var(--page-white);
+}
+
+.thumbnail-item span {
+  font-size: 18px;
+}
+
+/* ── אזור הצפייה ─────────────────────────────────────────────────────────── */
+
+.reader-main {
+  flex: 1;
+  min-width: 0;
+  position: relative;
+  overflow: hidden;
+  background: var(--surface-reader);
+}
+
+/* readerContentPadding — מרזב לפסי הגלילה המותאמים (16+4 / 10+4).
+   באוצריא זהו EdgeInsets פיזי (right/bottom), ולכן גם כאן פיזי ולא לוגי. */
+.pdf-viewport {
+  position: absolute;
+  inset: 0;
+  padding-right: 20px;
+  padding-bottom: 14px;
+  overflow: auto;
+  scrollbar-width: none;
+  outline: 0;
+}
+
+.pdf-viewport::-webkit-scrollbar {
+  display: none;
+}
+
+/* מצב כהה — ColorFiltered(Colors.white, BlendMode.difference) על ה-viewport */
+body.dark-mode .pdf-pages {
+  filter: invert(1);
+}
+
+.pdf-pages {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  width: fit-content;
+  min-width: 100%;
+}
+
+.pdf-page {
+  position: relative;
+  flex: none;
+  background: var(--page-white);
+  /* PdfBookScreen._pageDropShadow */
+  box-shadow: 2px 2px 4px 2px rgba(0, 0, 0, 0.54);
+}
+
+.pdf-page canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.pdf-loading-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  display: grid;
+  place-items: center;
+  background: var(--page-white);
+}
+
+.pdf-error-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  display: grid;
+  place-items: center;
+  background: var(--surface-reader);
+}
+
+/* PdfScrollbar — 16px אנכי בצד הימני הפיזי (ScrollbarOrientation.right),
+   עם מספר העמוד בתוך האגודל */
+.pdf-scrollbar {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 16px;
+  z-index: 12;
+  background: color-mix(in srgb, var(--color-surface-container-highest) 80%, transparent);
+}
+
+.pdf-scrollbar-thumb {
+  position: absolute;
+  left: 0;
+  right: 0;
+  min-height: 50px;
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--color-primary) 82%, transparent);
+  color: var(--color-on-primary);
+  font-size: 11px;
+  font-weight: 700;
+  display: grid;
+  place-items: center;
+  cursor: grab;
+}
+
+.pdf-scrollbar-thumb:active {
+  cursor: grabbing;
+}
+
+.pdf-hscrollbar {
+  position: absolute;
+  left: 0;
+  right: 16px;
+  bottom: 0;
+  height: 10px;
+  z-index: 12;
+}
+
+.pdf-hscrollbar-thumb {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 10px;
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--color-outline) 75%, transparent);
+  cursor: grab;
+}
+
+/* PdfZoomBar (lib/pdf_book/view/pdf_zoom_bar.dart) — צבעיו קשיחים באוצריא */
+.pdf-zoom-bar {
+  position: absolute;
+  top: 16px;
+  inset-inline: 0;
+  z-index: 14;
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.pdf-zoom-bar-card {
+  display: flex;
+  align-items: center;
+  padding: 6px 12px;
+  border: 1px solid #e0e0e0;
+  border-radius: var(--radius);
+  background: #ffffff;
+  box-shadow: var(--elevation-4);
+  pointer-events: auto;
+}
+
+body.dark-mode .pdf-zoom-bar-card {
+  border-color: #616161;
+  background: #303030;
+}
+
+.pdf-zoom-bar-card .zoom-reset {
+  min-width: 60px;
+  height: 36px;
+  padding: 8px 12px;
+  border: 0;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--color-primary);
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.pdf-zoom-bar-card .zoom-reset:hover {
+  background: color-mix(in srgb, var(--color-primary) 8%, transparent);
+}
+
+.pdf-zoom-bar-card .zoom-divider {
+  width: 1px;
+  height: 24px;
+  margin: 0 4px;
+  background: #e0e0e0;
+}
+
+body.dark-mode .pdf-zoom-bar-card .zoom-divider {
+  background: #616161;
+}
+
+.pdf-zoom-bar-card .zoom-button {
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--color-on-surface-variant);
+  cursor: pointer;
+}
+
+.pdf-zoom-bar-card .zoom-button:hover {
+  background: color-mix(in srgb, var(--color-primary) 8%, transparent);
+}
+
+.pdf-zoom-bar-card .zoom-button .icon {
+  width: 20px;
+  height: 20px;
+}
+
+.pdf-zoom-bar-card .zoom-value {
+  width: 50px;
+  margin-inline-start: 12px;
+  text-align: center;
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--color-on-surface);
+}
+
+/* PageNumberDisplay — TextButton עם AppTopBar.titleStyle */
+.page-number-display {
+  display: flex;
+  align-items: center;
+}
+
+.page-number-display button {
+  min-height: 40px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: var(--radius);
+  background: transparent;
+  /* AppTopBar.titleStyle — onSurface, 16, w600 */
+  color: var(--color-on-surface);
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.page-number-display button:hover {
+  background: color-mix(in srgb, var(--color-primary) 8%, transparent);
+}
+
+.page-number-display input {
+  width: 65px;
+  height: 32px;
+  padding: 0 4px;
+  text-align: center;
+  border: 1px solid var(--color-outline);
+  border-radius: var(--radius-input);
+  background: transparent;
+  color: var(--color-on-surface);
+  font-size: 16px;
+  font-weight: 600;
+}
+
+/* PanelOpenHandle — רצועת פתיחה בשולי המסך */
+.panel-open-handle {
+  position: absolute;
+  inset-inline-start: 0;
+  top: 10%;
+  z-index: 13;
+  width: 20px;
+  height: 80px;
+  border: 0;
+  border-start-end-radius: 40px;
+  border-end-end-radius: 40px;
+  background: color-mix(in srgb, var(--color-surface-container-highest) 80%, transparent);
+  color: var(--color-on-surface);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  box-shadow: 2px 0 4px rgba(0, 0, 0, 0.15);
+  transition: width 200ms ease-out;
+}
+
+.panel-open-handle:hover {
+  width: 48px;
+  background: color-mix(in srgb, var(--color-surface-container-highest) 95%, transparent);
+}
+
+.panel-open-handle .icon {
+  width: 18px;
+  height: 18px;
+  opacity: 0.6;
+}
+
+.panel-open-handle:hover .icon {
+  width: 24px;
+  height: 24px;
+  opacity: 1;
+}
+
+/* ── תפריט "פעולות נוספות" (PopupMenuTheme) ──────────────────────────────── */
+
+.overflow-menu {
+  position: absolute;
+  z-index: 300;
+  min-width: 150px;
+  padding: 8px 0;
+  border-radius: var(--radius);
+  background: var(--color-surface-container);
+  box-shadow: var(--elevation-2);
+}
+
+.overflow-menu button {
+  width: 100%;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 12px;
+  border: 0;
+  background: transparent;
+  color: var(--color-on-surface);
+  font-size: 14px;
+  text-align: start;
+  cursor: pointer;
+}
+
+.overflow-menu button:hover {
+  background: color-mix(in srgb, var(--color-on-surface) 8%, transparent);
+}
+
+.overflow-menu .icon {
+  width: 18px;
+  height: 18px;
+}
+
+/* ── הודעה כשהתוסף נפתח מחוץ לאוצריא ─────────────────────────────────────── */
+
+.browser-notice {
+  max-width: 520px;
+  margin: 20vh auto;
+  padding: 24px;
+  text-align: center;
+  font-size: 16px;
+  color: var(--color-on-surface-variant);
 }
 
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; transition-duration: .01ms !important; }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
 }

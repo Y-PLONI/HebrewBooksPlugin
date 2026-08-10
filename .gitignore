@@ -3,3 +3,4 @@ node_modules/
 dist/
 *.otzplugin
 .DS_Store
+tools/sample.pdf
