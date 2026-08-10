@@ -1,0 +1,19 @@
+{
+  "name": "hebrewbooks-otzaria-plugin",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "check": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "pdfjs-dist": "4.10.38"
+  },
+  "devDependencies": {
+    "esbuild": "0.25.0",
+    "typescript": "5.7.3",
+    "vitest": "3.2.7"
+  }
+}

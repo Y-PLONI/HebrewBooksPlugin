@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>היברובוקס</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div id="app-shell">
+      <header class="app-top-bar">
+        <div class="top-bar-side top-bar-leading">
+          <button id="viewer-back" class="icon-button hidden" type="button" title="חזרה לתוצאות" aria-label="חזרה לתוצאות">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6" /></svg>
+          </button>
+        </div>
+        <div class="top-bar-title-group">
+          <h1 id="top-bar-title">היברובוקס</h1>
+          <div id="viewer-page-control" class="page-control hidden">
+            <input id="page-input" inputmode="numeric" aria-label="מספר עמוד" />
+            <span id="page-count">/ 0</span>
+          </div>
+        </div>
+        <div class="top-bar-side top-bar-actions">
+          <span id="server-status" class="status-badge" role="status">בודק שירות…</span>
+          <button id="retry-health" class="icon-button hidden" type="button" title="בדוק שוב" aria-label="בדוק שוב">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8.1 8.1 0 1 0-2.3 5.7M20 4v7h-7" /></svg>
+          </button>
+        </div>
+      </header>
+
+      <main id="screen-home" class="screen home-screen">
+        <section class="empty-library-card" aria-labelledby="home-title">
+          <svg class="hero-icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H11a3 3 0 0 1 3 3v15a3 3 0 0 0-3-3H4V5.5Z" />
+            <path d="M20 5.5A2.5 2.5 0 0 0 17.5 3H14v18a3 3 0 0 1 3-3h3V5.5Z" />
+            <path d="m8 8 2 2m0-2-2 2" />
+          </svg>
+          <h2 id="home-title">ספריית HebrewBooks</h2>
+          <p>עשרות אלפי ספרים סרוקים, זמינים לחיפוש ולעיון מתוך אוצריא.</p>
+          <form id="home-search-form" class="home-search-form">
+            <label class="visually-hidden" for="home-query">חיפוש בספרייה</label>
+            <input id="home-query" type="search" maxlength="500" autocomplete="off" placeholder="מה תרצה לחפש?" />
+            <button class="primary-button" type="submit">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="m20 20-4-4" /></svg>
+              חפש בספרייה
+            </button>
+          </form>
+          <button class="text-button" data-open-options type="button">אפשרויות חיפוש מתקדמות</button>
+        </section>
+      </main>
+
+      <main id="screen-results" class="screen results-screen hidden">
+        <form id="results-search-form" class="search-toolbar">
+          <div class="search-field-wrap">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="m20 20-4-4" /></svg>
+            <label class="visually-hidden" for="results-query">חיפוש בספרייה</label>
+            <input id="results-query" type="search" maxlength="500" autocomplete="off" placeholder="חיפוש ב־HebrewBooks" />
+          </div>
+          <button class="tonal-button" data-open-options type="button">אפשרויות</button>
+          <button id="results-submit" class="primary-button" type="submit">חפש</button>
+        </form>
+        <div class="results-heading">
+          <div>
+            <h2 id="results-title">תוצאות חיפוש</h2>
+            <p id="results-summary" aria-live="polite">לא בוצע חיפוש</p>
+          </div>
+        </div>
+        <section id="results-content" class="results-content" aria-live="polite"></section>
+      </main>
+
+      <main id="screen-viewer" class="screen viewer-screen hidden">
+        <aside id="matches-panel" class="matches-panel" aria-label="עמודי תוצאות">
+          <div class="panel-heading">
+            <div>
+              <h2>תוצאות בספר</h2>
+              <p id="matches-summary">אין מיקומים</p>
+            </div>
+            <button id="close-matches" class="icon-button" type="button" title="סגור חלונית" aria-label="סגור חלונית">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" /></svg>
+            </button>
+          </div>
+          <ol id="matches-list"></ol>
+        </aside>
+        <section class="pdf-stage-wrap">
+          <div id="pdf-loading" class="pdf-loading hidden" role="status">
+            <span class="spinner"></span>
+            <span>טוען את הספר…</span>
+          </div>
+          <div id="pdf-stage" class="pdf-stage" tabindex="0">
+            <canvas id="pdf-canvas" aria-label="עמוד PDF"></canvas>
+          </div>
+          <nav class="viewer-toolbar" aria-label="כלי תצוגת PDF">
+            <button id="toggle-matches" class="icon-button" type="button" title="עמודי תוצאות" aria-label="עמודי תוצאות">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01" /></svg>
+            </button>
+            <span class="toolbar-divider"></span>
+            <button id="previous-page" class="icon-button" type="button" title="העמוד הקודם" aria-label="העמוד הקודם">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6" /></svg>
+            </button>
+            <button id="next-page" class="icon-button" type="button" title="העמוד הבא" aria-label="העמוד הבא">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6" /></svg>
+            </button>
+            <span class="toolbar-divider"></span>
+            <button id="zoom-out" class="icon-button" type="button" title="הקטן" aria-label="הקטן"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 12h12" /></svg></button>
+            <button id="zoom-reset" class="zoom-value" type="button" title="התאם לרוחב">100%</button>
+            <button id="zoom-in" class="icon-button" type="button" title="הגדל" aria-label="הגדל"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 6v12M6 12h12" /></svg></button>
+            <span class="toolbar-divider"></span>
+            <button id="rotate-page" class="icon-button" type="button" title="סובב עמוד" aria-label="סובב עמוד">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 1-2.3-5.7L20 8M20 3v5h-5" /></svg>
+            </button>
+            <button id="open-text-edition" class="tonal-button compact" type="button">פתח במהדורת טקסט</button>
+          </nav>
+        </section>
+      </main>
+    </div>
+
+    <dialog id="search-options-dialog" class="options-dialog">
+      <form method="dialog" class="dialog-card">
+        <div class="dialog-heading">
+          <div><h2>אפשרויות חיפוש</h2><p>ההגדרות יחולו על החיפוש הבא.</p></div>
+          <button class="icon-button" value="cancel" aria-label="סגור"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" /></svg></button>
+        </div>
+        <div class="options-grid">
+          <label>מרחק בין מילים<input id="option-proximity" type="number" min="1" max="100" value="30" /></label>
+          <label>רמת גמישות<input id="option-fuzziness" type="number" min="0" max="10" value="0" /></label>
+          <label>מיון<select id="option-sort"><option value="hitcount">רלוונטיות</option><option value="bookname">שם הספר</option><option value="author">מחבר</option><option value="place">מקום דפוס</option><option value="year">שנת דפוס</option><option value="id">מזהה</option></select></label>
+          <label>מספר תוצאות<select id="option-limit"><option value="50">50</option><option value="100" selected>100</option><option value="200">200</option></select></label>
+        </div>
+        <fieldset><legend>מקורות</legend><div class="checkbox-grid"><label><input data-corpus="pdf" type="checkbox" checked /> PDF</label><label><input data-corpus="otzraya" type="checkbox" /> טקסט</label><label><input data-corpus="personal" type="checkbox" /> אישי</label></div></fieldset>
+        <fieldset><legend>הרחבות</legend><div class="checkbox-grid"><label><input data-option="hybur" type="checkbox" /> אותיות שימוש</label><label><input data-option="roots" type="checkbox" /> שורשים ונטיות</label><label><input data-option="gematria" type="checkbox" /> גימטריה</label><label><input data-option="spelling" type="checkbox" /> כתיב מלא וחסר</label><label><input data-option="numberGender" type="checkbox" /> זכר ונקבה במספרים</label><label><input data-option="aramaic" type="checkbox" /> עברית וארמית</label><label><input data-option="rashetevot" type="checkbox" /> ראשי תיבות</label><label><input data-option="requireWordOrder" type="checkbox" /> שמירת סדר המילים</label><label><input data-option="rashiOcr" type="checkbox" /> שגיאות OCR בכתב רש״י</label><label><input data-option="firstWord" type="checkbox" /> מילה ראשונה</label><label><input data-option="lastWord" type="checkbox" /> מילה אחרונה</label></div></fieldset>
+        <div class="dialog-actions"><button class="primary-button" value="default">אישור</button></div>
+      </form>
+    </dialog>
+    <script src="assets/app.js"></script>
+  </body>
+</html>

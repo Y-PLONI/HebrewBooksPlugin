@@ -1,1 +1,5 @@
 hbsearch-min/*
+node_modules/
+dist/
+*.otzplugin
+.DS_Store
