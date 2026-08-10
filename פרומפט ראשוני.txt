@@ -1,0 +1,109 @@
+אני רוצה ליצור תוסף לאוצריא.
+הסבר על התוספים, כאן:
+"C:\Users\user\Documents\otzaria_project\docs\plugin-sdk"
+השרת של יוצר התוכנה המקורי:
+"C:\Users\user\Documents\HebrewBooksPlugin\hbsearch-min"
+הדבקתי פה 2 פוסטים שכתבתי בנושא. אני לא מתכנת, ומה שכתבתי לא בהכח מייצג בכלל משהו הגיוני... אני רק כותב רעיון. אתה יותר טוב ממני בלוגיקה, **תחשוב טוב** כיצד כדאי ליישם זאת!!
+שים לב: אתה לא כותב כעת קוד: אתה כותב MD למימוש מדוייק של התוסף, כך שאפילו ג'וניור יוכל לממש זאת בצורה טובה, **יעילה** ונקייה!
+
+---
+
+[HebrewBooks — ארון הספרים הדיגיטלי](https://hebrewbooks-2026.github.io/)
+[HebrewBooks — ארון הספרים הדיגיטלי](https://hebrewbooks.pages.dev/library)
+
+
+
+תוסף לספריית היברובוקס 
+צורת הביצוע (לדעתי הענייה!)
+המפתח כבר ביצע את רוב העבודה: יש מנוע חיפוש, ניתן לגשת אליו בcli, ובשביל שהתוסף יוכל לשלו פקודות, למיטב אי-ידיעתי, הוא צריך שרת מקומי.
+לשמחתנו, לאחר שיחה של עם המתכנת, [הוברר לי שכבר יש שרת](https://github.com/HebrewBooks-2026/Hebrewbooks-Releases#-%D7%94%D7%AA%D7%A7%D7%A0%D7%94-%D7%A8%D7%A9%D7%AA%D7%99%D7%AA-%D7%9B%D7%9E%D7%94-%D7%A2%D7%9E%D7%93%D7%95%D7%AA-%D7%9E%D7%95%D7%9C-%D7%A9%D7%A8%D7%AA-%D7%90%D7%97%D7%93), וכל מה שנשאר הוא להתממשק אליו.
+
+בהורדת מתקין השרת, יש בתוכו קובץ בשם `hbsearch.exe` פתיחתו (לא הקלקה כפולה: עם cmd!) חושפת את הפרמטרים שהוא מסוגל לקבל (העתקתי הכל בספויילר, בסוף הפוסט).
+
+וזהו! נשאר רק לבנות ui מעל, ולדלל את כל התוכן הלא-רלוונטי שמותקן עם השרת! (כי לכאורה התוסף מכוון למי שיש לו כבר את התוכנה, ורק ירצה להשתמש בתוך אוצריא, לא למי שמוריד הכל מהתחלה...)
+
+
+התקנה בפועל:
+מתקין, שיתקין שרת מקומי (הסבר להלן), מופעל בעליית המחשב, בסוף ההתקנה הוא יתקין את התוסף בפועל, באמצעות הurl המוכר.
+
+הנה הפרמטרים המוכרים כעת לשרת:
+
+||
+```
+C:\Windows>pushd "\\Mac\Home\Downloads\hbsearch-server"
+
+Y:\Downloads\hbsearch-server>hbsearch.exe
+error: no query text given.
+
+hbsearch — headless HebrewBooks full-text search (JSON to stdout)
+
+USAGE:
+  hbsearch "<query>" [options]
+
+QUERY EXPANSIONS (match the app's search toggles):
+  --hybur            expand Hebrew prefix letters (ה/ו/ב/כ/ל/מ/ש)
+  --roots            expand root/inflection forms
+  --gematria         expand number <-> gematria
+  --number-gender    expand cardinal number gender (שלושה<->שלוש)
+  --spelling         expand ktiv male/chaser (ו/י) variants
+  --aramaic          expand Hebrew<->Aramaic equivalents
+  --rashetevot       expand Rashey-Tevot (acronyms)
+  --first-word       anchor first word (xfirstword)
+  --last-word        anchor last word (xlastword)
+  --require-word-order  keep words in the typed order within the proximity window
+  --rashi-ocr        expand Rashi-script OCR letter confusions (א↔ח, ת↔מ, …)
+  --compact-char-class compact prefix-letter char class (affects --hybur form)
+
+MATCHING / SCOPE:
+  --proximity <n>    default word proximity w/N (default 30)
+  --fuzziness <0-10> dtSearch fuzziness (default 0)
+  --corpus <list>    comma list of pdf,otzraya,personal (default: all)
+  --max <n>          max documents to retrieve (default 10000)
+  --exclude-personal drop SourceType=Personal rows from output
+
+OUTPUT:
+  --sort <mode>      hitcount|bookname|author|place|year|id (default hitcount)
+  --limit <n>        cap number of result rows emitted
+  --format <fmt>     json (envelope) | jsonl (one row per line)  (default json)
+  --pretty           indent json output
+
+SERVICE (run on the server so stations search over HTTP, index stays warm):
+  --serve            run as an HTTP search service instead of one-shot
+  --port <n>         port for --serve (default 8080)
+                     GET /search?q=<query>&proximity=30&hybur=true&... → JSONL stream
+                     GET /health → {"ok":true}
+
+CLIENT INSTALL (let stations install + auto-configure from the server over the LAN):
+  --installer <path> OFFLINE-fallback client Setup.exe hosted at GET /Setup.exe;
+                     enables GET /install. Served when no fresher copy was downloaded.
+  --enable-install   enable install endpoints with no local file (download-on-demand)
+  --no-installer-update  don't fetch from GitHub; serve only the local/cached file
+  --installer-repo <owner/repo>  releases repo for the offline Setup
+                     (default HebrewBooks-2026/Hebrewbooks-Releases)
+  --client-base <unc>  shared base folder written to the client (NetworkBasePath),
+                     e.g. \\SERVER\f\HebrewBooks
+  --advertise-host <h> host baked into the install script (else from the request)
+                     When online, the LATEST offline Setup is downloaded + cached;
+                     offline, the local/cached copy is served. Stations run:
+                       irm http://SERVER:PORT/install | iex
+
+DATA:
+  --data-root <path> override the data drive (else HEBREWBOOKS_DATA / auto-detect)
+  -h, --help         show this help
+
+Diagnostics go to stderr; only result JSON goes to stdout.
+Power users: a query already containing dtSearch operators (w/ AND OR NOT
+xfilter) is passed through verbatim — expansions are skipped.
+
+Y:\Downloads\hbsearch-server>
+```
+||
+
+
+
+---
+
+הצעתי רעיון לתוסף, ואולי השאלה שלך תועיל למי שירצה לעשותו - הוא אמר לי שהשרת מקבל json ופולט json.  
+מכאן ואילך - זה כבר תפקידו של המפתח: הוא צריך לקבל את הפלט (שאין לי מושג איך הוא נראה), לאתר את הקובץ והמיקום הרלוונטי, ואז, לאחר שהמשתמש לוחץ על התוצאה - (לפו״ר כפי שנראה לי ברגע זה) לפתוח אותו באוצריא עם חיפוש בצד, שידגיש אוטומטית (החיפוש הרגיל אינו מבוסס אינדקס.  
+ומה אם הוא עשה חיפוש מורכב? לא יודע לענות. יבואו מוכשרים ממני (או מישהו שחשב על זה טיפה יותר) ויציעו רעיונות.  
+בכל מקרה, בלי לראות json אמיתי - אני לא חושב שיש על מה לדון.
