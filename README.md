@@ -31,9 +31,7 @@
 
 ```bash
 npm install
-npm run check
-npm test
-npm run build
+npm run verify
 ```
 
 התוצר נכתב אל `dist/`. אפשר לטעון את התיקייה הזו במסך פיתוח התוספים של אוצריא, או לארוז אותה:
@@ -49,8 +47,8 @@ SDK מדומה (`tools/preview-stub.js`) שכולל את ערכות הצבעים
 האמיתיות של אוצריא — כך שאפשר לבדוק את המסכים בלי התוכנה ובלי השירות:
 
 ```bash
-python3 tools/make_sample_pdf.py tools/sample.pdf   # PDF דמה לקורא
-node tools/preview-server.mjs 8080
+python3 tools/make_sample_pdf.py tools/sample.pdf   # נדרש רק בפעם הראשונה
+npm run dev
 # http://127.0.0.1:8080/?screen=library | results | dialog | viewer
 # פרמטרים נוספים: &mode=dark, &tab=navigation|search|thumbnails
 ```

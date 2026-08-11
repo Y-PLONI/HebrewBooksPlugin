@@ -6,6 +6,8 @@
   "scripts": {
     "build": "node scripts/build.mjs",
     "check": "tsc --noEmit",
+    "dev": "npm run build && node tools/preview-server.mjs 8080",
+    "verify": "npm run check && npm test && npm run build",
     "test": "vitest run"
   },
   "dependencies": {
