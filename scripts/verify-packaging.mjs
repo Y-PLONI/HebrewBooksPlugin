@@ -40,6 +40,14 @@ assert(
   'Main releases must use the official Otzaria validator and store publisher.',
 );
 assert(
+  workflow.includes("needs.release-check.outputs.should_publish == 'true'"),
+  'A version must not be published twice.',
+);
+assert(
+  workflow.includes('build-input/build/plugin') && workflow.includes('steps.plugin.outputs.file'),
+  'The GitHub Release must upload the packaged plugin artifact directly.',
+);
+assert(
   workflow.includes("github.ref == 'refs/heads/main'"),
   'Store publication must be limited to main.',
 );

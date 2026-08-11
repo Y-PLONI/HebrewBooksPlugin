@@ -118,10 +118,32 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  release-check:
+    name: Check release version
+    if: github.ref == 'refs/heads/main'
+    needs: build-plugin
+    runs-on: ubuntu-latest
+    outputs:
+      should_publish: ${{ steps.check.outputs.should_publish }}
+
+    steps:
+      - name: Check whether the version is already released
+        id: check
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.build-plugin.outputs.tag }}
+        run: |
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "should_publish=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "should_publish=true" >> "$GITHUB_OUTPUT"
+          fi
+
   publish:
     name: Publish to store and GitHub Release
-    if: github.ref == 'refs/heads/main'
-    needs: [build-plugin, build-installer]
+    if: github.ref == 'refs/heads/main' && needs.release-check.outputs.should_publish == 'true'
+    needs: [build-plugin, build-installer, release-check]
     runs-on: ubuntu-latest
 
     steps:
@@ -140,6 +162,15 @@ jobs:
           name: windows-installer-${{ github.sha }}
           path: release-input
 
+      - name: Ensure store credentials are configured
+        shell: bash
+        env:
+          OTZARIA_USER: ${{ secrets.OTZARIA_USER }}
+          OTZARIA_PASSWORD: ${{ secrets.OTZARIA_PASSWORD }}
+        run: |
+          test -n "$OTZARIA_USER" || { echo 'Missing OTZARIA_USER secret.' >&2; exit 1; }
+          test -n "$OTZARIA_PASSWORD" || { echo 'Missing OTZARIA_PASSWORD secret.' >&2; exit 1; }
+
       - name: Validate, package and publish to otzaria.org
         id: otzaria
         uses: Otzaria/otzaria-plugin-validator@v1
@@ -147,6 +178,15 @@ jobs:
           path: build-input/dist
           otzaria-user: ${{ secrets.OTZARIA_USER }}
           otzaria-password: ${{ secrets.OTZARIA_PASSWORD }}
+
+      - name: Determine plugin checksum
+        id: plugin
+        shell: bash
+        run: |
+          plugin_file="$(find build-input/build/plugin -maxdepth 1 -name '*.otzplugin' -type f -print -quit)"
+          test -n "$plugin_file" || { echo 'Plugin archive is missing.' >&2; exit 1; }
+          echo "file=$plugin_file" >> "$GITHUB_OUTPUT"
+          echo "sha256=$(sha256sum "$plugin_file" | awk '{print $1}')" >> "$GITHUB_OUTPUT"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -158,7 +198,7 @@ jobs:
           generate_release_notes: true
           fail_on_unmatched_files: true
           files: |
-            ${{ steps.otzaria.outputs.plugin-file }}
+            ${{ steps.plugin.outputs.file }}
             release-input/installer/output/*.exe
           body: |
             ## HebrewBooks לאוצריא — ${{ needs.build-plugin.outputs.tag }}
@@ -171,5 +211,5 @@ jobs:
 
             ### Checksum לתוסף
             ```
-            SHA-256: ${{ steps.otzaria.outputs.sha256 }}
+            SHA-256: ${{ steps.plugin.outputs.sha256 }}
             ```
