@@ -1,4 +1,5 @@
 import type { HebrewBooksResult, UnifiedSearchResponse, UnifiedSearchResult } from '../models';
+import { appendHighlightedHtml } from '../utils/highlighted-html';
 import {
   actionButton,
   barButton,
@@ -38,6 +39,7 @@ export class ResultsScreen {
   private editable = false;
   private loadingMore = false;
   private loadMoreButton: HTMLButtonElement | null = null;
+  private pendingMessage: string | null = null;
 
   constructor(private readonly handlers: ResultsHandlers) {
     const bar = topBar();
@@ -75,6 +77,7 @@ export class ResultsScreen {
     this.selectedCategory = null;
     this.loadingMore = false;
     this.loadMoreButton = null;
+    this.pendingMessage = null;
     this.body.replaceChildren(centeredProgress());
   }
 
@@ -83,6 +86,7 @@ export class ResultsScreen {
     this.selectedCategory = null;
     this.loadingMore = false;
     this.loadMoreButton = null;
+    this.pendingMessage = null;
     this.body.replaceChildren(
       informativeState({
         icon: 'document_search_24_regular',
@@ -100,6 +104,7 @@ export class ResultsScreen {
     this.selectedCategory = null;
     this.loadingMore = false;
     this.loadMoreButton = null;
+    this.pendingMessage = null;
     this.body.replaceChildren(
       informativeState({
         icon: 'warning_24_regular',
@@ -116,7 +121,15 @@ export class ResultsScreen {
     const scrollTop = this.body.querySelector<HTMLElement>('.results-list')?.scrollTop ?? 0;
     this.response = response;
     this.loadingMore = false;
+    this.pendingMessage = null;
     this.renderResults(scrollTop);
+  }
+
+  showPartialResults(response: UnifiedSearchResponse, pendingMessage: string): void {
+    this.response = response;
+    this.loadingMore = false;
+    this.pendingMessage = pendingMessage;
+    this.renderResults();
   }
 
   setLoadingMore(loading: boolean): void {
@@ -152,6 +165,7 @@ export class ResultsScreen {
     );
     heading.append(element('span', undefined, ` · ${visible.length}`));
     content.append(heading);
+    if (this.pendingMessage) content.append(buildProgressBanner(this.pendingMessage));
     for (const warning of response.warnings) content.append(buildWarningBanner(warning));
     if (response.truncated) content.append(buildTruncatedBanner());
     const list = element('ol', 'results-list');
@@ -218,7 +232,9 @@ export class ResultsScreen {
     titleRow.append(element('span', 'result-source-badge otzaria', 'אוצריא'));
     content.append(titleRow);
     if (result.hit.reference) content.append(element('p', 'result-reference', result.hit.reference));
-    content.append(element('p', 'result-snippet', result.hit.text));
+    const snippet = element('p', 'result-snippet');
+    appendHighlightedHtml(snippet, result.hit.text);
+    content.append(snippet);
     return content;
   }
 
@@ -279,6 +295,12 @@ function categoryDepth(path: string): number {
 function buildWarningBanner(message: string): HTMLElement {
   const banner = element('div', 'source-warning-banner');
   banner.append(iconElement('warning_24_regular', 18), element('span', undefined, message));
+  return banner;
+}
+
+function buildProgressBanner(message: string): HTMLElement {
+  const banner = element('div', 'source-progress-banner');
+  banner.append(element('div', 'progress-indicator'), element('span', undefined, message));
   return banner;
 }
 

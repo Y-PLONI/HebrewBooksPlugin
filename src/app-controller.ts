@@ -185,7 +185,11 @@ export class AppController {
     this.results.setSearch(request.query, null, false);
     this.results.showLoading();
     try {
-      const response = await this.unifiedSearch.search(request);
+      const response = await this.unifiedSearch.search(request, undefined, (partial) => {
+        if (!this.latestSearch.isCurrent(requestId)) return;
+        this.results.setSearch(request.query, partial.results.length, false);
+        this.results.showPartialResults(partial, 'תוצאות אוצריא מוכנות; החיפוש בהיברובוקס ממשיך…');
+      });
       if (!this.latestSearch.isCurrent(requestId)) return;
       this.unifiedResponse = response;
       this.resultList = response.results

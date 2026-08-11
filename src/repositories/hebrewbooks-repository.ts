@@ -10,6 +10,7 @@ interface NetworkResponse {
 }
 
 const baseUrl = 'http://127.0.0.1:8080';
+const searchTimeoutMs = 120_000;
 
 export class HebrewBooksRepository {
   constructor(private readonly bridge: HostBridge) {}
@@ -42,6 +43,7 @@ export class HebrewBooksRepository {
       method: 'POST',
       headers: { 'Content-Type': 'application/json; charset=UTF-8' },
       body: JSON.stringify({ q: snapshot.query, ...snapshot.options }),
+      timeoutMs: searchTimeoutMs,
     });
     ensureSuccessful(response, 'החיפוש נכשל');
     return parseSearchNdjson(response.body);
@@ -69,6 +71,7 @@ export class HebrewBooksRepository {
         rashiOcr: options.rashiOcr,
         compactCharClass: options.compactCharClass,
       }),
+      timeoutMs: searchTimeoutMs,
     });
     ensureSuccessful(response, 'לא ניתן היה לאתר עמודים בספר');
     const body = parseJsonRecord(response.body, 'תוצאות בתוך הספר');
@@ -90,7 +93,10 @@ export class HebrewBooksRepository {
     return `${baseUrl}/pdf/${encodeURIComponent(fileId)}`;
   }
 
-  private fetch(path: string, init: { method?: string; headers?: Record<string, string>; body?: string } = {}): Promise<NetworkResponse> {
+  private fetch(
+    path: string,
+    init: { method?: string; headers?: Record<string, string>; body?: string; timeoutMs?: number } = {},
+  ): Promise<NetworkResponse> {
     return requireHostData<NetworkResponse>(this.bridge, 'network.fetch', { url: `${baseUrl}${path}`, ...init });
   }
 }

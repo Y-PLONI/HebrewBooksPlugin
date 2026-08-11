@@ -775,6 +775,23 @@ ul {
   font-size: 13px;
 }
 
+.source-progress-banner {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 16px;
+  background: var(--color-secondary-container);
+  color: var(--color-on-secondary-container);
+  font-size: 13px;
+}
+
+.source-progress-banner .progress-indicator {
+  width: 18px;
+  height: 18px;
+  border-width: 2px;
+}
+
 .source-label {
   color: var(--color-on-surface-variant);
   font-size: 12px;
@@ -868,6 +885,12 @@ ul {
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 3;
   overflow: hidden;
+}
+
+.result-match {
+  color: var(--color-error);
+  font-size: calc(var(--font-size-book) + 2px);
+  font-weight: 700;
 }
 
 .result-source-badge {

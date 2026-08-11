@@ -38,6 +38,7 @@ export class UnifiedSearchService {
   async search(
     request: HostSearchRequest,
     cursor: UnifiedSearchCursor = initialCursor(request),
+    onOtzariaReady?: (response: UnifiedSearchResponse) => void,
   ): Promise<UnifiedSearchResponse> {
     const pageSize = normalizePageSize(request.limit);
     const hebrewBooksLimit = Math.min(
@@ -45,10 +46,16 @@ export class UnifiedSearchService {
       cursor.hebrewBooksOffset + pageSize,
     );
     const snapshot = toHebrewBooksSnapshot({ ...request, limit: hebrewBooksLimit });
+    const otzariaSearch = cursor.otzariaComplete
+      ? Promise.resolve<OtzariaSearchResponse | null>(null)
+      : this.otzaria.search({ ...request, limit: pageSize, offset: cursor.otzariaOffset });
+    if (onOtzariaReady) {
+      void otzariaSearch.then((native) => {
+        if (native) onOtzariaReady(otzariaOnlyResponse(native));
+      }).catch(() => undefined);
+    }
     const [otzariaResult, hebrewBooksResult] = await Promise.allSettled([
-      cursor.otzariaComplete
-        ? Promise.resolve<OtzariaSearchResponse | null>(null)
-        : this.otzaria.search({ ...request, limit: pageSize, offset: cursor.otzariaOffset }),
+      otzariaSearch,
       cursor.hebrewBooksComplete
         ? Promise.resolve<HebrewBooksResult[] | null>(null)
         : this.hebrewBooks.search(snapshot),
@@ -215,6 +222,21 @@ function normalizeCategory(categoryPath: string | null | undefined, fallback: st
 
 function emptyOtzariaResponse(): OtzariaSearchResponse {
   return { results: [], total: 0, groupCount: null, truncated: false, limit: 0, offset: 0, facets: [] };
+}
+
+function otzariaOnlyResponse(native: OtzariaSearchResponse): UnifiedSearchResponse {
+  return {
+    results: native.results.map((hit) => ({
+      source: 'otzaria',
+      categoryPath: normalizeCategory(hit.categoryPath, otzariaFallbackCategory),
+      hit,
+    })),
+    otzariaTotal: native.total,
+    hebrewBooksTotal: 0,
+    truncated: false,
+    warnings: [],
+    nextCursor: null,
+  };
 }
 
 function messageOf(error: unknown): string {

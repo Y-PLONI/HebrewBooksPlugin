@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import type { HebrewBooksResult, HostSearchRequest, OtzariaSearchResponse } from '../src/models';
+import type {
+  HebrewBooksResult,
+  HostSearchRequest,
+  OtzariaSearchResponse,
+  UnifiedSearchResponse,
+} from '../src/models';
 import {
   mergeUnifiedSearchResponses,
   UnifiedSearchService,
@@ -131,6 +136,36 @@ describe('UnifiedSearchService', () => {
 
     expect(response.results).toHaveLength(1);
     expect(response.warnings.join(' ')).toContain('לא מחובר');
+  });
+
+  it('publishes Otzaria results before HebrewBooks finishes', async () => {
+    let finishHebrewBooks!: (results: HebrewBooksResult[]) => void;
+    const hebrewBooksPending = new Promise<HebrewBooksResult[]>((resolve) => {
+      finishHebrewBooks = resolve;
+    });
+    const service = new UnifiedSearchService(
+      { search: async () => hebrewBooksPending },
+      { search: async () => otzariaResponse, resolveBooks: async () => [] },
+      { findBestOtzariaIds: async () => new Map() },
+    );
+    let partial: UnifiedSearchResponse | undefined;
+    let fullSearch!: Promise<UnifiedSearchResponse>;
+    const partialReady = new Promise<void>((resolve) => {
+      fullSearch = service.search(request, undefined, (response) => {
+        partial = response;
+        resolve();
+      });
+    });
+
+    await partialReady;
+
+    expect(partial).toMatchObject({
+      results: [{ source: 'otzaria' }],
+      hebrewBooksTotal: 0,
+      nextCursor: null,
+    });
+    finishHebrewBooks([]);
+    await fullSearch;
   });
 
   it('טוען עמוד נוסף מכל מנוע ומאחד ללא כפילויות', async () => {
