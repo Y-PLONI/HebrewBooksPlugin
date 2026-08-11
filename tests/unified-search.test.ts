@@ -196,6 +196,31 @@ describe('UnifiedSearchService', () => {
     expect(response.otzariaTotal).toBe(1);
   });
 
+  it('publishes HebrewBooks batches together with results already received from Otzaria', async () => {
+    const service = new UnifiedSearchService(
+      {
+        search: async (_snapshot, onUpdate) => {
+          onUpdate?.([hbResults[0]!]);
+          onUpdate?.(hbResults);
+          return hbResults;
+        },
+      },
+      { search: () => searchChunks(otzariaResponse), resolveBooks: async () => [] },
+      { findBestOtzariaIds: async () => new Map() },
+    );
+    const updates: Array<Array<'otzaria' | 'hebrewbooks'>> = [];
+
+    await service.search(request, undefined, (partial) => {
+      updates.push(partial.results.map((result) => result.source));
+    });
+
+    expect(updates.some((sources) => sources.includes('hebrewbooks'))).toBe(true);
+    expect(updates.at(-1)).toEqual([
+      'otzaria',
+      ...hbResults.map(() => 'hebrewbooks' as const),
+    ]);
+  });
+
   it('closes the Otzaria iterator when the caller rejects a stale update', async () => {
     let closed = false;
     async function* nativeChunks(): AsyncIterable<OtzariaSearchChunk> {
@@ -215,6 +240,65 @@ describe('UnifiedSearchService', () => {
     await service.search(request, undefined, () => false);
 
     expect(closed).toBe(true);
+  });
+
+  it('aborts the pending HebrewBooks request when an update becomes stale', async () => {
+    let nativeClosed = false;
+    let hebrewBooksAborted = false;
+    async function* nativeChunks(): AsyncIterable<OtzariaSearchChunk> {
+      try {
+        yield { ...otzariaResponse, sequence: 0 };
+      } finally {
+        nativeClosed = true;
+      }
+    }
+    const service = new UnifiedSearchService(
+      {
+        search: async (_snapshot, _onUpdate, signal) => new Promise<HebrewBooksResult[]>((resolve) => {
+          const abort = (): void => {
+            hebrewBooksAborted = true;
+            resolve([]);
+          };
+          if (signal?.aborted) abort();
+          else signal?.addEventListener('abort', abort, { once: true });
+        }),
+      },
+      { search: nativeChunks, resolveBooks: async () => [] },
+      { findBestOtzariaIds: async () => new Map() },
+    );
+
+    await service.search(request, undefined, () => false);
+
+    expect(nativeClosed).toBe(true);
+    expect(hebrewBooksAborted).toBe(true);
+  });
+
+  it('forwards caller cancellation before either source publishes a result', async () => {
+    let hebrewBooksAborted = false;
+    const service = new UnifiedSearchService(
+      {
+        search: async (_snapshot, _onUpdate, signal) => new Promise<HebrewBooksResult[]>((resolve) => {
+          const abort = (): void => {
+            hebrewBooksAborted = true;
+            resolve([]);
+          };
+          if (signal?.aborted) abort();
+          else signal?.addEventListener('abort', abort, { once: true });
+        }),
+      },
+      {
+        search: async function* () {},
+        resolveBooks: async () => [],
+      },
+      { findBestOtzariaIds: async () => new Map() },
+    );
+    const cancellation = new AbortController();
+
+    const pending = service.search(request, undefined, undefined, cancellation.signal);
+    cancellation.abort();
+    await pending;
+
+    expect(hebrewBooksAborted).toBe(true);
   });
 
   it('טוען עמוד נוסף מכל מנוע ומאחד ללא כפילויות', async () => {

@@ -11,12 +11,37 @@ import type {
 export class OtzariaSearchRepository {
   constructor(private readonly bridge: HostBridge) {}
 
-  async *search(request: HostSearchRequest): AsyncIterable<OtzariaSearchChunk> {
+  async *search(
+    request: HostSearchRequest,
+    signal?: AbortSignal,
+  ): AsyncIterable<OtzariaSearchChunk> {
     const stream = this.bridge.call('search.query', {
       ...request,
       includeBookCounts: false,
     });
-    for await (const chunk of stream) yield parseSearchChunk(chunk);
+    const iterator = stream[Symbol.asyncIterator]();
+    let finished = false;
+    const cancel = (): void => {
+      const cancellation = iterator.return?.();
+      if (cancellation) void cancellation.catch(() => undefined);
+    };
+    signal?.addEventListener('abort', cancel, { once: true });
+    try {
+      if (signal?.aborted) return;
+      while (!signal?.aborted) {
+        const next = await iterator.next();
+        if (next.done) {
+          finished = true;
+          break;
+        }
+        yield parseSearchChunk(next.value);
+      }
+    } catch (error) {
+      if (!signal?.aborted) throw error;
+    } finally {
+      signal?.removeEventListener('abort', cancel);
+      if (!finished) await iterator.return?.();
+    }
   }
 
   async resolveBooks(identities: HostBookIdentity[]): Promise<Array<ResolvedBook | null>> {

@@ -15,6 +15,20 @@ interface OtzariaSearchChunk {
   facets: string[];
 }
 
+type NetworkFetchStreamChunk =
+  | {
+      sequence: number;
+      type: 'response';
+      status: number;
+      ok: boolean;
+      headers: Record<string, string>;
+    }
+  | {
+      sequence: number;
+      type: 'data';
+      body: string;
+    };
+
 /// ערכת הצבעים שאוצריא שולחת — כל תפקידי ה-ColorScheme של Material 3,
 /// בדיוק כפי שהם מחושבים ב-buildThemePayloadFromScheme.
 interface OtzariaColorScheme {
@@ -77,6 +91,10 @@ interface Window {
       method: 'search.query',
       payload: Record<string, unknown>,
     ): AsyncIterable<OtzariaSearchChunk>;
+    call(
+      method: 'network.fetchStream',
+      payload: Record<string, unknown> & { url: string },
+    ): AsyncIterable<NetworkFetchStreamChunk>;
     call<T = unknown>(method: string, payload?: Record<string, unknown>): Promise<OtzariaResponse<T>>;
     on(event: string, callback: (payload: never) => void): void;
     off(event: string, callback: (payload: never) => void): void;

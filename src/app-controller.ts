@@ -45,6 +45,7 @@ export class AppController {
   private unifiedResponse: UnifiedSearchResponse | null = null;
   private unifiedRequestId: number | null = null;
   private loadingMore = false;
+  private activeSearchCancellation: AbortController | null = null;
 
   constructor(private readonly bridge: HostBridge, shell: HTMLElement) {
     this.repository = new HebrewBooksRepository(bridge);
@@ -135,6 +136,7 @@ export class AppController {
       return;
     }
 
+    const cancellation = this.replaceSearchCancellation();
     const requestId = this.latestSearch.begin();
     this.clearUnifiedSearch();
     this.snapshot = { query, options, fingerprint: createFingerprint(query, options) };
@@ -142,7 +144,28 @@ export class AppController {
     this.results.setSearch(query, null, true);
     this.results.showLoading();
     try {
-      const resultList = await this.repository.search(this.snapshot);
+      const resultList = await this.repository.search(
+        this.snapshot,
+        (partial) => {
+          if (!this.latestSearch.isCurrent(requestId)) return false;
+          this.resultList = [...partial];
+          this.results.setSearch(query, partial.length, true);
+          this.results.showPartialResults({
+            results: partial.map((hit) => ({
+              source: 'hebrewbooks',
+              categoryPath: 'ספרי היברובוקס',
+              hit,
+            })),
+            otzariaTotal: 0,
+            hebrewBooksTotal: partial.reduce((total, result) => total + result.hitCount, 0),
+            truncated: false,
+            warnings: [],
+            nextCursor: null,
+          }, 'מוצגות תוצאות שהתקבלו; החיפוש ממשיך…');
+          return true;
+        },
+        cancellation.signal,
+      );
       if (!this.latestSearch.isCurrent(requestId)) return;
       this.resultList = resultList;
       this.results.setSearch(query, this.resultList.length, true);
@@ -166,6 +189,8 @@ export class AppController {
       this.resultList = [];
       this.results.setSearch(query, 0, true);
       this.results.showError(messageOf(error));
+    } finally {
+      this.releaseSearchCancellation(cancellation);
     }
   }
 
@@ -175,6 +200,7 @@ export class AppController {
       await this.showHostError('בקשת החיפוש מאוצריא אינה תקינה');
       return;
     }
+    const cancellation = this.replaceSearchCancellation();
     const requestId = this.latestSearch.begin();
     this.unifiedRequest = request;
     this.unifiedResponse = null;
@@ -185,12 +211,17 @@ export class AppController {
     this.results.setSearch(request.query, null, false);
     this.results.showLoading();
     try {
-      const response = await this.unifiedSearch.search(request, undefined, (partial) => {
-        if (!this.latestSearch.isCurrent(requestId)) return false;
-        this.results.setSearch(request.query, partial.results.length, false);
-        this.results.showPartialResults(partial, 'תוצאות אוצריא מוכנות; החיפוש בהיברובוקס ממשיך…');
-        return true;
-      });
+      const response = await this.unifiedSearch.search(
+        request,
+        undefined,
+        (partial) => {
+          if (!this.latestSearch.isCurrent(requestId)) return false;
+          this.results.setSearch(request.query, partial.results.length, false);
+          this.results.showPartialResults(partial, 'מוצגות תוצאות שהתקבלו; החיפוש ממשיך…');
+          return true;
+        },
+        cancellation.signal,
+      );
       if (!this.latestSearch.isCurrent(requestId)) return;
       this.unifiedResponse = response;
       this.resultList = response.results
@@ -204,6 +235,8 @@ export class AppController {
       this.resultList = [];
       this.results.setSearch(request.query, 0, false);
       this.results.showError(messageOf(error));
+    } finally {
+      this.releaseSearchCancellation(cancellation);
     }
   }
 
@@ -216,8 +249,9 @@ export class AppController {
 
     this.loadingMore = true;
     this.results.setLoadingMore(true);
+    const cancellation = this.replaceSearchCancellation();
     try {
-      const page = await this.unifiedSearch.search(request, cursor);
+      const page = await this.unifiedSearch.search(request, cursor, undefined, cancellation.signal);
       if (!this.latestSearch.isCurrent(requestId)) return;
       const response = mergeUnifiedSearchResponses(current, page);
       this.unifiedResponse = response;
@@ -234,8 +268,20 @@ export class AppController {
       this.results.setLoadingMore(false);
       await this.showHostError(messageOf(error));
     } finally {
+      this.releaseSearchCancellation(cancellation);
       if (this.latestSearch.isCurrent(requestId)) this.loadingMore = false;
     }
+  }
+
+  private replaceSearchCancellation(): AbortController {
+    this.activeSearchCancellation?.abort();
+    const cancellation = new AbortController();
+    this.activeSearchCancellation = cancellation;
+    return cancellation;
+  }
+
+  private releaseSearchCancellation(cancellation: AbortController): void {
+    if (this.activeSearchCancellation === cancellation) this.activeSearchCancellation = null;
   }
 
   private clearUnifiedSearch(): void {

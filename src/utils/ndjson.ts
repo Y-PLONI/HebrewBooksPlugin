@@ -4,20 +4,44 @@ const maximumResponseLength = 4 * 1024 * 1024;
 const validSourceTypes = new Set<SourceType>(['PDF', 'Text', 'Personal']);
 
 export function parseSearchNdjson(body: string): HebrewBooksResult[] {
-  if (body.length > maximumResponseLength) {
-    throw new Error('תשובת החיפוש גדולה מהמגבלה המותרת');
-  }
-  if (body.trim() === '') return [];
+  const decoder = new SearchNdjsonDecoder();
+  return [...decoder.push(body), ...decoder.finish()];
+}
 
-  return body.replaceAll('\r\n', '\n').split('\n').filter((line) => line.trim() !== '').map((line, index) => {
-    let value: unknown;
-    try {
-      value = JSON.parse(line);
-    } catch {
-      throw new Error(`שורה ${index + 1} בתשובת החיפוש אינה JSON תקין`);
+export class SearchNdjsonDecoder {
+  private pending = '';
+  private responseLength = 0;
+  private resultLine = 0;
+
+  push(chunk: string): HebrewBooksResult[] {
+    this.responseLength += chunk.length;
+    if (this.responseLength > maximumResponseLength) {
+      throw new Error('תשובת החיפוש גדולה מהמגבלה המותרת');
     }
-    return parseResult(value, index + 1);
-  });
+
+    const lines = `${this.pending}${chunk}`.split('\n');
+    this.pending = lines.pop() ?? '';
+    return this.parseLines(lines);
+  }
+
+  finish(): HebrewBooksResult[] {
+    const tail = this.pending;
+    this.pending = '';
+    return this.parseLines(tail === '' ? [] : [tail]);
+  }
+
+  private parseLines(lines: string[]): HebrewBooksResult[] {
+    return lines.filter((line) => line.trim() !== '').map((line) => {
+      const lineNumber = ++this.resultLine;
+      let value: unknown;
+      try {
+        value = JSON.parse(line);
+      } catch {
+        throw new Error(`שורה ${lineNumber} בתשובת החיפוש אינה JSON תקין`);
+      }
+      return parseResult(value, lineNumber);
+    });
+  }
 }
 
 function parseResult(value: unknown, lineNumber: number): HebrewBooksResult {

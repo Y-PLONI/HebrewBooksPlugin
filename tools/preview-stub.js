@@ -41,6 +41,43 @@
   window.Otzaria = {
     call: function (method, payload) {
       payload = payload || {};
+      if (method === 'network.fetchStream') {
+        return (async function* () {
+          var url = new URL(payload.url);
+          var response = await fetch(url.pathname, {
+            method: payload.method || 'GET',
+            headers: payload.headers,
+            body: payload.body,
+          });
+          var responseHeaders = {};
+          response.headers.forEach(function (value, key) {
+            responseHeaders[key] = value;
+          });
+          yield {
+            sequence: 0,
+            type: 'response',
+            status: response.status,
+            ok: response.ok,
+            headers: responseHeaders,
+          };
+          if (!response.body) return;
+          var reader = response.body.getReader();
+          var decoder = new TextDecoder();
+          var sequence = 1;
+          try {
+            while (true) {
+              var part = await reader.read();
+              if (part.done) break;
+              var text = decoder.decode(part.value, { stream: true });
+              if (text) yield { sequence: sequence++, type: 'data', body: text };
+            }
+            var tail = decoder.decode();
+            if (tail) yield { sequence: sequence++, type: 'data', body: tail };
+          } finally {
+            await reader.cancel();
+          }
+        })();
+      }
       if (method === 'network.fetch') {
         var url = new URL(payload.url);
         return fetch(url.pathname, {

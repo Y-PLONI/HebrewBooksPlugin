@@ -1,7 +1,6 @@
-import type { HostBridge } from '../bridge';
-import { requireHostData } from '../bridge';
+import type { HostBridge, NetworkFetchParams, NetworkFetchStreamChunk } from '../bridge';
 import type { HealthStatus, HebrewBooksResult, InBookLocations, SearchSnapshot } from '../models';
-import { parseSearchNdjson } from '../utils/ndjson';
+import { SearchNdjsonDecoder } from '../utils/ndjson';
 
 interface NetworkResponse {
   status: number;
@@ -11,6 +10,9 @@ interface NetworkResponse {
 
 const baseUrl = 'http://127.0.0.1:8080';
 const searchTimeoutMs = 120_000;
+const maximumResponseLength = 4 * 1024 * 1024;
+
+type SearchUpdate = (results: readonly HebrewBooksResult[]) => boolean | void;
 
 export class HebrewBooksRepository {
   constructor(private readonly bridge: HostBridge) {}
@@ -38,15 +40,70 @@ export class HebrewBooksRepository {
     };
   }
 
-  async search(snapshot: SearchSnapshot): Promise<HebrewBooksResult[]> {
-    const response = await this.fetch('/search', {
+  async search(
+    snapshot: SearchSnapshot,
+    onUpdate?: SearchUpdate,
+    signal?: AbortSignal,
+  ): Promise<HebrewBooksResult[]> {
+    const stream = this.fetchStream('/search', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json; charset=UTF-8' },
       body: JSON.stringify({ q: snapshot.query, ...snapshot.options }),
       timeoutMs: searchTimeoutMs,
     });
-    ensureSuccessful(response, 'החיפוש נכשל');
-    return parseSearchNdjson(response.body);
+    const iterator = stream[Symbol.asyncIterator]();
+    const decoder = new SearchNdjsonDecoder();
+    const results: HebrewBooksResult[] = [];
+    let response: Omit<NetworkResponse, 'body'> | null = null;
+    let errorBody = '';
+    let expectedSequence = 0;
+    let finished = false;
+    const cancel = (): void => {
+      const cancellation = iterator.return?.();
+      if (cancellation) void cancellation.catch(() => undefined);
+    };
+    signal?.addEventListener('abort', cancel, { once: true });
+
+    try {
+      if (signal?.aborted) return results;
+      while (!signal?.aborted) {
+        const next = await iterator.next();
+        if (next.done) {
+          finished = true;
+          break;
+        }
+        const chunk = parseNetworkChunk(next.value, expectedSequence++);
+        if (chunk.type === 'response') {
+          if (response !== null) throw new Error('השרת החזיר כותרות תגובה כפולות');
+          response = { status: chunk.status, ok: chunk.ok };
+          continue;
+        }
+        if (response === null) throw new Error('השרת החזיר גוף לפני כותרות התגובה');
+        if (!response.ok) {
+          errorBody = appendBody(errorBody, chunk.body);
+          continue;
+        }
+        const batch = decoder.push(chunk.body);
+        if (batch.length === 0) continue;
+        results.push(...batch);
+        if (onUpdate?.([...results]) === false) return results;
+      }
+      if (signal?.aborted) return results;
+      if (response === null) throw new Error('השרת לא החזיר פרטי תגובה');
+      ensureSuccessful({ ...response, body: errorBody }, 'החיפוש נכשל');
+      const tail = decoder.finish();
+      if (tail.length > 0) {
+        results.push(...tail);
+        onUpdate?.([...results]);
+      }
+      return results;
+    } catch (error) {
+      if (signal?.aborted) return results;
+      throw error;
+    } finally {
+      signal?.removeEventListener('abort', cancel);
+      if (!finished) await iterator.return?.();
+    }
   }
 
   async inBook(snapshot: SearchSnapshot, fileId: string): Promise<InBookLocations> {
@@ -93,12 +150,64 @@ export class HebrewBooksRepository {
     return `${baseUrl}/pdf/${encodeURIComponent(fileId)}`;
   }
 
-  private fetch(
+  private async fetch(
     path: string,
-    init: { method?: string; headers?: Record<string, string>; body?: string; timeoutMs?: number } = {},
+    init: Omit<NetworkFetchParams, 'url'> = {},
   ): Promise<NetworkResponse> {
-    return requireHostData<NetworkResponse>(this.bridge, 'network.fetch', { url: `${baseUrl}${path}`, ...init });
+    let response: Omit<NetworkResponse, 'body'> | null = null;
+    let body = '';
+    let expectedSequence = 0;
+    for await (const value of this.fetchStream(path, init)) {
+      const chunk = parseNetworkChunk(value, expectedSequence++);
+      if (chunk.type === 'response') {
+        if (response !== null) throw new Error('השרת החזיר כותרות תגובה כפולות');
+        response = { status: chunk.status, ok: chunk.ok };
+      } else {
+        if (response === null) throw new Error('השרת החזיר גוף לפני כותרות התגובה');
+        body = appendBody(body, chunk.body);
+      }
+    }
+    if (response === null) throw new Error('השרת לא החזיר פרטי תגובה');
+    return { ...response, body };
   }
+
+  private fetchStream(
+    path: string,
+    init: Omit<NetworkFetchParams, 'url'> = {},
+  ): AsyncIterable<NetworkFetchStreamChunk> {
+    return this.bridge.call('network.fetchStream', { url: `${baseUrl}${path}`, ...init });
+  }
+}
+
+function parseNetworkChunk(value: unknown, expectedSequence: number): NetworkFetchStreamChunk {
+  if (!isRecord(value) || value.sequence !== expectedSequence) {
+    throw new Error('אוצריא החזירה מקטע רשת לא תקין');
+  }
+  if (
+    value.type === 'response' &&
+    Number.isInteger(value.status) &&
+    typeof value.ok === 'boolean' &&
+    isStringRecord(value.headers)
+  ) {
+    return {
+      sequence: expectedSequence,
+      type: 'response',
+      status: Number(value.status),
+      ok: value.ok,
+      headers: value.headers,
+    };
+  }
+  if (value.type === 'data' && typeof value.body === 'string') {
+    return { sequence: expectedSequence, type: 'data', body: value.body };
+  }
+  throw new Error('אוצריא החזירה מקטע רשת לא תקין');
+}
+
+function appendBody(current: string, chunk: string): string {
+  if (current.length + chunk.length > maximumResponseLength) {
+    throw new Error('תשובת השרת גדולה מהמגבלה המותרת');
+  }
+  return current + chunk;
 }
 
 function ensureSuccessful(response: NetworkResponse, fallback: string): void {
@@ -120,4 +229,12 @@ function parseJsonRecord(body: string, context: string): Record<string, unknown>
     // The single error below keeps protocol failures consistent.
   }
   throw new Error(`${context}: התקבלה תשובה לא תקינה`);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isStringRecord(value: unknown): value is Record<string, string> {
+  return isRecord(value) && Object.values(value).every((item) => typeof item === 'string');
 }

@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "org.hebrewbooks2026.otzaria-search",
   "name": "היברובוקס",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "description": "חיפוש וקריאת ספרי HebrewBooks ישירות מתוך אוצריא.",
   "author": "קהילת אוצריא",
   "stability": "experimental",

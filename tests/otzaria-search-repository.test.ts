@@ -55,4 +55,43 @@ describe('OtzariaSearchRepository', () => {
     expect(received.map((chunk) => [chunk.sequence, chunk.results.length])).toEqual([[0, 0], [1, 1]]);
     expect(payloads[0]).toMatchObject({ query: 'בדיקה', includeBookCounts: false });
   });
+
+  it('forwards AbortSignal cancellation to the host iterator', async () => {
+    let cancelled = false;
+    const chunk: OtzariaSearchChunk = {
+      sequence: 0,
+      results: [],
+      total: 0,
+      groupCount: null,
+      truncated: false,
+      limit: 100,
+      offset: 0,
+      facets: [],
+    };
+    const bridge: HostBridge = {
+      call: (() => ({
+        [Symbol.asyncIterator]() {
+          return {
+            next: async () => ({ value: chunk, done: false as const }),
+            return: async () => {
+              cancelled = true;
+              return { value: undefined, done: true as const };
+            },
+          };
+        },
+      })) as unknown as HostBridge['call'],
+      on: () => undefined,
+    };
+    const controller = new AbortController();
+    const iterator = new OtzariaSearchRepository(bridge)
+      .search({ query: 'בדיקה' }, controller.signal)
+      [Symbol.asyncIterator]();
+
+    await iterator.next();
+    controller.abort();
+    await Promise.resolve();
+
+    expect(cancelled).toBe(true);
+    await iterator.return?.();
+  });
 });

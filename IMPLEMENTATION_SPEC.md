@@ -2,14 +2,14 @@
 
 > סטטוס: מסמך תכנון, ללא קוד מימוש  
 > תאריך: 21 ביולי 2026  
-> יעד ראשון: Windows, אוצריא `0.9.95` ומעלה, Plugin SDK `1.x`  
+> יעד ראשון: Windows, אוצריא `0.9.97` ומעלה, Plugin SDK `1.x`
 > שרת שנבדק: `hbsearch` גרסה `3.0.114-beta2+6a3f99162c4be6b1dc5b054a4883dccb1690830f` (`FileVersion 3.0.114.0`)  
 > SHA-256: `142097A91C855F9C4858624C1D76D02BACEEEDBC806449D88ED00CB3CCA19AE7`; בבינארי אחר יש להריץ מחדש את בדיקות החוזה
 > הוכחת היתכנות שנבדקה: `com.chadbedera.pdfviewer` גרסה `2.0.5`
 
 ## 1. החלטה אדריכלית
 
-התוסף יהיה לקוח WebView ממוקד עם קורא PDF פנימי. הוא **לא** יריץ תהליך, לא יקרא אינדקסים ולא יקבל נתיבי קבצים. חיפוש ונתוני JSON יעברו דרך `network.fetch` של אוצריא אל שירות `hbsearch` מקומי; PDF יוצג בתוך התוסף באמצעות PDF.js ארוז מקומית, שיקרא טווחי בתים מ־endpoint מקומי ומוגן לפי `fileId`.
+התוסף יהיה לקוח WebView ממוקד עם קורא PDF פנימי. הוא **לא** יריץ תהליך, לא יקרא אינדקסים ולא יקבל נתיבי קבצים. חיפוש ונתוני JSON יעברו דרך `network.fetchStream` של אוצריא אל שירות `hbsearch` מקומי; PDF יוצג בתוך התוסף באמצעות PDF.js ארוז מקומית, שיקרא טווחי בתים מ־endpoint מקומי ומוגן לפי `fileId`.
 
 גרסה 1 תתמוך בשרת שרץ באותו מחשב בלבד, בכתובת קבועה:
 
@@ -71,10 +71,10 @@
 - תוסף הוא HTML/CSS/JS בתוך WebView מוגן.
 - אין לתוסף גישה חופשית למערכת הקבצים או להרצת תוכנות.
 - גישה ל־loopback דורשת `network.localhost`, `network.enabled: true` וכתובת תואמת ב־allowlist של המניפסט.
-- קריאות HTTP צריכות לעבור דרך `Otzaria.call('network.fetch', ...)`.
-- `network.fetch` אוסף את כל גוף התגובה למחרוזת; הוא אינו חושף stream ל־JavaScript.
+- קריאות HTTP צריכות לעבור דרך `Otzaria.call('network.fetchStream', ...)`.
+- `network.fetchStream` מחזיר metadata ולאחריו מקטעי UTF-8; החיפוש מפענח NDJSON שורה אחר שורה.
 - בקשות HTTP ישירות של משאבי WebView נבדקות גם הן מול `network.enabled`, הרשאת הרשת וה־allowlist. לכן PDF.js יכול לקרוא URL מאושר ב־loopback, בתנאי שהשרת מחזיר CORS מתאים.
-- קריאת RPC רגילה נחתכת אחרי 30 שניות.
+- בחיפוש מוגדר `timeoutMs: 120000`; יציאה מה־iterator מבטלת את הבקשה.
 - `reader.openBook` מחפש ספר בספריית אוצריא לפי `bookId`, שבמימוש הנוכחי הוא למעשה כותרת הספר.
 - `library.findBooks` מחזיר בפועל `bookId` ו־`title` בלבד. אין להסתמך על `author` או `type` בתשובה זו.
 - אין להשתמש ב־`library.getTree` לצורך כל לחיצה על תוצאה: העץ המלא עלול להיות גדול מאוד.
@@ -134,7 +134,7 @@ flowchart LR
     U["משתמש"] --> UI["ממשק התוסף"]
     UI --> SM["מכונת מצבים"]
     SM --> HR["HebrewBooksRepository"]
-    HR --> SDK["Otzaria network.fetch"]
+    HR --> SDK["Otzaria network.fetchStream"]
     SDK --> HB["JSON: health / search / inbook"]
     SM --> PV["PdfViewerController"]
     PV --> PJS["PDF.js + worker מקומיים"]
@@ -235,10 +235,10 @@ hebrewbooks-otzaria-plugin/
 | `schemaVersion` | `1` |
 | `id` | `org.hebrewbooks2026.otzaria-search` — לאשר עם בעל הפרויקט לפני פרסום ראשון |
 | `name` | `היברובוקס` |
-| `version` | `0.1.0` בגרסת ניסוי ראשונה |
+| `version` | `0.5.2` |
 | `stability` | `experimental`, ובהמשך `beta`/`stable` |
 | `entrypoint` | `index.html` |
-| `minAppVersion` | `0.9.95` |
+| `minAppVersion` | `0.9.97` |
 | `sdkVersion` | `1.x` |
 | `toolTab.iconName` | `book_search_24_regular` |
 | `toolTab.defaultPinned` | `true` |
@@ -322,7 +322,7 @@ hebrewbooks-otzaria-plugin/
 
 ### 10.1 בקשה
 
-`GET http://127.0.0.1:8080/health` דרך `network.fetch`.
+`GET http://127.0.0.1:8080/health` דרך `network.fetchStream`.
 
 ### 10.2 תנאי הצלחה
 
@@ -564,7 +564,7 @@ Headers מחייבים בהצלחה:
 
 ### 13.5 טעינה ב־PDF.js
 
-אין להעביר את ה־PDF דרך `network.fetch`: הוא מחזיר טקסט, אוסף את כל הגוף וכפוף ל־timeout של RPC. PDF.js יקבל ישירות URL שנבנה רק מ־base URL קבוע ומ־`encodeURIComponent(fileId)`.
+אין להעביר את ה־PDF דרך `network.fetchStream`: ה־API מיועד לטקסט ואינו מחליף HTTP Range בינארי. PDF.js יקבל ישירות URL שנבנה רק מ־base URL קבוע ומ־`encodeURIComponent(fileId)`.
 
 אפשרויות מחייבות:
 
@@ -802,7 +802,7 @@ Headers מחייבים בהצלחה:
 - אין להעביר נתיב מקומי מהשרת לתוסף.
 - אין לנסות לקרוא `highlightXml` כ־HTML. אם בעתיד משתמשים בו, יש לפרש XML כנתונים בלבד עם allowlist של elements/attributes.
 - endpoint ה־PDF מקבל `fileId` מספרי בלבד, פותר `Folder` מהקטלוג ומוודא שהנתיב הסופי נשאר מתחת ל־`PdfsRoot`.
-- endpoint ה־PDF אינו מוחזר דרך `network.fetch` ואינו נשמר ב־IndexedDB, storage או Cache API של התוסף.
+- endpoint ה־PDF אינו מוחזר דרך `network.fetchStream` ואינו נשמר ב־IndexedDB, storage או Cache API של התוסף.
 - בקשות PDF מותרות רק מ־Origin `null`/חסר ול־loopback; יש לדחות origins אינטרנטיים גם אם הם פונים ל־127.0.0.1.
 - אין להפעיל את endpoints של התקנת לקוח (`--enable-install`, `--installer`) במופע המקומי שמשרת את התוסף.
 
