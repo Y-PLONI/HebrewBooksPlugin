@@ -7,7 +7,7 @@
   "author": "קהילת אוצריא",
   "stability": "experimental",
   "entrypoint": "index.html",
-  "minAppVersion": "0.9.95",
+  "minAppVersion": "0.9.96",
   "sdkVersion": "1.x",
   "permissions": [
     "network.localhost",
