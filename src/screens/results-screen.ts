@@ -1,5 +1,7 @@
+import type { IconName } from '../icons.generated';
 import type { HebrewBooksResult, UnifiedSearchResponse, UnifiedSearchResult } from '../models';
 import { appendHighlightedHtml } from '../utils/highlighted-html';
+import { navTreeGroup, navTreeHeader, navTreeRow, slimSearchField } from '../ui/nav-tree';
 import {
   actionButton,
   barButton,
@@ -21,11 +23,36 @@ interface ResultsHandlers {
   readonly onCopyDetails: (result: HebrewBooksResult) => void;
 }
 
-interface CategoryEntry {
-  path: string;
-  label: string;
-  depth: number;
-  count: number;
+type ResultSource = UnifiedSearchResult['source'];
+
+/// מפריד בין נתיב הקטגוריה לשם הספר ב-facet של ספר. תו בקרה שאינו יכול
+/// להופיע בשם קטגוריה או ספר, ולכן מבדיל בוודאות בין שני סוגי ה-facet.
+const BOOK_FACET_SEPARATOR = '\u0000';
+
+/// אורך המינימום שממנו שדה "איתור ספר" מחליף את העץ ברשימת ספרים שטוחה
+/// (_kMinQueryLength ב-full_text_facet_filtering.dart).
+const MIN_FILTER_LENGTH = 2;
+
+const sourceLabels: ReadonlyArray<{ source: ResultSource; label: string }> = [
+  { source: 'otzaria', label: 'אוצריא' },
+  { source: 'hebrewbooks', label: 'היברובוקס' },
+];
+
+export interface CategoryTreeBook {
+  readonly facet: string;
+  readonly title: string;
+  readonly subtitle: string | null;
+  readonly icon: IconName;
+  readonly count: number;
+}
+
+export interface CategoryTreeNode {
+  readonly path: string;
+  readonly label: string;
+  readonly depth: number;
+  readonly count: number;
+  readonly children: readonly CategoryTreeNode[];
+  readonly books: readonly CategoryTreeBook[];
 }
 
 export class ResultsScreen {
@@ -35,11 +62,16 @@ export class ResultsScreen {
   private readonly trailing = element('div', 'top-bar-trailing');
   private query = '';
   private response: UnifiedSearchResponse | null = null;
-  private selectedCategory: string | null = null;
+  private selectedFacet: string | null = null;
+  private hiddenSources = new Set<ResultSource>();
+  private expansion = new Map<string, boolean>();
+  private filterQuery = '';
+  private sourceMenuOpen = false;
   private editable = false;
   private loadingMore = false;
   private loadMoreButton: HTMLButtonElement | null = null;
   private pendingMessage: string | null = null;
+  private treeHost: HTMLElement | null = null;
 
   constructor(private readonly handlers: ResultsHandlers) {
     const bar = topBar();
@@ -73,20 +105,12 @@ export class ResultsScreen {
   }
 
   showLoading(): void {
-    this.response = null;
-    this.selectedCategory = null;
-    this.loadingMore = false;
-    this.loadMoreButton = null;
-    this.pendingMessage = null;
+    this.resetState();
     this.body.replaceChildren(centeredProgress());
   }
 
   showNoResults(): void {
-    this.response = null;
-    this.selectedCategory = null;
-    this.loadingMore = false;
-    this.loadMoreButton = null;
-    this.pendingMessage = null;
+    this.resetState();
     this.body.replaceChildren(
       informativeState({
         icon: 'document_search_24_regular',
@@ -100,11 +124,7 @@ export class ResultsScreen {
   }
 
   showError(message: string): void {
-    this.response = null;
-    this.selectedCategory = null;
-    this.loadingMore = false;
-    this.loadMoreButton = null;
-    this.pendingMessage = null;
+    this.resetState();
     this.body.replaceChildren(
       informativeState({
         icon: 'warning_24_regular',
@@ -143,26 +163,40 @@ export class ResultsScreen {
     );
   }
 
+  private resetState(): void {
+    this.response = null;
+    this.selectedFacet = null;
+    this.hiddenSources = new Set();
+    this.expansion = new Map();
+    this.filterQuery = '';
+    if (this.sourceMenuOpen) document.removeEventListener('click', this.closeSourceMenu);
+    this.sourceMenuOpen = false;
+    this.loadingMore = false;
+    this.loadMoreButton = null;
+    this.pendingMessage = null;
+    this.treeHost = null;
+  }
+
+  /// התוצאות שנשארות אחרי סינון המקורות — הבסיס גם לעץ, גם למונים וגם לרשימה.
+  private scopedResults(): UnifiedSearchResult[] {
+    const response = this.response;
+    if (!response) return [];
+    if (this.hiddenSources.size === 0) return response.results;
+    return response.results.filter((result) => !this.hiddenSources.has(result.source));
+  }
+
   private renderResults(scrollTop = 0): void {
     const response = this.response;
     if (!response) return;
     this.loadMoreButton = null;
+    const scoped = this.scopedResults();
+
     const layout = element('div', 'unified-results-layout');
-    const navigation = element('aside', 'category-navigation');
-    navigation.setAttribute('aria-label', 'קטגוריות תוצאות');
-    navigation.append(element('h2', undefined, 'קטגוריות'));
-    navigation.append(this.categoryButton(null, 'כל התוצאות', response.results.length, 0));
-    for (const entry of buildCategoryEntries(response.results)) {
-      navigation.append(this.categoryButton(entry.path, entry.label, entry.count, entry.depth));
-    }
+    layout.append(this.buildNavigation(scoped));
 
     const content = element('section', 'categorized-results');
-    const visible = response.results.filter((result) => categoryContains(this.selectedCategory, result.categoryPath));
-    const heading = element(
-      'div',
-      'category-results-heading',
-      this.selectedCategory ? categoryLabel(this.selectedCategory) : 'כל התוצאות',
-    );
+    const visible = scoped.filter((result) => facetMatches(this.selectedFacet, result));
+    const heading = element('div', 'category-results-heading', this.selectedFacetLabel());
     heading.append(element('span', undefined, ` · ${visible.length}`));
     content.append(heading);
     if (this.pendingMessage) content.append(buildProgressBanner(this.pendingMessage));
@@ -172,10 +206,219 @@ export class ResultsScreen {
     visible.forEach((result, index) => list.append(this.buildResultCard(result, index)));
     if (response.nextCursor) list.append(this.buildLoadMoreRow());
     content.append(list);
-    layout.append(navigation, content);
+
+    layout.append(content);
     this.body.replaceChildren(layout);
     list.scrollTop = scrollTop;
   }
+
+  // ── חלונית הניווט (SearchFacetFiltering + SearchNavigationTree) ────────────
+
+  private buildNavigation(scoped: UnifiedSearchResult[]): HTMLElement {
+    const navigation = element('aside', 'category-navigation');
+    navigation.setAttribute('aria-label', 'קטגוריות תוצאות');
+
+    const fieldWrap = element('div', 'nav-filter-field');
+    const field = slimSearchField({
+      hint: 'איתור ספר…',
+      value: this.filterQuery,
+      onInput: (value) => {
+        this.filterQuery = value;
+        this.renderTree();
+      },
+      onClear: () => {
+        this.filterQuery = '';
+        this.renderTree();
+      },
+      trailing: [this.buildSourceFilterButton()],
+    });
+    fieldWrap.append(field.root);
+    navigation.append(fieldWrap);
+
+    const treeHost = element('div', 'nav-tree');
+    this.treeHost = treeHost;
+    navigation.append(treeHost);
+    this.renderTree(scoped);
+    return navigation;
+  }
+
+  private renderTree(scoped: UnifiedSearchResult[] = this.scopedResults()): void {
+    const host = this.treeHost;
+    if (!host) return;
+    host.replaceChildren(
+      ...(this.filterQuery.trim().length >= MIN_FILTER_LENGTH
+        ? this.buildFilteredBookList(scoped)
+        : this.buildTreeRows(scoped)),
+    );
+  }
+
+  private buildTreeRows(scoped: UnifiedSearchResult[]): HTMLElement[] {
+    const anyFilterActive = this.selectedFacet !== null || this.hiddenSources.size > 0;
+    const header = navTreeHeader({
+      title: 'כל התוצאות',
+      count: scoped.length,
+      selected: !anyFilterActive,
+      onSelect: () => this.clearAllFilters(),
+      onClearFilter: anyFilterActive ? () => this.clearAllFilters() : undefined,
+    });
+
+    const rows: HTMLElement[] = [];
+    for (const node of buildCategoryTree(scoped)) this.appendNodeRows(node, 0, rows);
+    return rows.length === 0 ? [header] : [header, navTreeGroup(rows)];
+  }
+
+  private appendNodeRows(node: CategoryTreeNode, level: number, rows: HTMLElement[]): void {
+    const expanded = this.expansion.get(node.path) ?? this.leadsToSelection(node.path);
+    rows.push(
+      navTreeRow({
+        title: node.label,
+        level,
+        selected: this.selectedFacet === node.path,
+        count: node.count,
+        onSelect: () => this.selectFacet(node.path),
+        expandable: {
+          expanded,
+          onToggle: () => {
+            this.expansion.set(node.path, !expanded);
+            this.renderTree();
+          },
+        },
+      }),
+    );
+    if (!expanded) return;
+    for (const child of node.children) this.appendNodeRows(child, level + 1, rows);
+    for (const book of node.books) rows.push(this.buildBookRow(book, level + 1));
+  }
+
+  private buildBookRow(book: CategoryTreeBook, level: number): HTMLElement {
+    return navTreeRow({
+      title: book.title,
+      subtitle: book.subtitle,
+      level,
+      selected: this.selectedFacet === book.facet,
+      count: book.count,
+      icon: book.icon,
+      onSelect: () => this.selectFacet(book.facet),
+    });
+  }
+
+  /// רשימת הספרים המסוננת לפי שדה האיתור — כל ספר בכרטיס משלו, כמו
+  /// _buildFilteredBookList באוצריא.
+  private buildFilteredBookList(scoped: UnifiedSearchResult[]): HTMLElement[] {
+    const query = this.filterQuery.trim().toLowerCase();
+    const matches = collectBooks(buildCategoryTree(scoped)).filter((book) =>
+      book.title.toLowerCase().includes(query),
+    );
+    if (matches.length === 0) {
+      return [element('div', 'nav-tree-empty', 'לא נמצאו ספרים עם תוצאות')];
+    }
+    return matches.map((book) => navTreeGroup([this.buildBookRow(book, 0)]));
+  }
+
+  /// כפתור הסינון שבתוך שדה האיתור — כאן הוא מסנן לפי מקור התוצאה, המקבילה
+  /// של סינון המאפיינים (ספרי יסוד/תקופה) שבאוצריא.
+  private buildSourceFilterButton(): HTMLElement {
+    const anchor = element('div', 'nav-filter-anchor');
+    const button = element('button', 'nav-filter-button');
+    button.type = 'button';
+    button.dataset.tooltip = 'סינון לפי מקור';
+    button.setAttribute('aria-label', 'סינון לפי מקור');
+    button.setAttribute('aria-expanded', String(this.sourceMenuOpen));
+    if (this.hiddenSources.size > 0) button.classList.add('active');
+    button.append(iconElement('filter_24_regular', 20));
+    if (this.hiddenSources.size > 0) {
+      button.append(element('span', 'nav-filter-badge', String(sourceLabels.length - this.hiddenSources.size)));
+    }
+    button.addEventListener('click', (event) => {
+      event.stopPropagation();
+      if (this.sourceMenuOpen) this.closeSourceMenu();
+      else this.openSourceMenu();
+    });
+    anchor.append(button);
+
+    if (this.sourceMenuOpen) {
+      const menu = element('div', 'nav-filter-menu');
+      menu.setAttribute('role', 'menu');
+      menu.addEventListener('click', (event) => event.stopPropagation());
+      for (const { source, label } of sourceLabels) {
+        const active = !this.hiddenSources.has(source);
+        const item = element('button', 'nav-filter-menu-item');
+        item.type = 'button';
+        item.setAttribute('role', 'menuitemcheckbox');
+        item.setAttribute('aria-checked', String(active));
+        item.append(
+          iconElement(active ? 'checkbox_checked_24_filled' : 'checkbox_unchecked_24_regular', 18),
+          element('span', undefined, label),
+        );
+        item.addEventListener('click', () => this.toggleSource(source));
+        menu.append(item);
+      }
+      anchor.append(menu);
+    }
+    return anchor;
+  }
+
+  /// לחיצה מחוץ לתפריט סוגרת אותו, כמו MenuAnchor של אוצריא.
+  private openSourceMenu(): void {
+    this.sourceMenuOpen = true;
+    document.addEventListener('click', this.closeSourceMenu);
+    this.renderResults(this.currentScrollTop());
+  }
+
+  private readonly closeSourceMenu = (): void => {
+    if (!this.sourceMenuOpen) return;
+    this.sourceMenuOpen = false;
+    document.removeEventListener('click', this.closeSourceMenu);
+    this.renderResults(this.currentScrollTop());
+  };
+
+  /// כיבוי מקור אחרון אינו אפשרי — הוא היה מרוקן את המסך בלי חיווי.
+  private toggleSource(source: ResultSource): void {
+    const hidden = new Set(this.hiddenSources);
+    if (hidden.has(source)) hidden.delete(source);
+    else if (hidden.size + 1 < sourceLabels.length) hidden.add(source);
+    else return;
+    this.hiddenSources = hidden;
+    if (this.selectedFacet !== null && !this.facetStillExists()) this.selectedFacet = null;
+    this.renderResults(this.currentScrollTop());
+  }
+
+  private facetStillExists(): boolean {
+    return this.scopedResults().some((result) => facetMatches(this.selectedFacet, result));
+  }
+
+  private selectFacet(facet: string): void {
+    this.selectedFacet = facet;
+    this.renderResults();
+  }
+
+  private clearAllFilters(): void {
+    this.selectedFacet = null;
+    this.hiddenSources = new Set();
+    this.renderResults();
+  }
+
+  private leadsToSelection(path: string): boolean {
+    const selected = this.selectedFacet;
+    if (selected === null) return false;
+    const separator = selected.indexOf(BOOK_FACET_SEPARATOR);
+    const category = separator < 0 ? selected : selected.slice(0, separator);
+    if (category.startsWith(`${path}/`)) return true;
+    return separator >= 0 && category === path;
+  }
+
+  private selectedFacetLabel(): string {
+    const selected = this.selectedFacet;
+    if (selected === null) return 'כל התוצאות';
+    const separator = selected.indexOf(BOOK_FACET_SEPARATOR);
+    return separator < 0 ? categoryLabel(selected) : selected.slice(separator + 1);
+  }
+
+  private currentScrollTop(): number {
+    return this.body.querySelector<HTMLElement>('.results-list')?.scrollTop ?? 0;
+  }
+
+  // ── רשימת התוצאות (tantivy_search_results.dart) ───────────────────────────
 
   private buildLoadMoreRow(): HTMLLIElement {
     const row = element('li', 'load-more-row');
@@ -189,20 +432,6 @@ export class ResultsScreen {
     this.loadMoreButton = button;
     row.append(button);
     return row;
-  }
-
-  private categoryButton(path: string | null, label: string, count: number, depth: number): HTMLButtonElement {
-    const selected = this.selectedCategory === path;
-    const button = element('button', selected ? 'category-button selected' : 'category-button');
-    button.type = 'button';
-    button.style.setProperty('--category-depth', String(depth));
-    button.setAttribute('aria-pressed', String(selected));
-    button.append(element('span', 'category-label', label), element('span', 'category-count', String(count)));
-    button.addEventListener('click', () => {
-      this.selectedCategory = path;
-      this.renderResults();
-    });
-    return button;
   }
 
   private buildResultCard(result: UnifiedSearchResult, index: number): HTMLLIElement {
@@ -263,14 +492,83 @@ export class ResultsScreen {
   }
 }
 
-export function buildCategoryEntries(results: UnifiedSearchResult[]): CategoryEntry[] {
-  const counts = new Map<string, number>();
-  for (const result of results) {
-    for (const path of categoryAncestors(result.categoryPath)) counts.set(path, (counts.get(path) ?? 0) + 1);
+/// בניית עץ הקטגוריות מתוך התוצאות עצמן — המקבילה של פריסת ספריית אוצריא
+/// לפי facetCounts. סדר הענפים הוא סדר ההופעה הראשונה בתוצאות, כלומר סדר
+/// הקטלוג שבו הגיעו מהמנוע.
+export function buildCategoryTree(results: readonly UnifiedSearchResult[]): CategoryTreeNode[] {
+  interface MutableNode {
+    path: string;
+    label: string;
+    depth: number;
+    count: number;
+    children: Map<string, MutableNode>;
+    books: Map<string, CategoryTreeBook & { count: number }>;
   }
-  return [...counts.entries()]
-    .map(([path, count]) => ({ path, label: categoryLabel(path), depth: categoryDepth(path), count }))
-    .sort((left, right) => left.path.localeCompare(right.path, 'he'));
+
+  const roots = new Map<string, MutableNode>();
+
+  for (const result of results) {
+    const ancestors = categoryAncestors(result.categoryPath);
+    let siblings = roots;
+    let leaf: MutableNode | undefined;
+    for (const [depth, path] of ancestors.entries()) {
+      let node = siblings.get(path);
+      if (!node) {
+        node = { path, label: categoryLabel(path), depth, count: 0, children: new Map(), books: new Map() };
+        siblings.set(path, node);
+      }
+      node.count += 1;
+      siblings = node.children;
+      leaf = node;
+    }
+    if (!leaf) continue;
+    const descriptor = describeBook(result);
+    const existing = leaf.books.get(descriptor.facet);
+    if (existing) existing.count += 1;
+    else leaf.books.set(descriptor.facet, { ...descriptor, count: 1 });
+  }
+
+  const freeze = (nodes: Map<string, MutableNode>): CategoryTreeNode[] =>
+    [...nodes.values()].map((node) => ({
+      path: node.path,
+      label: node.label,
+      depth: node.depth,
+      count: node.count,
+      children: freeze(node.children),
+      books: [...node.books.values()],
+    }));
+
+  return freeze(roots);
+}
+
+/// כל הספרים שבעץ, בסדר ההופעה — הבסיס לרשימת הסינון השטוחה.
+export function collectBooks(nodes: readonly CategoryTreeNode[]): CategoryTreeBook[] {
+  const books: CategoryTreeBook[] = [];
+  for (const node of nodes) {
+    books.push(...node.books, ...collectBooks(node.children));
+  }
+  return books;
+}
+
+function describeBook(result: UnifiedSearchResult): Omit<CategoryTreeBook, 'count'> {
+  const title = result.source === 'otzaria' ? result.hit.book : result.hit.bookName;
+  const subtitle = result.source === 'otzaria' ? null : result.hit.authorName;
+  const icon: IconName =
+    result.source === 'hebrewbooks' || result.hit.type === 'pdf'
+      ? 'document_pdf_24_regular'
+      : 'document_text_24_regular';
+  return { facet: `${result.categoryPath}${BOOK_FACET_SEPARATOR}${title}`, title, subtitle, icon };
+}
+
+function bookFacet(result: UnifiedSearchResult): string {
+  return describeBook(result).facet;
+}
+
+/// האם התוצאה נמצאת בתחום ה-facet הנבחר — קטגוריה (כולל צאצאיה) או ספר יחיד.
+export function facetMatches(facet: string | null, result: UnifiedSearchResult): boolean {
+  if (facet === null) return true;
+  if (facet.includes(BOOK_FACET_SEPARATOR)) return facet === bookFacet(result);
+  return categoryContains(facet, result.categoryPath);
 }
 
 function categoryAncestors(path: string): string[] {
@@ -279,17 +577,14 @@ function categoryAncestors(path: string): string[] {
   return parts.map((_, index) => `/${parts.slice(0, index + 1).join('/')}`);
 }
 
-function categoryContains(selected: string | null, resultPath: string): boolean {
-  if (selected === null) return true;
-  return selected.startsWith('/') ? resultPath === selected || resultPath.startsWith(`${selected}/`) : resultPath === selected;
+function categoryContains(selected: string, resultPath: string): boolean {
+  return selected.startsWith('/')
+    ? resultPath === selected || resultPath.startsWith(`${selected}/`)
+    : resultPath === selected;
 }
 
 function categoryLabel(path: string): string {
   return path.startsWith('/') ? path.split('/').filter(Boolean).at(-1) ?? path : path;
-}
-
-function categoryDepth(path: string): number {
-  return path.startsWith('/') ? Math.max(0, path.split('/').filter(Boolean).length - 1) : 0;
 }
 
 function buildWarningBanner(message: string): HTMLElement {

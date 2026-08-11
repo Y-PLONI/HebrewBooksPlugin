@@ -63,24 +63,39 @@
       if (method === 'search.query') {
         var nativeResults = [
           { id: 1, type: 'text', source: 'library', bookId: 'משנה ברורה', book: 'משנה ברורה', categoryPath: '/הלכה/אורח חיים', reference: 'סימן רמב', text: 'דיני השבת ומלאכותיה נלמדים מן הפסוקים ומדברי חכמים', index: 42, mergedCount: 1 },
+          { id: 5, type: 'text', source: 'library', bookId: 'משנה ברורה', book: 'משנה ברורה', categoryPath: '/הלכה/אורח חיים', reference: 'סימן שח', text: 'מוקצה בשבת ואיסור טלטול כלי שמלאכתו לאיסור', index: 51, mergedCount: 1 },
+          { id: 6, type: 'text', source: 'library', bookId: 'שולחן ערוך', book: 'שולחן ערוך', categoryPath: '/הלכה/אורח חיים', reference: 'סימן רסב', text: 'יסדר שולחנו מבעוד יום לכבוד השבת', index: 18, mergedCount: 1 },
+          { id: 7, type: 'text', source: 'library', bookId: 'רמב״ם', book: 'משנה תורה', categoryPath: '/הלכה/ראשונים', reference: 'הלכות שבת פרק א', text: 'שביתה בשביעי ממלאכה מצות עשה', index: 3, mergedCount: 1 },
           { id: 2, type: 'text', source: 'library', bookId: 'מסילת ישרים', book: 'מסילת ישרים', categoryPath: '/מחשבה/מוסר', reference: 'פרק א', text: 'יסוד החסידות ושורש העבודה התמימה הוא שיתברר ויתאמת אצל האדם', index: 7, mergedCount: 1 },
+          { id: 3, type: 'text', source: 'library', bookId: 'רש״י', book: 'רש״י על התורה', categoryPath: '/תנ״ך/מפרשים', reference: 'שמות כ ח', text: 'זכור את יום השבת לקדשו', index: 90, mergedCount: 1 },
+          { id: 4, type: 'pdf', source: 'library', bookId: 'ספר הזוהר', book: 'ספר הזוהר', categoryPath: '/קבלה', reference: 'עמוד יב', text: 'רזא דשבת איהי שבת', index: 12, mergedCount: 1 },
         ];
         var nativeOffset = Number(payload.offset || 0);
         var nativeLimit = Number(payload.limit || 100);
         var nativePage = nativeResults.slice(nativeOffset, nativeOffset + nativeLimit);
-        return Promise.resolve({
-          success: true,
-          error: null,
-          data: {
-            results: nativePage,
-            total: nativeResults.length,
-            groupCount: null,
-            truncated: nativeOffset + nativePage.length < nativeResults.length,
-            limit: nativeLimit,
-            offset: nativeOffset,
-            facets: ['/'],
-          },
-        });
+        // search.query הוא ערוץ מזרים: ה-Host מחזיר AsyncIterable של chunks.
+        var chunk = {
+          sequence: 0,
+          results: nativePage,
+          total: nativeResults.length,
+          groupCount: null,
+          truncated: nativeOffset + nativePage.length < nativeResults.length,
+          limit: nativeLimit,
+          offset: nativeOffset,
+          facets: ['/'],
+        };
+        var chunks = [chunk];
+        var stream = {};
+        stream[Symbol.asyncIterator] = function () {
+          var index = 0;
+          return {
+            next: function () {
+              var done = index >= chunks.length;
+              return Promise.resolve({ value: done ? undefined : chunks[index++], done: done });
+            },
+          };
+        };
+        return stream;
       }
       if (method === 'database.batchQuery') {
         return Promise.resolve({
@@ -157,6 +172,28 @@
       });
       if (params.get('loadMore') === '1') {
         waitFor('.load-more-row .action-button', function (button) { button.click(); });
+      }
+      // פתיחת כל ענפי עץ הניווט — כל לחיצה בונה את העץ מחדש, ולכן לוחצים
+      // שוב ושוב על החץ המכווץ הראשון שנותר.
+      if (params.get('expand') === '1') {
+        waitFor('.nav-tree-chevron', function () {
+          var passes = 0;
+          var timer = setInterval(function () {
+            var next = document.querySelector('.nav-tree-chevron:not(.expanded)');
+            passes += 1;
+            if (!next || passes > 40) return clearInterval(timer);
+            next.click();
+          }, 30);
+        });
+      }
+      if (params.get('filter')) {
+        waitFor('.slim-search-field input', function (input) {
+          input.value = params.get('filter');
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+        });
+      }
+      if (params.get('menu') === '1') {
+        waitFor('.nav-filter-button', function (button) { button.click(); });
       }
       return;
     }
