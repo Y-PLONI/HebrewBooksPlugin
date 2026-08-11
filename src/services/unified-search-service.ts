@@ -155,7 +155,8 @@ export function mergeUnifiedSearchResponses(
 
 export function toHebrewBooksSnapshot(request: HostSearchRequest): SearchSnapshot {
   const options: SearchOptions = {
-    proximity: Math.max(0, request.distance ?? 0),
+    // אוצריא משתמשת ב־0 למילים סמוכות; hbsearch דורש מספר חיובי.
+    proximity: Math.max(1, request.distance ?? 0),
     fuzziness: request.mode === 'fuzzy' ? Math.min(2, request.distance ?? 2) : 0,
     max: 500,
     limit: Math.min(500, Math.max(1, request.limit ?? 100)),

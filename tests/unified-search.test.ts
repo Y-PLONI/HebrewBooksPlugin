@@ -94,6 +94,12 @@ describe('UnifiedSearchService', () => {
     });
   });
 
+  it('maps Otzaria adjacent-word distance to the smallest valid HebrewBooks proximity', () => {
+    const snapshot = toHebrewBooksSnapshot({ ...request, distance: 0 });
+
+    expect(snapshot.options.proximity).toBe(1);
+  });
+
   it('places matched HebrewBooks results in the Otzaria category and unmatched results in their own category', async () => {
     const service = new UnifiedSearchService(
       { search: async () => hbResults.slice(0, 2) },
