@@ -123,12 +123,20 @@ export type UnifiedSearchResult =
       hit: HebrewBooksResult;
     };
 
+export interface UnifiedSearchCursor {
+  otzariaOffset: number;
+  hebrewBooksOffset: number;
+  otzariaComplete: boolean;
+  hebrewBooksComplete: boolean;
+}
+
 export interface UnifiedSearchResponse {
   results: UnifiedSearchResult[];
   otzariaTotal: number;
   hebrewBooksTotal: number;
   truncated: boolean;
   warnings: string[];
+  nextCursor: UnifiedSearchCursor | null;
 }
 
 export const defaultSearchOptions: SearchOptions = {

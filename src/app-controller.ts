@@ -7,6 +7,7 @@ import type {
   HostSearchRequestedEvent,
   SearchOptions,
   SearchSnapshot,
+  UnifiedSearchResponse,
   UnifiedSearchResult,
 } from './models';
 import { CatalogMappingRepository } from './repositories/catalog-mapping-repository';
@@ -17,7 +18,11 @@ import { ResultsScreen } from './screens/results-screen';
 import { SearchDialog } from './screens/search-dialog';
 import { ViewerScreen } from './screens/viewer-screen';
 import { LatestRequest } from './services/latest-request';
-import { UnifiedSearchService, toHebrewBooksSnapshot } from './services/unified-search-service';
+import {
+  mergeUnifiedSearchResponses,
+  UnifiedSearchService,
+  toHebrewBooksSnapshot,
+} from './services/unified-search-service';
 import { applyTheme } from './theme';
 
 type Screen = 'library' | 'results' | 'viewer';
@@ -36,6 +41,10 @@ export class AppController {
   private resultList: HebrewBooksResult[] = [];
   private selectedResult: HebrewBooksResult | null = null;
   private readonly latestSearch = new LatestRequest();
+  private unifiedRequest: HostSearchRequest | null = null;
+  private unifiedResponse: UnifiedSearchResponse | null = null;
+  private unifiedRequestId: number | null = null;
+  private loadingMore = false;
 
   constructor(private readonly bridge: HostBridge, shell: HTMLElement) {
     this.repository = new HebrewBooksRepository(bridge);
@@ -57,6 +66,7 @@ export class AppController {
         if (this.snapshot) this.dialog.setOptions(this.snapshot.options);
         this.dialog.open(this.snapshot?.query ?? '');
       },
+      onLoadMore: () => void this.loadMoreUnifiedSearch(),
       onOpenResult: (result) => void this.openResult(result),
       onOpenWebsite: (result) => void this.openWebsite(result),
       onCopyDetails: (result) => void this.copyDetails(result),
@@ -126,6 +136,7 @@ export class AppController {
     }
 
     const requestId = this.latestSearch.begin();
+    this.clearUnifiedSearch();
     this.snapshot = { query, options, fingerprint: createFingerprint(query, options) };
     this.showScreen('results');
     this.results.setSearch(query, null, true);
@@ -147,6 +158,7 @@ export class AppController {
           hebrewBooksTotal: this.resultList.reduce((total, result) => total + result.hitCount, 0),
           truncated: this.resultList.length >= options.limit,
           warnings: [],
+          nextCursor: null,
         });
       }
     } catch (error) {
@@ -164,6 +176,10 @@ export class AppController {
       return;
     }
     const requestId = this.latestSearch.begin();
+    this.unifiedRequest = request;
+    this.unifiedResponse = null;
+    this.unifiedRequestId = requestId;
+    this.loadingMore = false;
     this.snapshot = toHebrewBooksSnapshot(request);
     this.showScreen('results');
     this.results.setSearch(request.query, null, false);
@@ -171,6 +187,7 @@ export class AppController {
     try {
       const response = await this.unifiedSearch.search(request);
       if (!this.latestSearch.isCurrent(requestId)) return;
+      this.unifiedResponse = response;
       this.resultList = response.results
         .filter((result): result is Extract<UnifiedSearchResult, { source: 'hebrewbooks' }> => result.source === 'hebrewbooks')
         .map((result) => result.hit);
@@ -183,6 +200,44 @@ export class AppController {
       this.results.setSearch(request.query, 0, false);
       this.results.showError(messageOf(error));
     }
+  }
+
+  private async loadMoreUnifiedSearch(): Promise<void> {
+    const request = this.unifiedRequest;
+    const current = this.unifiedResponse;
+    const requestId = this.unifiedRequestId;
+    const cursor = current?.nextCursor;
+    if (!request || !current || !cursor || requestId === null || this.loadingMore) return;
+
+    this.loadingMore = true;
+    this.results.setLoadingMore(true);
+    try {
+      const page = await this.unifiedSearch.search(request, cursor);
+      if (!this.latestSearch.isCurrent(requestId)) return;
+      const response = mergeUnifiedSearchResponses(current, page);
+      this.unifiedResponse = response;
+      this.resultList = response.results
+        .filter(
+          (result): result is Extract<UnifiedSearchResult, { source: 'hebrewbooks' }> =>
+            result.source === 'hebrewbooks',
+        )
+        .map((result) => result.hit);
+      this.results.setSearch(request.query, response.results.length, false);
+      this.results.showResults(response);
+    } catch (error) {
+      if (!this.latestSearch.isCurrent(requestId)) return;
+      this.results.setLoadingMore(false);
+      await this.showHostError(messageOf(error));
+    } finally {
+      if (this.latestSearch.isCurrent(requestId)) this.loadingMore = false;
+    }
+  }
+
+  private clearUnifiedSearch(): void {
+    this.unifiedRequest = null;
+    this.unifiedResponse = null;
+    this.unifiedRequestId = null;
+    this.loadingMore = false;
   }
 
   private async openResult(result: UnifiedSearchResult): Promise<void> {

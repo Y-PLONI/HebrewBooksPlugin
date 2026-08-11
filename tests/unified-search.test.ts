@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import type { HebrewBooksResult, HostSearchRequest, OtzariaSearchResponse } from '../src/models';
-import { UnifiedSearchService, toHebrewBooksSnapshot } from '../src/services/unified-search-service';
+import {
+  mergeUnifiedSearchResponses,
+  UnifiedSearchService,
+  toHebrewBooksSnapshot,
+} from '../src/services/unified-search-service';
 import { buildCategoryEntries } from '../src/screens/results-screen';
 
 const request: HostSearchRequest = {
@@ -38,6 +42,18 @@ const hbResults: HebrewBooksResult[] = [
     sourceType: 'PDF',
     relativePath: null,
     hitCount: 2,
+  },
+  {
+    fileId: '12',
+    bookName: 'ספר נוסף',
+    authorName: null,
+    printPlace: null,
+    printYear: null,
+    countPage: null,
+    categories: null,
+    sourceType: 'PDF',
+    relativePath: null,
+    hitCount: 1,
   },
 ];
 
@@ -80,7 +96,7 @@ describe('UnifiedSearchService', () => {
 
   it('places matched HebrewBooks results in the Otzaria category and unmatched results in their own category', async () => {
     const service = new UnifiedSearchService(
-      { search: async () => hbResults },
+      { search: async () => hbResults.slice(0, 2) },
       {
         search: async () => otzariaResponse,
         resolveBooks: async () => [{ id: 70, title: 'מקביל', categoryPath: '/מחשבה/מוסר' }],
@@ -109,6 +125,88 @@ describe('UnifiedSearchService', () => {
 
     expect(response.results).toHaveLength(1);
     expect(response.warnings.join(' ')).toContain('לא מחובר');
+  });
+
+  it('טוען עמוד נוסף מכל מנוע ומאחד ללא כפילויות', async () => {
+    const nativeHits = [
+      otzariaResponse.results[0]!,
+      { ...otzariaResponse.results[0]!, id: 8, bookId: 'ספר 8', book: 'ספר 8', index: 13 },
+      { ...otzariaResponse.results[0]!, id: 9, bookId: 'ספר 9', book: 'ספר 9', index: 14 },
+    ];
+    const nativeOffsets: number[] = [];
+    const hebrewBooksLimits: number[] = [];
+    const service = new UnifiedSearchService(
+      {
+        search: async (snapshot) => {
+          hebrewBooksLimits.push(snapshot.options.limit);
+          return hbResults.slice(0, snapshot.options.limit);
+        },
+      },
+      {
+        search: async (pageRequest) => {
+          const offset = pageRequest.offset ?? 0;
+          const limit = pageRequest.limit ?? 100;
+          nativeOffsets.push(offset);
+          return {
+            ...otzariaResponse,
+            results: nativeHits.slice(offset, offset + limit),
+            total: nativeHits.length,
+            limit,
+            offset,
+          };
+        },
+        resolveBooks: async () => [],
+      },
+      { findBestOtzariaIds: async () => new Map() },
+    );
+    const pagedRequest = { ...request, limit: 2 };
+
+    const first = await service.search(pagedRequest);
+    expect(first.nextCursor).toEqual({
+      otzariaOffset: 2,
+      hebrewBooksOffset: 2,
+      otzariaComplete: false,
+      hebrewBooksComplete: false,
+    });
+    const second = await service.search(pagedRequest, first.nextCursor!);
+    const merged = mergeUnifiedSearchResponses(first, second);
+
+    expect(nativeOffsets).toEqual([0, 2]);
+    expect(hebrewBooksLimits).toEqual([2, 4]);
+    expect(second.nextCursor).toBeNull();
+    expect(merged.results).toHaveLength(6);
+    expect(
+      new Set(
+        merged.results.map((result) =>
+          result.source === 'otzaria'
+            ? `otzaria:${result.hit.bookId}`
+            : `hebrewbooks:${result.hit.fileId}`,
+        ),
+      ),
+    ).toHaveLength(6);
+    expect(merged.truncated).toBe(false);
+  });
+
+  it('אינו שולח שוב בקשה למנוע שכבר הסתיים', async () => {
+    let nativeCalls = 0;
+    const service = new UnifiedSearchService(
+      { search: async (snapshot) => hbResults.slice(0, snapshot.options.limit) },
+      {
+        search: async (pageRequest) => {
+          nativeCalls += 1;
+          return { ...otzariaResponse, limit: pageRequest.limit ?? 100 };
+        },
+        resolveBooks: async () => [],
+      },
+      { findBestOtzariaIds: async () => new Map() },
+    );
+    const pagedRequest = { ...request, limit: 2 };
+
+    const first = await service.search(pagedRequest);
+    expect(first.nextCursor?.otzariaComplete).toBe(true);
+    await service.search(pagedRequest, first.nextCursor!);
+
+    expect(nativeCalls).toBe(1);
   });
 
   it('builds an ancestor-aware category tree with aggregate counts', () => {

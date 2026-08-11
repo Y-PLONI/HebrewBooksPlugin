@@ -61,19 +61,23 @@
         return Promise.resolve({ success: true, error: null, data: [] });
       }
       if (method === 'search.query') {
+        var nativeResults = [
+          { id: 1, type: 'text', source: 'library', bookId: 'משנה ברורה', book: 'משנה ברורה', categoryPath: '/הלכה/אורח חיים', reference: 'סימן רמב', text: 'דיני השבת ומלאכותיה נלמדים מן הפסוקים ומדברי חכמים', index: 42, mergedCount: 1 },
+          { id: 2, type: 'text', source: 'library', bookId: 'מסילת ישרים', book: 'מסילת ישרים', categoryPath: '/מחשבה/מוסר', reference: 'פרק א', text: 'יסוד החסידות ושורש העבודה התמימה הוא שיתברר ויתאמת אצל האדם', index: 7, mergedCount: 1 },
+        ];
+        var nativeOffset = Number(payload.offset || 0);
+        var nativeLimit = Number(payload.limit || 100);
+        var nativePage = nativeResults.slice(nativeOffset, nativeOffset + nativeLimit);
         return Promise.resolve({
           success: true,
           error: null,
           data: {
-            results: [
-              { id: 1, type: 'text', source: 'library', bookId: 'משנה ברורה', book: 'משנה ברורה', categoryPath: '/הלכה/אורח חיים', reference: 'סימן רמב', text: 'דיני השבת ומלאכותיה נלמדים מן הפסוקים ומדברי חכמים', index: 42, mergedCount: 1 },
-              { id: 2, type: 'text', source: 'library', bookId: 'מסילת ישרים', book: 'מסילת ישרים', categoryPath: '/מחשבה/מוסר', reference: 'פרק א', text: 'יסוד החסידות ושורש העבודה התמימה הוא שיתברר ויתאמת אצל האדם', index: 7, mergedCount: 1 },
-            ],
-            total: 2,
+            results: nativePage,
+            total: nativeResults.length,
             groupCount: null,
-            truncated: false,
-            limit: 100,
-            offset: 0,
+            truncated: nativeOffset + nativePage.length < nativeResults.length,
+            limit: nativeLimit,
+            offset: nativeOffset,
             facets: ['/'],
           },
         });
@@ -148,9 +152,12 @@
       (listeners['search.requested'] || []).forEach(function (callback) {
         callback({
           itemId: 'include-hebrewbooks',
-          request: { query: 'שבת', mode: 'exact', order: 'catalogue', limit: 100, distance: 3, facets: ['/'] },
+          request: { query: 'שבת', mode: 'exact', order: 'catalogue', limit: Number(params.get('limit') || 100), distance: 3, facets: ['/'] },
         });
       });
+      if (params.get('loadMore') === '1') {
+        waitFor('.load-more-row .action-button', function (button) { button.click(); });
+      }
       return;
     }
     waitFor('.library-setup-view .action-button', function (button) {

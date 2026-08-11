@@ -675,6 +675,12 @@ ul {
   padding: 16px;
 }
 
+.load-more-row {
+  display: flex;
+  justify-content: center;
+  padding: 4px 0 16px;
+}
+
 .unified-results-layout {
   flex: 1;
   min-height: 0;

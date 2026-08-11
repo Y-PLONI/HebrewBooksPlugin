@@ -1,5 +1,6 @@
 import type { HebrewBooksResult, UnifiedSearchResponse, UnifiedSearchResult } from '../models';
 import {
+  actionButton,
   barButton,
   centeredProgress,
   compactIconButton,
@@ -13,6 +14,7 @@ import {
 interface ResultsHandlers {
   readonly onBack: () => void;
   readonly onEditSearch: () => void;
+  readonly onLoadMore: () => void;
   readonly onOpenResult: (result: UnifiedSearchResult) => void;
   readonly onOpenWebsite: (result: HebrewBooksResult) => void;
   readonly onCopyDetails: (result: HebrewBooksResult) => void;
@@ -34,6 +36,8 @@ export class ResultsScreen {
   private response: UnifiedSearchResponse | null = null;
   private selectedCategory: string | null = null;
   private editable = false;
+  private loadingMore = false;
+  private loadMoreButton: HTMLButtonElement | null = null;
 
   constructor(private readonly handlers: ResultsHandlers) {
     const bar = topBar();
@@ -68,11 +72,17 @@ export class ResultsScreen {
 
   showLoading(): void {
     this.response = null;
+    this.selectedCategory = null;
+    this.loadingMore = false;
+    this.loadMoreButton = null;
     this.body.replaceChildren(centeredProgress());
   }
 
   showNoResults(): void {
     this.response = null;
+    this.selectedCategory = null;
+    this.loadingMore = false;
+    this.loadMoreButton = null;
     this.body.replaceChildren(
       informativeState({
         icon: 'document_search_24_regular',
@@ -87,6 +97,9 @@ export class ResultsScreen {
 
   showError(message: string): void {
     this.response = null;
+    this.selectedCategory = null;
+    this.loadingMore = false;
+    this.loadMoreButton = null;
     this.body.replaceChildren(
       informativeState({
         icon: 'warning_24_regular',
@@ -100,14 +113,27 @@ export class ResultsScreen {
   }
 
   showResults(response: UnifiedSearchResponse): void {
+    const scrollTop = this.body.querySelector<HTMLElement>('.results-list')?.scrollTop ?? 0;
     this.response = response;
-    this.selectedCategory = null;
-    this.renderResults();
+    this.loadingMore = false;
+    this.renderResults(scrollTop);
   }
 
-  private renderResults(): void {
+  setLoadingMore(loading: boolean): void {
+    if (!this.response || this.loadingMore === loading) return;
+    this.loadingMore = loading;
+    if (!this.loadMoreButton) return;
+    this.loadMoreButton.disabled = loading;
+    this.loadMoreButton.replaceChildren(
+      iconElement('arrow_download_24_regular', 18),
+      document.createTextNode(loading ? 'טוען תוצאות נוספות…' : 'טען עוד תוצאות'),
+    );
+  }
+
+  private renderResults(scrollTop = 0): void {
     const response = this.response;
     if (!response) return;
+    this.loadMoreButton = null;
     const layout = element('div', 'unified-results-layout');
     const navigation = element('aside', 'category-navigation');
     navigation.setAttribute('aria-label', 'קטגוריות תוצאות');
@@ -130,9 +156,25 @@ export class ResultsScreen {
     if (response.truncated) content.append(buildTruncatedBanner());
     const list = element('ol', 'results-list');
     visible.forEach((result, index) => list.append(this.buildResultCard(result, index)));
+    if (response.nextCursor) list.append(this.buildLoadMoreRow());
     content.append(list);
     layout.append(navigation, content);
     this.body.replaceChildren(layout);
+    list.scrollTop = scrollTop;
+  }
+
+  private buildLoadMoreRow(): HTMLLIElement {
+    const row = element('li', 'load-more-row');
+    const button = actionButton({
+      text: this.loadingMore ? 'טוען תוצאות נוספות…' : 'טען עוד תוצאות',
+      variant: 'neutral',
+      icon: 'arrow_download_24_regular',
+      onClick: this.handlers.onLoadMore,
+    });
+    button.disabled = this.loadingMore;
+    this.loadMoreButton = button;
+    row.append(button);
+    return row;
   }
 
   private categoryButton(path: string | null, label: string, count: number, depth: number): HTMLButtonElement {

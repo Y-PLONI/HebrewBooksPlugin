@@ -6,11 +6,14 @@ import type {
   ResolvedBook,
   SearchOptions,
   SearchSnapshot,
+  UnifiedSearchCursor,
   UnifiedSearchResponse,
+  UnifiedSearchResult,
 } from '../models';
 
 const hebrewBooksFallbackCategory = 'ספרי היברובוקס';
 const otzariaFallbackCategory = 'ספרי אוצריא';
+const maximumHebrewBooksResults = 500;
 
 interface HebrewBooksSearchSource {
   search(snapshot: SearchSnapshot): Promise<HebrewBooksResult[]>;
@@ -32,15 +35,32 @@ export class UnifiedSearchService {
     private readonly catalog: CatalogMappingSource,
   ) {}
 
-  async search(request: HostSearchRequest): Promise<UnifiedSearchResponse> {
-    const snapshot = toHebrewBooksSnapshot(request);
+  async search(
+    request: HostSearchRequest,
+    cursor: UnifiedSearchCursor = initialCursor(request),
+  ): Promise<UnifiedSearchResponse> {
+    const pageSize = normalizePageSize(request.limit);
+    const hebrewBooksLimit = Math.min(
+      maximumHebrewBooksResults,
+      cursor.hebrewBooksOffset + pageSize,
+    );
+    const snapshot = toHebrewBooksSnapshot({ ...request, limit: hebrewBooksLimit });
     const [otzariaResult, hebrewBooksResult] = await Promise.allSettled([
-      this.otzaria.search(request),
-      this.hebrewBooks.search(snapshot),
+      cursor.otzariaComplete
+        ? Promise.resolve<OtzariaSearchResponse | null>(null)
+        : this.otzaria.search({ ...request, limit: pageSize, offset: cursor.otzariaOffset }),
+      cursor.hebrewBooksComplete
+        ? Promise.resolve<HebrewBooksResult[] | null>(null)
+        : this.hebrewBooks.search(snapshot),
     ]);
     const warnings: string[] = [];
-    const native = otzariaResult.status === 'fulfilled' ? otzariaResult.value : emptyOtzariaResponse();
-    const external = hebrewBooksResult.status === 'fulfilled' ? hebrewBooksResult.value : [];
+    const native = otzariaResult.status === 'fulfilled'
+      ? otzariaResult.value ?? emptyOtzariaResponse()
+      : emptyOtzariaResponse();
+    const externalWindow = hebrewBooksResult.status === 'fulfilled'
+      ? hebrewBooksResult.value ?? []
+      : [];
+    const external = externalWindow.slice(cursor.hebrewBooksOffset, hebrewBooksLimit);
     if (otzariaResult.status === 'rejected') warnings.push(`החיפוש באוצריא נכשל: ${messageOf(otzariaResult.reason)}`);
     if (hebrewBooksResult.status === 'rejected') {
       warnings.push(`החיפוש בהיברובוקס נכשל: ${messageOf(hebrewBooksResult.reason)}`);
@@ -50,6 +70,24 @@ export class UnifiedSearchService {
     }
 
     const hebrewBooksCategories = await this.resolveHebrewBooksCategories(external, warnings);
+    const otzariaOffset = cursor.otzariaOffset + native.results.length;
+    const hebrewBooksOffset = cursor.hebrewBooksOffset + external.length;
+    const expectedNativeTotal = native.groupCount ?? native.total;
+    const otzariaComplete = cursor.otzariaComplete
+      || otzariaResult.status === 'rejected'
+      || native.results.length === 0
+      || otzariaOffset >= expectedNativeTotal;
+    const hebrewBooksComplete = cursor.hebrewBooksComplete
+      || hebrewBooksResult.status === 'rejected'
+      || externalWindow.length < hebrewBooksLimit
+      || hebrewBooksLimit >= maximumHebrewBooksResults;
+    const hebrewBooksCapped = !cursor.hebrewBooksComplete
+      && hebrewBooksResult.status === 'fulfilled'
+      && hebrewBooksLimit >= maximumHebrewBooksResults
+      && externalWindow.length >= maximumHebrewBooksResults;
+    const nextCursor = otzariaComplete && hebrewBooksComplete
+      ? null
+      : { otzariaOffset, hebrewBooksOffset, otzariaComplete, hebrewBooksComplete };
     return {
       results: [
         ...native.results.map((hit) => ({
@@ -65,8 +103,9 @@ export class UnifiedSearchService {
       ],
       otzariaTotal: native.total,
       hebrewBooksTotal: external.reduce((total, hit) => total + hit.hitCount, 0),
-      truncated: native.truncated || external.length >= snapshot.options.limit,
+      truncated: nextCursor !== null || hebrewBooksCapped,
       warnings,
+      nextCursor,
     };
   }
 
@@ -90,6 +129,28 @@ export class UnifiedSearchService {
       return new Map();
     }
   }
+}
+
+export function mergeUnifiedSearchResponses(
+  current: UnifiedSearchResponse,
+  page: UnifiedSearchResponse,
+): UnifiedSearchResponse {
+  const results = new Map<string, UnifiedSearchResult>();
+  for (const result of [...current.results, ...page.results]) {
+    results.set(unifiedResultKey(result), result);
+  }
+  const mergedResults = [...results.values()];
+  return {
+    results: mergedResults,
+    otzariaTotal: Math.max(current.otzariaTotal, page.otzariaTotal),
+    hebrewBooksTotal: mergedResults.reduce(
+      (total, result) => total + (result.source === 'hebrewbooks' ? result.hit.hitCount : 0),
+      0,
+    ),
+    truncated: page.truncated,
+    warnings: [...new Set([...current.warnings, ...page.warnings])],
+    nextCursor: page.nextCursor,
+  };
 }
 
 export function toHebrewBooksSnapshot(request: HostSearchRequest): SearchSnapshot {
@@ -125,6 +186,25 @@ function optionEnabled(
   option: string,
 ): boolean {
   return Object.values(wordOptions ?? {}).some((word) => word[option] === true);
+}
+
+function initialCursor(request: HostSearchRequest): UnifiedSearchCursor {
+  return {
+    otzariaOffset: Math.max(0, request.offset ?? 0),
+    hebrewBooksOffset: 0,
+    otzariaComplete: false,
+    hebrewBooksComplete: false,
+  };
+}
+
+function normalizePageSize(limit: number | undefined): number {
+  return Math.min(500, Math.max(1, limit ?? 100));
+}
+
+function unifiedResultKey(result: UnifiedSearchResult): string {
+  if (result.source === 'hebrewbooks') return `hebrewbooks:${result.hit.fileId}`;
+  const hit = result.hit;
+  return `otzaria:${hit.id ?? ''}:${hit.bookId ?? ''}:${hit.index}:${hit.reference}`;
 }
 
 function normalizeCategory(categoryPath: string | null | undefined, fallback: string): string {
