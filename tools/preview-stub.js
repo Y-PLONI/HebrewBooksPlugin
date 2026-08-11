@@ -60,6 +60,52 @@
       if (method === 'library.findBooks') {
         return Promise.resolve({ success: true, error: null, data: [] });
       }
+      if (method === 'search.query') {
+        return Promise.resolve({
+          success: true,
+          error: null,
+          data: {
+            results: [
+              { id: 1, type: 'text', source: 'library', bookId: 'משנה ברורה', book: 'משנה ברורה', categoryPath: '/הלכה/אורח חיים', reference: 'סימן רמב', text: 'דיני השבת ומלאכותיה נלמדים מן הפסוקים ומדברי חכמים', index: 42, mergedCount: 1 },
+              { id: 2, type: 'text', source: 'library', bookId: 'מסילת ישרים', book: 'מסילת ישרים', categoryPath: '/מחשבה/מוסר', reference: 'פרק א', text: 'יסוד החסידות ושורש העבודה התמימה הוא שיתברר ויתאמת אצל האדם', index: 7, mergedCount: 1 },
+            ],
+            total: 2,
+            groupCount: null,
+            truncated: false,
+            limit: 100,
+            offset: 0,
+            facets: ['/'],
+          },
+        });
+      }
+      if (method === 'database.batchQuery') {
+        return Promise.resolve({
+          success: true,
+          error: null,
+          data: {
+            results: payload.queries.map(function () {
+              return { rows: [
+                { hb_id: 14424, otzaria_id: 101, is_best: 1, confidence: 1 },
+                { hb_id: 9021, otzaria_id: 102, is_best: 1, confidence: 1 },
+              ] };
+            }),
+          },
+        });
+      }
+      if (method === 'library.resolveBooks') {
+        return Promise.resolve({
+          success: true,
+          error: null,
+          data: payload.items.map(function (item) {
+            if (item.id === 101) return { id: 101, type: 'text', source: 'library', bookId: 'שולחן ערוך', title: 'שולחן ערוך', categoryPath: '/הלכה/אורח חיים' };
+            if (item.id === 102) return { id: 102, type: 'text', source: 'library', bookId: 'נודע ביהודה', title: 'נודע ביהודה', categoryPath: '/שו״ת/אחרונים' };
+            return null;
+          }),
+        });
+      }
+      if (method === 'reader.openBook') {
+        return Promise.resolve({ success: true, error: null, data: true });
+      }
       if (method === 'app.openUrl') {
         console.log('[app.openUrl]', payload.url);
         return Promise.resolve({ success: true, error: null, data: true });
@@ -87,7 +133,7 @@
           commentatorsFontSize: 22,
         },
       },
-      permissions: ['network.localhost', 'library.books.read', 'reader.open', 'ui.feedback', 'app.open_url'],
+      permissions: ['network.localhost', 'library.books.read', 'reader.open', 'search.fulltext.read', 'database.read', 'ui.feedback', 'app.open_url'],
     };
     (listeners['plugin.boot'] || []).forEach(function (callback) {
       callback(boot);
@@ -98,6 +144,15 @@
   /* הפעלת המסלול עד למסך המבוקש, כדי לצלם אותו. */
   function drive(screen) {
     if (!screen || screen === 'library') return;
+    if (screen === 'unified') {
+      (listeners['search.requested'] || []).forEach(function (callback) {
+        callback({
+          itemId: 'include-hebrewbooks',
+          request: { query: 'שבת', mode: 'exact', order: 'catalogue', limit: 100, distance: 3, facets: ['/'] },
+        });
+      });
+      return;
+    }
     waitFor('.library-setup-view .action-button', function (button) {
       button.click();
       waitFor('.search-dialog input[type=search]', function (input) {

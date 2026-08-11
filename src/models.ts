@@ -51,6 +51,86 @@ export interface HealthStatus {
   serverVersion: string | null;
 }
 
+export type HostSearchMode = 'exact' | 'advanced' | 'fuzzy';
+
+export interface HostBookIdentity {
+  id?: number | null;
+  bookId?: string;
+  type?: 'text' | 'pdf' | 'docx' | 'epub' | 'external' | null;
+  source?: 'library' | 'user' | 'external' | null;
+  external?: { provider: 'hebrewbooks' | 'otzar'; id: number | string };
+}
+
+export interface HostSearchRequest {
+  query: string;
+  negativeQuery?: string;
+  mode?: HostSearchMode;
+  order?: 'relevance' | 'catalogue' | 'generation';
+  limit?: number;
+  offset?: number;
+  distance?: number;
+  proximityScope?: 'wordDistance' | 'sameParagraph' | 'sameSection';
+  grouping?: 'none' | 'sameSection' | 'identicalText';
+  wordMatchMode?: 'all' | 'anyWord' | 'mostWords' | 'atLeast';
+  wordMatchCount?: number;
+  wordOptions?: Record<string, Record<string, boolean>>;
+  alternativeWords?: Record<string, string[]>;
+  customSpacing?: Record<string, string>;
+  negativeWordOptions?: Record<string, Record<string, boolean>>;
+  negativeAlternativeWords?: Record<string, string[]>;
+  negativeCustomSpacing?: Record<string, string>;
+  facets?: string[];
+}
+
+export interface HostSearchRequestedEvent {
+  itemId: string;
+  request: HostSearchRequest;
+}
+
+export interface OtzariaSearchHit extends HostBookIdentity {
+  book: string;
+  categoryPath: string | null;
+  reference: string;
+  text: string;
+  index: number;
+  mergedCount: number;
+}
+
+export interface OtzariaSearchResponse {
+  results: OtzariaSearchHit[];
+  total: number;
+  groupCount: number | null;
+  truncated: boolean;
+  limit: number;
+  offset: number;
+  facets: string[];
+}
+
+export interface ResolvedBook extends HostBookIdentity {
+  title: string;
+  categoryPath: string | null;
+}
+
+export type UnifiedSearchResult =
+  | {
+      source: 'otzaria';
+      categoryPath: string;
+      hit: OtzariaSearchHit;
+    }
+  | {
+      source: 'hebrewbooks';
+      categoryPath: string;
+      hit: HebrewBooksResult;
+    };
+
+export interface UnifiedSearchResponse {
+  results: UnifiedSearchResult[];
+  otzariaTotal: number;
+  hebrewBooksTotal: number;
+  truncated: boolean;
+  warnings: string[];
+}
+
 export const defaultSearchOptions: SearchOptions = {
   proximity: 30,
   fuzziness: 0,

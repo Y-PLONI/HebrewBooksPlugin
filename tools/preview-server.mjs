@@ -2,7 +2,7 @@
    כדי לבדוק את המסכים בדפדפן בלי אוצריא ובלי השירות האמיתי.
 
    הרצה:  node tools/preview-server.mjs [port]
-   ואז:   http://127.0.0.1:8080/?screen=results        (או library / dialog / viewer)
+   ואז:   http://127.0.0.1:8080/?screen=unified        (או library / dialog / results / viewer)
           http://127.0.0.1:8080/?screen=viewer&mode=dark
 
    הפורט הוא 8080 בכוונה — זו הכתובת שהתוסף פונה אליה בפועל, כך שגם קובץ

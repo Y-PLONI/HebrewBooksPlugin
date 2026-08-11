@@ -1,17 +1,30 @@
 import type { HostBridge } from './bridge';
 import { requireHostData } from './bridge';
-import type { HealthStatus, HebrewBooksResult, SearchOptions, SearchSnapshot } from './models';
+import type {
+  HealthStatus,
+  HebrewBooksResult,
+  HostSearchRequest,
+  HostSearchRequestedEvent,
+  SearchOptions,
+  SearchSnapshot,
+  UnifiedSearchResult,
+} from './models';
+import { CatalogMappingRepository } from './repositories/catalog-mapping-repository';
 import { HebrewBooksRepository } from './repositories/hebrewbooks-repository';
+import { OtzariaSearchRepository } from './repositories/otzaria-search-repository';
 import { LibraryScreen } from './screens/library-screen';
 import { ResultsScreen } from './screens/results-screen';
 import { SearchDialog } from './screens/search-dialog';
 import { ViewerScreen } from './screens/viewer-screen';
+import { UnifiedSearchService, toHebrewBooksSnapshot } from './services/unified-search-service';
 import { applyTheme } from './theme';
 
 type Screen = 'library' | 'results' | 'viewer';
 
 export class AppController {
   private readonly repository: HebrewBooksRepository;
+  private readonly otzariaRepository: OtzariaSearchRepository;
+  private readonly unifiedSearch: UnifiedSearchService;
   private readonly library: LibraryScreen;
   private readonly results: ResultsScreen;
   private readonly viewer: ViewerScreen;
@@ -25,6 +38,12 @@ export class AppController {
 
   constructor(private readonly bridge: HostBridge, shell: HTMLElement) {
     this.repository = new HebrewBooksRepository(bridge);
+    this.otzariaRepository = new OtzariaSearchRepository(bridge);
+    this.unifiedSearch = new UnifiedSearchService(
+      this.repository,
+      this.otzariaRepository,
+      new CatalogMappingRepository(bridge),
+    );
 
     this.library = new LibraryScreen({
       onSearch: () => this.dialog.open(this.snapshot?.query ?? ''),
@@ -37,11 +56,7 @@ export class AppController {
         if (this.snapshot) this.dialog.setOptions(this.snapshot.options);
         this.dialog.open(this.snapshot?.query ?? '');
       },
-      onSortChanged: (sort) => {
-        if (!this.snapshot) return;
-        void this.performSearch(this.snapshot.query, { ...this.snapshot.options, sort });
-      },
-      onOpenBook: (result) => void this.openBook(result),
+      onOpenResult: (result) => void this.openResult(result),
       onOpenWebsite: (result) => void this.openWebsite(result),
       onCopyDetails: (result) => void this.copyDetails(result),
     });
@@ -64,6 +79,10 @@ export class AppController {
       this.dialog.close();
       void this.performSearch(request.query, request.options);
     });
+
+    this.bridge.on('search.requested', ((payload: HostSearchRequestedEvent) => {
+      void this.performUnifiedSearch(payload);
+    }) as (payload: never) => void);
 
     shell.append(this.library.root, this.results.root, this.viewer.root);
     this.showScreen('library');
@@ -108,20 +127,90 @@ export class AppController {
 
     this.snapshot = { query, options, fingerprint: createFingerprint(query, options) };
     this.showScreen('results');
-    this.results.setSearch(this.snapshot, null);
+    this.results.setSearch(query, null, true);
     this.results.showLoading();
     this.searchInFlight = true;
     try {
       this.resultList = await this.repository.search(this.snapshot);
-      this.results.setSearch(this.snapshot, this.resultList.length);
+      this.results.setSearch(query, this.resultList.length, true);
       if (this.resultList.length === 0) this.results.showNoResults();
-      else this.results.showResults(this.resultList, this.resultList.length >= options.limit);
+      else {
+        this.results.showResults({
+          results: this.resultList.map((hit) => ({
+            source: 'hebrewbooks',
+            categoryPath: 'ספרי היברובוקס',
+            hit,
+          })),
+          otzariaTotal: 0,
+          hebrewBooksTotal: this.resultList.reduce((total, result) => total + result.hitCount, 0),
+          truncated: this.resultList.length >= options.limit,
+          warnings: [],
+        });
+      }
     } catch (error) {
       this.resultList = [];
-      this.results.setSearch(this.snapshot, 0);
+      this.results.setSearch(query, 0, true);
       this.results.showError(messageOf(error));
     } finally {
       this.searchInFlight = false;
+    }
+  }
+
+  private async performUnifiedSearch(event: HostSearchRequestedEvent): Promise<void> {
+    const request = event?.request;
+    if (!isHostSearchRequest(request) || this.searchInFlight) {
+      if (!isHostSearchRequest(request)) await this.showHostError('בקשת החיפוש מאוצריא אינה תקינה');
+      return;
+    }
+    this.snapshot = toHebrewBooksSnapshot(request);
+    this.showScreen('results');
+    this.results.setSearch(request.query, null, false);
+    this.results.showLoading();
+    this.searchInFlight = true;
+    try {
+      const response = await this.unifiedSearch.search(request);
+      this.resultList = response.results
+        .filter((result): result is Extract<UnifiedSearchResult, { source: 'hebrewbooks' }> => result.source === 'hebrewbooks')
+        .map((result) => result.hit);
+      this.results.setSearch(request.query, response.results.length, false);
+      if (response.results.length === 0) this.results.showNoResults();
+      else this.results.showResults(response);
+    } catch (error) {
+      this.resultList = [];
+      this.results.setSearch(request.query, 0, false);
+      this.results.showError(messageOf(error));
+    } finally {
+      this.searchInFlight = false;
+    }
+  }
+
+  private async openResult(result: UnifiedSearchResult): Promise<void> {
+    try {
+      if (result.source === 'otzaria') {
+        const { id, bookId, type, source } = result.hit;
+        const opened = await this.otzariaRepository.openBook(
+          { id, bookId, type, source },
+          result.hit.index,
+          this.snapshot?.query ?? '',
+        );
+        if (!opened) throw new Error('לא ניתן היה לפתוח את הספר באוצריא');
+        return;
+      }
+
+      const snapshot = this.snapshot;
+      if (!snapshot) return;
+      const locations = await this.repository.inBook(snapshot, result.hit.fileId);
+      const page = snapshot.options.firstWord || snapshot.options.lastWord ? 1 : locations.pages[0] ?? 1;
+      const externalId = Number(result.hit.fileId);
+      if (!Number.isInteger(externalId) || externalId <= 0) throw new Error('מזהה הספר בהיברובוקס אינו תקין');
+      const opened = await this.otzariaRepository.openBook(
+        { external: { provider: 'hebrewbooks', id: externalId } },
+        Math.max(0, page - 1),
+        snapshot.query,
+      );
+      if (!opened) throw new Error('הספר לא נמצא בקטלוג היברובוקס של אוצריא');
+    } catch (error) {
+      await this.showHostError(messageOf(error));
     }
   }
 
@@ -240,6 +329,16 @@ function isSimpleSearch(options: SearchOptions): boolean {
 
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : 'אירעה שגיאה לא צפויה';
+}
+
+function isHostSearchRequest(value: unknown): value is HostSearchRequest {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const request = value as Record<string, unknown>;
+  return (
+    typeof request.query === 'string' &&
+    request.query.trim() !== '' &&
+    (request.mode === 'exact' || request.mode === 'advanced')
+  );
 }
 
 /// ה-WebView אינו תמיד בהקשר מאובטח, ולכן נשמר גם המסלול הישן של execCommand.

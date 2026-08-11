@@ -2,12 +2,12 @@
   "schemaVersion": 1,
   "id": "org.hebrewbooks2026.otzaria-search",
   "name": "היברובוקס",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "חיפוש וקריאת ספרי HebrewBooks ישירות מתוך אוצריא.",
   "author": "קהילת אוצריא",
   "stability": "experimental",
   "entrypoint": "index.html",
-  "minAppVersion": "0.9.96",
+  "minAppVersion": "0.9.97",
   "sdkVersion": "1.x",
   "permissions": [
     "network.localhost",
@@ -15,6 +15,7 @@
     "database.read",
     "library.books.read",
     "reader.open",
+    "search.fulltext.read",
     "search.dialog",
     "ui.feedback",
     "app.open_url",
@@ -224,6 +225,7 @@
           "type": "checkbox",
           "title": "חפש גם בהיברובוקס",
           "defaultValue": true,
+          "openPluginOnSubmit": true,
           "visibleInModes": ["exact", "advanced"],
           "disabledSearchOptions": {
             "advanced": [

@@ -1,13 +1,14 @@
 # תוסף HebrewBooks לאוצריא
 
-בסיס תוסף לחיפוש בספריית HebrewBooks ולקריאת PDF באמצעות PDF.js, בעיצוב תואם אוצריא.
+תוסף לחיפוש מאוחד באינדקס אוצריא ובספריית HebrewBooks, ולקריאת PDF באמצעות
+PDF.js, בעיצוב תואם אוצריא.
 
 ## שלושת המסכים ומה הם משקפים
 
 | מסך התוסף | הווידג'ט המקביל באוצריא |
 |-----------|--------------------------|
 | מסך פתיחה ("ספרייה ריקה") | `lib/empty_library/empty_library_screen.dart` — `LibrarySetupView` |
-| תוצאות חיפוש | `lib/search/view/tantivy_full_text_search.dart` + `tantivy_search_results.dart` |
+| תוצאות חיפוש מאוחדות | `lib/search/view/tantivy_full_text_search.dart` + `tantivy_search_results.dart` |
 | דיאלוג החיפוש | `lib/search/view/search_dialog.dart` |
 | מסך PDF | `lib/pdf_book/view/pdf_book_screen.dart` (עם `pdf_zoom_bar`, `pdf_scrollbar`, `pdf_thumbnails_screen`, `pdf_outlines_screen`) |
 
@@ -49,7 +50,7 @@ SDK מדומה (`tools/preview-stub.js`) שכולל את ערכות הצבעים
 ```bash
 python3 tools/make_sample_pdf.py tools/sample.pdf   # נדרש רק בפעם הראשונה
 npm run dev
-# http://127.0.0.1:8080/?screen=library | results | dialog | viewer
+# http://127.0.0.1:8080/?screen=library | results | unified | dialog | viewer
 # פרמטרים נוספים: &mode=dark, &tab=navigation|search|thumbnails
 ```
 
@@ -62,6 +63,11 @@ node tools/screenshot.mjs "http://127.0.0.1:8080/?screen=viewer" shot.png 1400 9
 
 ## תלות בשירות המקומי
 
-התוסף פונה ל־`http://127.0.0.1:8080` ומצפה לנתיבים `/health`, `/search`, `/inbook` ו־`/pdf/<fileId>`. הקורא דורש שירות שמצהיר ב־`/health` על `apiVersion` 2 ועל capability בשם `pdf-range`.
+התוסף פונה ל־`http://127.0.0.1:8080` ומצפה לנתיבים `/health`, `/search`,
+`/inbook` ו־`/pdf/<fileId>`. הקורא דורש שירות שמצהיר ב־`/health` על
+`apiVersion` 2 ועל capability בשם `pdf-range`.
 
-הרחבת השירות ומנגנון ההזרקה העתידי של אוצריא אינם חלק מבסיס זה.
+החיפוש המאוחד דורש אוצריא 0.9.97 ומעלה. סימון "חפש גם בהיברובוקס" מפעיל
+במקביל את האינדקס המקומי של אוצריא ואת שירות HebrewBooks. ספרי HebrewBooks
+שנמצאה להם מהדורה מקבילה מקבלים את קטגוריית אוצריא; היתר מוצגים תחת
+"ספרי היברובוקס".
