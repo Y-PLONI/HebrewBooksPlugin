@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "org.hebrewbooks2026.otzaria-search",
   "name": "היברובוקס",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "חיפוש וקריאת ספרי HebrewBooks ישירות מתוך אוצריא.",
   "author": "קהילת אוצריא",
   "stability": "experimental",
@@ -11,6 +11,8 @@
   "sdkVersion": "1.x",
   "permissions": [
     "network.localhost",
+    "app.startup_contributions",
+    "database.read",
     "library.books.read",
     "reader.open",
     "ui.feedback",
@@ -28,6 +30,193 @@
       "allowOrderBeforeBuiltIns": false,
       "defaultPinned": true,
       "iconName": "book_search_24_regular"
+    },
+    "databaseSources": [
+      {
+        "id": "external_catalog",
+        "label": "קטלוגים חיצוניים",
+        "required": true
+      }
+    ],
+    "startup": {
+      "programs": [
+        {
+          "id": "find-hebrewbooks-editions",
+          "version": 1,
+          "triggers": ["reader.activeBookChanged"],
+          "when": {
+            "op": "and",
+            "conditions": [
+              {
+                "op": "equals",
+                "left": { "$context": "reader.book.type" },
+                "right": { "$literal": "text" }
+              },
+              {
+                "op": "equals",
+                "left": { "$context": "reader.book.source" },
+                "right": { "$literal": "library" }
+              },
+              {
+                "op": "exists",
+                "value": { "$context": "reader.book.id" }
+              },
+              {
+                "op": "notEquals",
+                "left": { "$context": "reader.book.external.provider" },
+                "right": { "$literal": "hebrewbooks" }
+              }
+            ]
+          },
+          "commands": [
+            {
+              "id": "matches",
+              "type": "database.select",
+              "args": {
+                "sourceId": "external_catalog",
+                "from": {
+                  "table": "otzaria_hebrew_books",
+                  "alias": "m"
+                },
+                "joins": [
+                  {
+                    "type": "left",
+                    "table": "hebrew_books",
+                    "alias": "h",
+                    "on": [
+                      {
+                        "left": "m.hb_id",
+                        "op": "=",
+                        "right": "h.id_book"
+                      }
+                    ]
+                  }
+                ],
+                "select": [
+                  { "expr": "m.hb_id", "as": "hb_id" },
+                  { "expr": "h.title", "as": "title" },
+                  { "expr": "h.author", "as": "author" },
+                  { "expr": "m.is_best", "as": "is_best" },
+                  { "expr": "m.confidence", "as": "confidence" }
+                ],
+                "where": {
+                  "op": "=",
+                  "left": "m.otzaria_id",
+                  "value": { "$context": "reader.book.id" }
+                },
+                "orderBy": [
+                  { "expr": "m.is_best", "direction": "desc" },
+                  { "expr": "m.confidence", "direction": "desc" },
+                  { "expr": "m.hb_id", "direction": "asc" }
+                ],
+                "limit": 20,
+                "rowFormat": "object"
+              }
+            },
+            {
+              "id": "resolved",
+              "type": "library.resolveBooks",
+              "args": {
+                "items": { "$result": "matches.rows" },
+                "identity": {
+                  "external": {
+                    "provider": { "$literal": "hebrewbooks" },
+                    "id": { "$row": "hb_id" }
+                  }
+                },
+                "keepInputFields": true,
+                "limit": 20
+              }
+            },
+            {
+              "id": "defaultEdition",
+              "type": "data.first",
+              "args": {
+                "items": { "$result": "resolved" }
+              }
+            }
+          ],
+          "outputs": {
+            "editions": { "$result": "resolved" },
+            "defaultEdition": { "$result": "defaultEdition" }
+          }
+        },
+        {
+          "id": "find-otzaria-editions",
+          "version": 1,
+          "triggers": ["reader.activeBookChanged"],
+          "when": {
+            "op": "and",
+            "conditions": [
+              {
+                "op": "equals",
+                "left": { "$context": "reader.book.external.provider" },
+                "right": { "$literal": "hebrewbooks" }
+              },
+              {
+                "op": "exists",
+                "value": { "$context": "reader.book.external.id" }
+              }
+            ]
+          },
+          "commands": [
+            {
+              "id": "matches",
+              "type": "database.select",
+              "args": {
+                "sourceId": "external_catalog",
+                "from": {
+                  "table": "otzaria_hebrew_books",
+                  "alias": "m"
+                },
+                "select": [
+                  { "expr": "m.otzaria_id", "as": "otzaria_id" },
+                  { "expr": "m.otzaria_title", "as": "title" },
+                  { "expr": "m.is_best", "as": "is_best" },
+                  { "expr": "m.confidence", "as": "confidence" }
+                ],
+                "where": {
+                  "op": "=",
+                  "left": "m.hb_id",
+                  "value": { "$context": "reader.book.external.id" }
+                },
+                "orderBy": [
+                  { "expr": "m.is_best", "direction": "desc" },
+                  { "expr": "m.confidence", "direction": "desc" },
+                  { "expr": "m.otzaria_id", "direction": "asc" }
+                ],
+                "limit": 20,
+                "rowFormat": "object"
+              }
+            },
+            {
+              "id": "resolved",
+              "type": "library.resolveBooks",
+              "args": {
+                "items": { "$result": "matches.rows" },
+                "identity": {
+                  "id": { "$row": "otzaria_id" },
+                  "type": { "$literal": "text" },
+                  "source": { "$literal": "library" }
+                },
+                "keepInputFields": true,
+                "limit": 20
+              }
+            },
+            {
+              "id": "defaultEdition",
+              "type": "data.first",
+              "args": {
+                "items": { "$result": "resolved" }
+              }
+            }
+          ],
+          "outputs": {
+            "editions": { "$result": "resolved" },
+            "defaultEdition": { "$result": "defaultEdition" }
+          }
+        }
+      ]
     },
     "publishedDataTypes": []
   }
