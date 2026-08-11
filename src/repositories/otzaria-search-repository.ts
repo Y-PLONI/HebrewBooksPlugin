@@ -3,20 +3,20 @@ import { requireHostData } from '../bridge';
 import type {
   HostBookIdentity,
   HostSearchRequest,
+  OtzariaSearchChunk,
   OtzariaSearchHit,
-  OtzariaSearchResponse,
   ResolvedBook,
 } from '../models';
 
 export class OtzariaSearchRepository {
   constructor(private readonly bridge: HostBridge) {}
 
-  async search(request: HostSearchRequest): Promise<OtzariaSearchResponse> {
-    const data = await requireHostData<unknown>(this.bridge, 'search.query', {
+  async *search(request: HostSearchRequest): AsyncIterable<OtzariaSearchChunk> {
+    const stream = this.bridge.call('search.query', {
       ...request,
       includeBookCounts: false,
     });
-    return parseSearchResponse(data);
+    for await (const chunk of stream) yield parseSearchChunk(chunk);
   }
 
   async resolveBooks(identities: HostBookIdentity[]): Promise<Array<ResolvedBook | null>> {
@@ -38,13 +38,14 @@ export class OtzariaSearchRepository {
   }
 }
 
-function parseSearchResponse(value: unknown): OtzariaSearchResponse {
+function parseSearchChunk(value: unknown): OtzariaSearchChunk {
   if (!isRecord(value) || !Array.isArray(value.results)) {
     throw new Error('אוצריא החזירה תשובת חיפוש לא תקינה');
   }
   return {
+    sequence: nonNegativeInteger(value.sequence, 'sequence'),
     results: value.results.map(parseSearchHit),
-    total: nonNegativeInteger(value.total, 'total'),
+    total: value.total === null ? null : nonNegativeInteger(value.total, 'total'),
     groupCount: value.groupCount === null ? null : nonNegativeInteger(value.groupCount, 'groupCount'),
     truncated: value.truncated === true,
     limit: nonNegativeInteger(value.limit, 'limit'),

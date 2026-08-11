@@ -4,6 +4,17 @@ interface OtzariaResponse<T = unknown> {
   error: { code: string; message: string } | null;
 }
 
+interface OtzariaSearchChunk {
+  sequence: number;
+  results: unknown[];
+  total: number | null;
+  groupCount: number | null;
+  truncated: boolean;
+  limit: number;
+  offset: number;
+  facets: string[];
+}
+
 /// ערכת הצבעים שאוצריא שולחת — כל תפקידי ה-ColorScheme של Material 3,
 /// בדיוק כפי שהם מחושבים ב-buildThemePayloadFromScheme.
 interface OtzariaColorScheme {
@@ -62,6 +73,10 @@ interface OtzariaBootPayload {
 
 interface Window {
   Otzaria?: {
+    call(
+      method: 'search.query',
+      payload: Record<string, unknown>,
+    ): AsyncIterable<OtzariaSearchChunk>;
     call<T = unknown>(method: string, payload?: Record<string, unknown>): Promise<OtzariaResponse<T>>;
     on(event: string, callback: (payload: never) => void): void;
     off(event: string, callback: (payload: never) => void): void;

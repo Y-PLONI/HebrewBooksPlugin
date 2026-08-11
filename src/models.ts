@@ -106,6 +106,11 @@ export interface OtzariaSearchResponse {
   facets: string[];
 }
 
+export type OtzariaSearchChunk = Omit<OtzariaSearchResponse, 'total'> & {
+  sequence: number;
+  total: number | null;
+};
+
 export interface ResolvedBook extends HostBookIdentity {
   title: string;
   categoryPath: string | null;

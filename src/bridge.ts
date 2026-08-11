@@ -1,10 +1,16 @@
+import type { OtzariaSearchChunk } from './models';
+
 export interface HostBridge {
+  call(
+    method: 'search.query',
+    payload: Record<string, unknown>,
+  ): AsyncIterable<OtzariaSearchChunk>;
   call<T>(method: string, payload?: Record<string, unknown>): Promise<OtzariaResponse<T>>;
   on(event: string, callback: (payload: never) => void): void;
 }
 
 export function getHostBridge(): HostBridge | null {
-  return window.Otzaria ?? null;
+  return (window.Otzaria as HostBridge | undefined) ?? null;
 }
 
 export async function requireHostData<T>(

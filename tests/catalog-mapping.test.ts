@@ -6,7 +6,7 @@ describe('CatalogMappingRepository', () => {
   it('chunks ids by the database policy and batches at most two queries per RPC', async () => {
     const batchSizes: number[] = [];
     const bridge: HostBridge = {
-      call: async <T>(method: string, payload?: Record<string, unknown>) => {
+      call: (async <T>(method: string, payload?: Record<string, unknown>) => {
         expect(method).toBe('database.batchQuery');
         const queries = (payload?.queries ?? []) as Array<Record<string, unknown>>;
         batchSizes.push(queries.length);
@@ -18,7 +18,7 @@ describe('CatalogMappingRepository', () => {
           };
         });
         return { success: true, data: { results } as T, error: null };
-      },
+      }) as HostBridge['call'],
       on: () => {},
     };
     const repository = new CatalogMappingRepository(bridge);

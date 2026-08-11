@@ -2,6 +2,7 @@ import type {
   HebrewBooksResult,
   HostBookIdentity,
   HostSearchRequest,
+  OtzariaSearchChunk,
   OtzariaSearchResponse,
   ResolvedBook,
   SearchOptions,
@@ -20,7 +21,7 @@ interface HebrewBooksSearchSource {
 }
 
 interface OtzariaSearchSource {
-  search(request: HostSearchRequest): Promise<OtzariaSearchResponse>;
+  search(request: HostSearchRequest): AsyncIterable<OtzariaSearchChunk>;
   resolveBooks(identities: HostBookIdentity[]): Promise<Array<ResolvedBook | null>>;
 }
 
@@ -38,7 +39,7 @@ export class UnifiedSearchService {
   async search(
     request: HostSearchRequest,
     cursor: UnifiedSearchCursor = initialCursor(request),
-    onOtzariaReady?: (response: UnifiedSearchResponse) => void,
+    onOtzariaReady?: (response: UnifiedSearchResponse) => boolean | void,
   ): Promise<UnifiedSearchResponse> {
     const pageSize = normalizePageSize(request.limit);
     const hebrewBooksLimit = Math.min(
@@ -48,12 +49,12 @@ export class UnifiedSearchService {
     const snapshot = toHebrewBooksSnapshot({ ...request, limit: hebrewBooksLimit });
     const otzariaSearch = cursor.otzariaComplete
       ? Promise.resolve<OtzariaSearchResponse | null>(null)
-      : this.otzaria.search({ ...request, limit: pageSize, offset: cursor.otzariaOffset });
-    if (onOtzariaReady) {
-      void otzariaSearch.then((native) => {
-        if (native) onOtzariaReady(otzariaOnlyResponse(native));
-      }).catch(() => undefined);
-    }
+      : collectOtzariaSearch(
+          this.otzaria.search({ ...request, limit: pageSize, offset: cursor.otzariaOffset }),
+          pageSize,
+          cursor.otzariaOffset,
+          onOtzariaReady,
+        );
     const [otzariaResult, hebrewBooksResult] = await Promise.allSettled([
       otzariaSearch,
       cursor.hebrewBooksComplete
@@ -222,6 +223,30 @@ function normalizeCategory(categoryPath: string | null | undefined, fallback: st
 
 function emptyOtzariaResponse(): OtzariaSearchResponse {
   return { results: [], total: 0, groupCount: null, truncated: false, limit: 0, offset: 0, facets: [] };
+}
+
+async function collectOtzariaSearch(
+  chunks: AsyncIterable<OtzariaSearchChunk>,
+  limit: number,
+  offset: number,
+  onUpdate?: (response: UnifiedSearchResponse) => boolean | void,
+): Promise<OtzariaSearchResponse> {
+  const response: OtzariaSearchResponse = {
+    ...emptyOtzariaResponse(),
+    limit,
+    offset,
+  };
+  for await (const chunk of chunks) {
+    response.results.push(...chunk.results);
+    response.total = chunk.total ?? response.total;
+    response.groupCount = chunk.groupCount ?? response.groupCount;
+    response.truncated = chunk.truncated;
+    response.limit = chunk.limit;
+    response.offset = chunk.offset;
+    response.facets = chunk.facets;
+    if (onUpdate?.(otzariaOnlyResponse(response)) === false) break;
+  }
+  return response;
 }
 
 function otzariaOnlyResponse(native: OtzariaSearchResponse): UnifiedSearchResponse {

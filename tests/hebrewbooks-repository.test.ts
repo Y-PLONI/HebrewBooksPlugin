@@ -17,14 +17,14 @@ describe('HebrewBooksRepository', () => {
   it('allows two minutes for a HebrewBooks search', async () => {
     let payload: Record<string, unknown> | undefined;
     const bridge: HostBridge = {
-      call: async <T>(_method: string, request?: Record<string, unknown>) => {
+      call: (async <T>(_method: string, request?: Record<string, unknown>) => {
         payload = request;
         return {
           success: true,
           data: { status: 200, ok: true, body: '' } as T,
           error: null,
         };
-      },
+      }) as HostBridge['call'],
       on: () => undefined,
     };
 

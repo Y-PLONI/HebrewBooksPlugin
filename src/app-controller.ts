@@ -186,9 +186,10 @@ export class AppController {
     this.results.showLoading();
     try {
       const response = await this.unifiedSearch.search(request, undefined, (partial) => {
-        if (!this.latestSearch.isCurrent(requestId)) return;
+        if (!this.latestSearch.isCurrent(requestId)) return false;
         this.results.setSearch(request.query, partial.results.length, false);
         this.results.showPartialResults(partial, 'תוצאות אוצריא מוכנות; החיפוש בהיברובוקס ממשיך…');
+        return true;
       });
       if (!this.latestSearch.isCurrent(requestId)) return;
       this.unifiedResponse = response;

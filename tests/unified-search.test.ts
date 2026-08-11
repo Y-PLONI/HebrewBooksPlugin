@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type {
   HebrewBooksResult,
   HostSearchRequest,
+  OtzariaSearchChunk,
   OtzariaSearchResponse,
   UnifiedSearchResponse,
 } from '../src/models';
@@ -10,7 +11,7 @@ import {
   UnifiedSearchService,
   toHebrewBooksSnapshot,
 } from '../src/services/unified-search-service';
-import { buildCategoryEntries } from '../src/screens/results-screen';
+import { buildCategoryTree, collectBooks, facetMatches } from '../src/screens/results-screen';
 
 const request: HostSearchRequest = {
   query: 'חכמה בינה',
@@ -85,6 +86,12 @@ const otzariaResponse: OtzariaSearchResponse = {
   facets: ['/'],
 };
 
+async function* searchChunks(
+  response: OtzariaSearchResponse,
+): AsyncIterable<OtzariaSearchChunk> {
+  yield { ...response, sequence: 0 };
+}
+
 describe('UnifiedSearchService', () => {
   it('maps the host options supported by HebrewBooks and always preserves word order', () => {
     const snapshot = toHebrewBooksSnapshot(request);
@@ -109,7 +116,7 @@ describe('UnifiedSearchService', () => {
     const service = new UnifiedSearchService(
       { search: async () => hbResults.slice(0, 2) },
       {
-        search: async () => otzariaResponse,
+        search: () => searchChunks(otzariaResponse),
         resolveBooks: async () => [{ id: 70, title: 'מקביל', categoryPath: '/מחשבה/מוסר' }],
       },
       { findBestOtzariaIds: async () => new Map([['10', 70]]) },
@@ -128,7 +135,7 @@ describe('UnifiedSearchService', () => {
   it('returns Otzaria results with a warning when the local HebrewBooks server fails', async () => {
     const service = new UnifiedSearchService(
       { search: async () => { throw new Error('לא מחובר'); } },
-      { search: async () => otzariaResponse, resolveBooks: async () => [] },
+      { search: () => searchChunks(otzariaResponse), resolveBooks: async () => [] },
       { findBestOtzariaIds: async () => new Map() },
     );
 
@@ -145,7 +152,7 @@ describe('UnifiedSearchService', () => {
     });
     const service = new UnifiedSearchService(
       { search: async () => hebrewBooksPending },
-      { search: async () => otzariaResponse, resolveBooks: async () => [] },
+      { search: () => searchChunks(otzariaResponse), resolveBooks: async () => [] },
       { findBestOtzariaIds: async () => new Map() },
     );
     let partial: UnifiedSearchResponse | undefined;
@@ -168,6 +175,48 @@ describe('UnifiedSearchService', () => {
     await fullSearch;
   });
 
+  it('publishes every Otzaria chunk and accumulates the final response', async () => {
+    async function* nativeChunks(): AsyncIterable<OtzariaSearchChunk> {
+      yield { ...otzariaResponse, sequence: 0, results: [], total: 1 };
+      yield { ...otzariaResponse, sequence: 1 };
+    }
+    const service = new UnifiedSearchService(
+      { search: async () => [] },
+      { search: nativeChunks, resolveBooks: async () => [] },
+      { findBestOtzariaIds: async () => new Map() },
+    );
+    const publishedSizes: number[] = [];
+
+    const response = await service.search(request, undefined, (partial) => {
+      publishedSizes.push(partial.results.length);
+    });
+
+    expect(publishedSizes).toEqual([0, 1]);
+    expect(response.results).toHaveLength(1);
+    expect(response.otzariaTotal).toBe(1);
+  });
+
+  it('closes the Otzaria iterator when the caller rejects a stale update', async () => {
+    let closed = false;
+    async function* nativeChunks(): AsyncIterable<OtzariaSearchChunk> {
+      try {
+        yield { ...otzariaResponse, sequence: 0 };
+        yield { ...otzariaResponse, sequence: 1, results: [] };
+      } finally {
+        closed = true;
+      }
+    }
+    const service = new UnifiedSearchService(
+      { search: async () => [] },
+      { search: nativeChunks, resolveBooks: async () => [] },
+      { findBestOtzariaIds: async () => new Map() },
+    );
+
+    await service.search(request, undefined, () => false);
+
+    expect(closed).toBe(true);
+  });
+
   it('טוען עמוד נוסף מכל מנוע ומאחד ללא כפילויות', async () => {
     const nativeHits = [
       otzariaResponse.results[0]!,
@@ -184,17 +233,17 @@ describe('UnifiedSearchService', () => {
         },
       },
       {
-        search: async (pageRequest) => {
+        search: (pageRequest) => {
           const offset = pageRequest.offset ?? 0;
           const limit = pageRequest.limit ?? 100;
           nativeOffsets.push(offset);
-          return {
+          return searchChunks({
             ...otzariaResponse,
             results: nativeHits.slice(offset, offset + limit),
             total: nativeHits.length,
             limit,
             offset,
-          };
+          });
         },
         resolveBooks: async () => [],
       },
@@ -233,9 +282,9 @@ describe('UnifiedSearchService', () => {
     const service = new UnifiedSearchService(
       { search: async (snapshot) => hbResults.slice(0, snapshot.options.limit) },
       {
-        search: async (pageRequest) => {
+        search: (pageRequest) => {
           nativeCalls += 1;
-          return { ...otzariaResponse, limit: pageRequest.limit ?? 100 };
+          return searchChunks({ ...otzariaResponse, limit: pageRequest.limit ?? 100 });
         },
         resolveBooks: async () => [],
       },
@@ -250,15 +299,40 @@ describe('UnifiedSearchService', () => {
     expect(nativeCalls).toBe(1);
   });
 
-  it('builds an ancestor-aware category tree with aggregate counts', () => {
-    const entries = buildCategoryEntries([
+  it('builds an ancestor-aware category tree with aggregate counts and book leaves', () => {
+    const tree = buildCategoryTree([
       { source: 'otzaria', categoryPath: '/הלכה/אחרונים', hit: otzariaResponse.results[0]! },
       { source: 'hebrewbooks', categoryPath: '/הלכה/שו״ת', hit: hbResults[0]! },
       { source: 'hebrewbooks', categoryPath: 'ספרי היברובוקס', hit: hbResults[1]! },
     ]);
 
-    expect(entries.find((entry) => entry.path === '/הלכה')?.count).toBe(2);
-    expect(entries.find((entry) => entry.path === '/הלכה/אחרונים')?.depth).toBe(1);
-    expect(entries.find((entry) => entry.path === 'ספרי היברובוקס')?.count).toBe(1);
+    const halacha = tree.find((node) => node.path === '/הלכה');
+    expect(halacha?.count).toBe(2);
+    expect(halacha?.children.map((node) => [node.path, node.depth, node.count])).toEqual([
+      ['/הלכה/אחרונים', 1, 1],
+      ['/הלכה/שו״ת', 1, 1],
+    ]);
+    expect(tree.find((node) => node.path === 'ספרי היברובוקס')?.count).toBe(1);
+    expect(collectBooks(tree).map((book) => book.title)).toEqual([
+      'ספר אוצריא',
+      hbResults[0]!.bookName,
+      hbResults[1]!.bookName,
+    ]);
+  });
+
+  it('matches a category facet on its whole subtree and a book facet on one book only', () => {
+    const inSubCategory = {
+      source: 'otzaria',
+      categoryPath: '/הלכה/אחרונים',
+      hit: otzariaResponse.results[0]!,
+    } as const;
+    const elsewhere = { source: 'hebrewbooks', categoryPath: 'ספרי היברובוקס', hit: hbResults[1]! } as const;
+    const bookFacet = collectBooks(buildCategoryTree([inSubCategory]))[0]!.facet;
+
+    expect(facetMatches(null, elsewhere)).toBe(true);
+    expect(facetMatches('/הלכה', inSubCategory)).toBe(true);
+    expect(facetMatches('/הלכה', elsewhere)).toBe(false);
+    expect(facetMatches(bookFacet, inSubCategory)).toBe(true);
+    expect(facetMatches(bookFacet, elsewhere)).toBe(false);
   });
 });
