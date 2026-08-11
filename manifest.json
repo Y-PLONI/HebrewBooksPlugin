@@ -15,6 +15,7 @@
     "database.read",
     "library.books.read",
     "reader.open",
+    "search.dialog",
     "ui.feedback",
     "app.open_url",
     "events.subscribe:theme.changed"
@@ -214,6 +215,29 @@
           "outputs": {
             "editions": { "$result": "resolved" },
             "defaultEdition": { "$result": "defaultEdition" }
+          }
+        }
+      ],
+      "searchDialogItems": [
+        {
+          "id": "include-hebrewbooks",
+          "type": "checkbox",
+          "title": "חפש גם בהיברובוקס",
+          "defaultValue": true,
+          "visibleInModes": ["exact", "advanced"],
+          "disabledSearchOptions": {
+            "advanced": [
+              "word.grammatical-suffixes",
+              "word.prefixes",
+              "word.suffixes",
+              "word.partial",
+              "word.typo-tolerance",
+              "word.aramaic-prefixes",
+              "word.aramaic-suffixes",
+              "word.ignore-quotes",
+              "word.nikud",
+              "word.taamim"
+            ]
           }
         }
       ]
