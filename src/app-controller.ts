@@ -16,6 +16,7 @@ import { LibraryScreen } from './screens/library-screen';
 import { ResultsScreen } from './screens/results-screen';
 import { SearchDialog } from './screens/search-dialog';
 import { ViewerScreen } from './screens/viewer-screen';
+import { LatestRequest } from './services/latest-request';
 import { UnifiedSearchService, toHebrewBooksSnapshot } from './services/unified-search-service';
 import { applyTheme } from './theme';
 
@@ -34,7 +35,7 @@ export class AppController {
   private snapshot: SearchSnapshot | null = null;
   private resultList: HebrewBooksResult[] = [];
   private selectedResult: HebrewBooksResult | null = null;
-  private searchInFlight = false;
+  private readonly latestSearch = new LatestRequest();
 
   constructor(private readonly bridge: HostBridge, shell: HTMLElement) {
     this.repository = new HebrewBooksRepository(bridge);
@@ -111,7 +112,6 @@ export class AppController {
 
   private async performSearch(rawQuery: string, options: SearchOptions): Promise<void> {
     const query = rawQuery.trim();
-    if (this.searchInFlight) return;
     if (query.length === 0) {
       await this.showHostError('יש להזין מילות חיפוש');
       return;
@@ -125,13 +125,15 @@ export class AppController {
       return;
     }
 
+    const requestId = this.latestSearch.begin();
     this.snapshot = { query, options, fingerprint: createFingerprint(query, options) };
     this.showScreen('results');
     this.results.setSearch(query, null, true);
     this.results.showLoading();
-    this.searchInFlight = true;
     try {
-      this.resultList = await this.repository.search(this.snapshot);
+      const resultList = await this.repository.search(this.snapshot);
+      if (!this.latestSearch.isCurrent(requestId)) return;
+      this.resultList = resultList;
       this.results.setSearch(query, this.resultList.length, true);
       if (this.resultList.length === 0) this.results.showNoResults();
       else {
@@ -148,27 +150,27 @@ export class AppController {
         });
       }
     } catch (error) {
+      if (!this.latestSearch.isCurrent(requestId)) return;
       this.resultList = [];
       this.results.setSearch(query, 0, true);
       this.results.showError(messageOf(error));
-    } finally {
-      this.searchInFlight = false;
     }
   }
 
   private async performUnifiedSearch(event: HostSearchRequestedEvent): Promise<void> {
     const request = event?.request;
-    if (!isHostSearchRequest(request) || this.searchInFlight) {
-      if (!isHostSearchRequest(request)) await this.showHostError('בקשת החיפוש מאוצריא אינה תקינה');
+    if (!isHostSearchRequest(request)) {
+      await this.showHostError('בקשת החיפוש מאוצריא אינה תקינה');
       return;
     }
+    const requestId = this.latestSearch.begin();
     this.snapshot = toHebrewBooksSnapshot(request);
     this.showScreen('results');
     this.results.setSearch(request.query, null, false);
     this.results.showLoading();
-    this.searchInFlight = true;
     try {
       const response = await this.unifiedSearch.search(request);
+      if (!this.latestSearch.isCurrent(requestId)) return;
       this.resultList = response.results
         .filter((result): result is Extract<UnifiedSearchResult, { source: 'hebrewbooks' }> => result.source === 'hebrewbooks')
         .map((result) => result.hit);
@@ -176,11 +178,10 @@ export class AppController {
       if (response.results.length === 0) this.results.showNoResults();
       else this.results.showResults(response);
     } catch (error) {
+      if (!this.latestSearch.isCurrent(requestId)) return;
       this.resultList = [];
       this.results.setSearch(request.query, 0, false);
       this.results.showError(messageOf(error));
-    } finally {
-      this.searchInFlight = false;
     }
   }
 
