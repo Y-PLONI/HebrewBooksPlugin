@@ -1,0 +1,175 @@
+name: Build and release
+
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: hebrewbooks-plugin-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-plugin:
+    name: Verify and package plugin
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      tag: ${{ steps.meta.outputs.tag }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify and build
+        run: npm run verify
+
+      - name: Determine version and tag
+        id: meta
+        shell: bash
+        run: |
+          version="$(node -p "require('./manifest.json').version")"
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Invalid version in manifest.json: '$version' (expected X.Y.Z)" >&2
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+
+      - name: Package commit artifact
+        shell: bash
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          mkdir -p build/plugin
+          (
+            cd dist
+            zip -q -r "../build/plugin/HebrewBooks-$VERSION.otzplugin" .
+          )
+
+      - name: Upload plugin build
+        uses: actions/upload-artifact@v4
+        with:
+          name: plugin-build-${{ github.sha }}
+          path: |
+            dist/
+            build/plugin/*.otzplugin
+          if-no-files-found: error
+          retention-days: 14
+
+  build-installer:
+    name: Build Windows installer
+    needs: build-plugin
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download plugin build
+        uses: actions/download-artifact@v4
+        with:
+          name: plugin-build-${{ github.sha }}
+          path: build-input
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup --no-progress -y
+
+      - name: Prepare and compile installer
+        shell: pwsh
+        env:
+          VERSION: ${{ needs.build-plugin.outputs.version }}
+        run: |
+          $plugins = @(Get-ChildItem 'build-input/build/plugin/*.otzplugin')
+          if ($plugins.Count -ne 1) {
+            throw "Expected one plugin archive, found $($plugins.Count)."
+          }
+          $plugin = $plugins[0]
+          $commit = '${{ github.sha }}'
+          $suffix = if ('${{ github.ref }}' -eq 'refs/heads/main') {
+            ''
+          } else {
+            '-' + $commit.Substring(0, 12)
+          }
+          ./installer/Prepare-Installer.ps1 `
+            -PluginArchive $plugin.FullName `
+            -AppVersion $env:VERSION `
+            -OutputSuffix $suffix
+
+      - name: Upload installer build
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer-${{ github.sha }}
+          path: |
+            installer/output/*.exe
+            build-input/build/plugin/*.otzplugin
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    name: Publish to store and GitHub Release
+    if: github.ref == 'refs/heads/main'
+    needs: [build-plugin, build-installer]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download plugin build
+        uses: actions/download-artifact@v4
+        with:
+          name: plugin-build-${{ github.sha }}
+          path: build-input
+
+      - name: Download Windows installer
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-installer-${{ github.sha }}
+          path: release-input
+
+      - name: Validate, package and publish to otzaria.org
+        id: otzaria
+        uses: Otzaria/otzaria-plugin-validator@v1
+        with:
+          path: build-input/dist
+          otzaria-user: ${{ secrets.OTZARIA_USER }}
+          otzaria-password: ${{ secrets.OTZARIA_PASSWORD }}
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.build-plugin.outputs.tag }}
+          name: ${{ needs.build-plugin.outputs.tag }}
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: |
+            ${{ steps.otzaria.outputs.plugin-file }}
+            release-input/installer/output/*.exe
+          body: |
+            ## HebrewBooks לאוצריא — ${{ needs.build-plugin.outputs.tag }}
+
+            המתקין ל-Windows מתקין את שירות החיפוש המקומי ומציע לפתוח את אוצריא
+            דרך `otzaria://` כדי להשלים את התקנת התוסף. במהלך ההתקנה יש לבחור
+            את תיקיית מאגר HebrewBooks שמכילה את `App\Katalog.db`.
+
+            אפשר גם להתקין ידנית את קובץ ה-`.otzplugin` דרך מסך התוספים באוצריא.
+
+            ### Checksum לתוסף
+            ```
+            SHA-256: ${{ steps.otzaria.outputs.sha256 }}
+            ```

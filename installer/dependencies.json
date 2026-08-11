@@ -1,0 +1,14 @@
+{
+  "runtime": {
+    "version": "3.0.114-beta2",
+    "archive": "hbsearch-min.zip",
+    "url": "https://github.com/HebrewBooks-2026/Hebrewbooks-Releases/releases/download/prerequisites/hbsearch-min.zip",
+    "sha256": "a49eaf39bd9dbbe4aa628b22ee39b87517ca02e2882705afebbeb21b96eff041"
+  },
+  "serviceWrapper": {
+    "name": "WinSW",
+    "version": "2.12.0",
+    "url": "https://github.com/winsw/winsw/releases/download/v2.12.0/WinSW-x86.exe",
+    "sha256": "0c21327463a43a61f2efb227ec4afd2467fde91618cc725148c1099001ca91ae"
+  }
+}

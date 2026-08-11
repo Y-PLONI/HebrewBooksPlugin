@@ -5,9 +5,10 @@
   "type": "module",
   "scripts": {
     "build": "node scripts/build.mjs",
+    "check:packaging": "node scripts/verify-packaging.mjs",
     "check": "tsc --noEmit",
     "dev": "npm run build && node tools/preview-server.mjs 8080",
-    "verify": "npm run check && npm test && npm run build",
+    "verify": "npm run check && npm test && npm run build && npm run check:packaging",
     "test": "vitest run"
   },
   "dependencies": {

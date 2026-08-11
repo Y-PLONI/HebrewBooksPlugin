@@ -2,5 +2,7 @@ hbsearch-min/*
 node_modules/
 dist/
 *.otzplugin
+installer/output/
+installer/staging/
 .DS_Store
 tools/sample.pdf
