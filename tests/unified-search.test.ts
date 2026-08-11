@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type {
   HebrewBooksResult,
+  HebrewBooksSearchPage,
   HostSearchRequest,
   OtzariaSearchChunk,
   OtzariaSearchResponse,
@@ -36,6 +37,7 @@ const hbResults: HebrewBooksResult[] = [
     sourceType: 'PDF',
     relativePath: null,
     hitCount: 3,
+    firstHitPage: 4,
   },
   {
     fileId: '11',
@@ -48,6 +50,7 @@ const hbResults: HebrewBooksResult[] = [
     sourceType: 'PDF',
     relativePath: null,
     hitCount: 2,
+    firstHitPage: 7,
   },
   {
     fileId: '12',
@@ -60,6 +63,7 @@ const hbResults: HebrewBooksResult[] = [
     sourceType: 'PDF',
     relativePath: null,
     hitCount: 1,
+    firstHitPage: null,
   },
 ];
 
@@ -92,6 +96,15 @@ async function* searchChunks(
   yield { ...response, sequence: 0 };
 }
 
+function hebrewBooksPage(
+  results: HebrewBooksResult[],
+  totalBooks = results.length,
+  totalHits = results.reduce((total, result) => total + result.hitCount, 0),
+  truncated = false,
+): HebrewBooksSearchPage {
+  return { results, totalBooks, totalHits, truncated };
+}
+
 describe('UnifiedSearchService', () => {
   it('maps the host options supported by HebrewBooks and always preserves word order', () => {
     const snapshot = toHebrewBooksSnapshot(request);
@@ -114,7 +127,7 @@ describe('UnifiedSearchService', () => {
 
   it('places matched HebrewBooks results in the Otzaria category and unmatched results in their own category', async () => {
     const service = new UnifiedSearchService(
-      { search: async () => hbResults.slice(0, 2) },
+      { search: async () => hebrewBooksPage(hbResults.slice(0, 2)) },
       {
         search: () => searchChunks(otzariaResponse),
         resolveBooks: async () => [{ id: 70, title: 'מקביל', categoryPath: '/מחשבה/מוסר' }],
@@ -146,8 +159,8 @@ describe('UnifiedSearchService', () => {
   });
 
   it('publishes Otzaria results before HebrewBooks finishes', async () => {
-    let finishHebrewBooks!: (results: HebrewBooksResult[]) => void;
-    const hebrewBooksPending = new Promise<HebrewBooksResult[]>((resolve) => {
+    let finishHebrewBooks!: (results: HebrewBooksSearchPage) => void;
+    const hebrewBooksPending = new Promise<HebrewBooksSearchPage>((resolve) => {
       finishHebrewBooks = resolve;
     });
     const service = new UnifiedSearchService(
@@ -171,7 +184,7 @@ describe('UnifiedSearchService', () => {
       hebrewBooksTotal: 0,
       nextCursor: null,
     });
-    finishHebrewBooks([]);
+    finishHebrewBooks(hebrewBooksPage([]));
     await fullSearch;
   });
 
@@ -181,7 +194,7 @@ describe('UnifiedSearchService', () => {
       yield { ...otzariaResponse, sequence: 1 };
     }
     const service = new UnifiedSearchService(
-      { search: async () => [] },
+      { search: async () => hebrewBooksPage([]) },
       { search: nativeChunks, resolveBooks: async () => [] },
       { findBestOtzariaIds: async () => new Map() },
     );
@@ -200,9 +213,9 @@ describe('UnifiedSearchService', () => {
     const service = new UnifiedSearchService(
       {
         search: async (_snapshot, onUpdate) => {
-          onUpdate?.([hbResults[0]!]);
-          onUpdate?.(hbResults);
-          return hbResults;
+          onUpdate?.(hebrewBooksPage([hbResults[0]!]));
+          onUpdate?.(hebrewBooksPage(hbResults));
+          return hebrewBooksPage(hbResults);
         },
       },
       { search: () => searchChunks(otzariaResponse), resolveBooks: async () => [] },
@@ -232,7 +245,7 @@ describe('UnifiedSearchService', () => {
       }
     }
     const service = new UnifiedSearchService(
-      { search: async () => [] },
+      { search: async () => hebrewBooksPage([]) },
       { search: nativeChunks, resolveBooks: async () => [] },
       { findBestOtzariaIds: async () => new Map() },
     );
@@ -254,10 +267,10 @@ describe('UnifiedSearchService', () => {
     }
     const service = new UnifiedSearchService(
       {
-        search: async (_snapshot, _onUpdate, signal) => new Promise<HebrewBooksResult[]>((resolve) => {
+        search: async (_snapshot, _onUpdate, signal) => new Promise<HebrewBooksSearchPage>((resolve) => {
           const abort = (): void => {
             hebrewBooksAborted = true;
-            resolve([]);
+            resolve(hebrewBooksPage([]));
           };
           if (signal?.aborted) abort();
           else signal?.addEventListener('abort', abort, { once: true });
@@ -277,10 +290,10 @@ describe('UnifiedSearchService', () => {
     let hebrewBooksAborted = false;
     const service = new UnifiedSearchService(
       {
-        search: async (_snapshot, _onUpdate, signal) => new Promise<HebrewBooksResult[]>((resolve) => {
+        search: async (_snapshot, _onUpdate, signal) => new Promise<HebrewBooksSearchPage>((resolve) => {
           const abort = (): void => {
             hebrewBooksAborted = true;
-            resolve([]);
+            resolve(hebrewBooksPage([]));
           };
           if (signal?.aborted) abort();
           else signal?.addEventListener('abort', abort, { once: true });
@@ -311,9 +324,13 @@ describe('UnifiedSearchService', () => {
     const hebrewBooksLimits: number[] = [];
     const service = new UnifiedSearchService(
       {
-        search: async (snapshot) => {
+        search: async (snapshot, _onUpdate, _signal, offset = 0) => {
           hebrewBooksLimits.push(snapshot.options.limit);
-          return hbResults.slice(0, snapshot.options.limit);
+          return hebrewBooksPage(
+            hbResults.slice(offset, offset + snapshot.options.limit),
+            hbResults.length,
+            6,
+          );
         },
       },
       {
@@ -346,7 +363,7 @@ describe('UnifiedSearchService', () => {
     const merged = mergeUnifiedSearchResponses(first, second);
 
     expect(nativeOffsets).toEqual([0, 2]);
-    expect(hebrewBooksLimits).toEqual([2, 4]);
+    expect(hebrewBooksLimits).toEqual([2, 2]);
     expect(second.nextCursor).toBeNull();
     expect(merged.results).toHaveLength(6);
     expect(
@@ -364,7 +381,13 @@ describe('UnifiedSearchService', () => {
   it('אינו שולח שוב בקשה למנוע שכבר הסתיים', async () => {
     let nativeCalls = 0;
     const service = new UnifiedSearchService(
-      { search: async (snapshot) => hbResults.slice(0, snapshot.options.limit) },
+      {
+        search: async (snapshot, _onUpdate, _signal, offset = 0) => hebrewBooksPage(
+          hbResults.slice(offset, offset + snapshot.options.limit),
+          hbResults.length,
+          6,
+        ),
+      },
       {
         search: (pageRequest) => {
           nativeCalls += 1;

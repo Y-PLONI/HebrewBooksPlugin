@@ -1,5 +1,11 @@
 import type { HostBridge, NetworkFetchParams, NetworkFetchStreamChunk } from '../bridge';
-import type { HealthStatus, HebrewBooksResult, InBookLocations, SearchSnapshot } from '../models';
+import type {
+  HealthStatus,
+  HebrewBooksResult,
+  HebrewBooksSearchPage,
+  InBookLocations,
+  SearchSnapshot,
+} from '../models';
 import { SearchNdjsonDecoder } from '../utils/ndjson';
 
 interface NetworkResponse {
@@ -10,11 +16,20 @@ interface NetworkResponse {
 
 const baseUrl = 'http://127.0.0.1:8080';
 const searchTimeoutMs = 120_000;
-const maximumResponseLength = 4 * 1024 * 1024;
+const maximumResponseLength = 16 * 1024 * 1024;
 
-type SearchUpdate = (results: readonly HebrewBooksResult[]) => boolean | void;
+type SearchUpdate = (page: HebrewBooksSearchPage) => boolean | void;
+
+interface CachedSearch {
+  fingerprint: string;
+  results: HebrewBooksResult[];
+  totalHits: number;
+  truncated: boolean;
+}
 
 export class HebrewBooksRepository {
+  private cachedSearch: CachedSearch | null = null;
+
   constructor(private readonly bridge: HostBridge) {}
 
   async health(): Promise<HealthStatus> {
@@ -44,11 +59,20 @@ export class HebrewBooksRepository {
     snapshot: SearchSnapshot,
     onUpdate?: SearchUpdate,
     signal?: AbortSignal,
-  ): Promise<HebrewBooksResult[]> {
+    offset = 0,
+  ): Promise<HebrewBooksSearchPage> {
+    const cached = this.cachedSearch;
+    if (cached?.fingerprint === snapshot.fingerprint) {
+      return pageFromCache(cached, offset, snapshot.options.limit);
+    }
     const stream = this.fetchStream('/search', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json; charset=UTF-8' },
-      body: JSON.stringify({ q: snapshot.query, ...snapshot.options }),
+      body: JSON.stringify({
+        q: snapshot.query,
+        ...snapshot.options,
+        limit: snapshot.options.max,
+      }),
       timeoutMs: searchTimeoutMs,
     });
     const iterator = stream[Symbol.asyncIterator]();
@@ -65,7 +89,7 @@ export class HebrewBooksRepository {
     signal?.addEventListener('abort', cancel, { once: true });
 
     try {
-      if (signal?.aborted) return results;
+      if (signal?.aborted) return emptySearchPage();
       while (!signal?.aborted) {
         const next = await iterator.next();
         if (next.done) {
@@ -86,19 +110,28 @@ export class HebrewBooksRepository {
         const batch = decoder.push(chunk.body);
         if (batch.length === 0) continue;
         results.push(...batch);
-        if (onUpdate?.([...results]) === false) return results;
+        if (onUpdate?.(pageFromResults(results, offset, snapshot.options)) === false) {
+          return pageFromResults(results, offset, snapshot.options);
+        }
       }
-      if (signal?.aborted) return results;
+      if (signal?.aborted) return pageFromResults(results, offset, snapshot.options);
       if (response === null) throw new Error('השרת לא החזיר פרטי תגובה');
       ensureSuccessful({ ...response, body: errorBody }, 'החיפוש נכשל');
       const tail = decoder.finish();
       if (tail.length > 0) {
         results.push(...tail);
-        onUpdate?.([...results]);
+        onUpdate?.(pageFromResults(results, offset, snapshot.options));
       }
-      return results;
+      const totalHits = countHits(results);
+      this.cachedSearch = {
+        fingerprint: snapshot.fingerprint,
+        results,
+        totalHits,
+        truncated: results.length >= snapshot.options.max,
+      };
+      return pageFromCache(this.cachedSearch, offset, snapshot.options.limit);
     } catch (error) {
-      if (signal?.aborted) return results;
+      if (signal?.aborted) return pageFromResults(results, offset, snapshot.options);
       throw error;
     } finally {
       signal?.removeEventListener('abort', cancel);
@@ -177,6 +210,40 @@ export class HebrewBooksRepository {
   ): AsyncIterable<NetworkFetchStreamChunk> {
     return this.bridge.call('network.fetchStream', { url: `${baseUrl}${path}`, ...init });
   }
+}
+
+function pageFromResults(
+  results: HebrewBooksResult[],
+  offset: number,
+  options: SearchSnapshot['options'],
+): HebrewBooksSearchPage {
+  return {
+    results: results.slice(offset, offset + options.limit),
+    totalBooks: results.length,
+    totalHits: countHits(results),
+    truncated: results.length >= options.max,
+  };
+}
+
+function pageFromCache(
+  cached: CachedSearch,
+  offset: number,
+  limit: number,
+): HebrewBooksSearchPage {
+  return {
+    results: cached.results.slice(offset, offset + limit),
+    totalBooks: cached.results.length,
+    totalHits: cached.totalHits,
+    truncated: cached.truncated,
+  };
+}
+
+function emptySearchPage(): HebrewBooksSearchPage {
+  return { results: [], totalBooks: 0, totalHits: 0, truncated: false };
+}
+
+function countHits(results: readonly HebrewBooksResult[]): number {
+  return results.reduce((total, result) => total + result.hitCount, 0);
 }
 
 function parseNetworkChunk(value: unknown, expectedSequence: number): NetworkFetchStreamChunk {

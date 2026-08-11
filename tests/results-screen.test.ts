@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
-import { describe, expect, it } from 'vitest';
-import type { UnifiedSearchResponse } from '../src/models';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { HebrewBooksResult, UnifiedSearchResponse } from '../src/models';
 import { ResultsScreen } from '../src/screens/results-screen';
 
 function otzariaResult(book: string, categoryPath: string) {
@@ -35,6 +35,7 @@ function hebrewBooksResult(bookName: string) {
       sourceType: 'PDF',
       relativePath: null,
       hitCount: 4,
+      firstHitPage: 2,
     },
   } as const;
 }
@@ -61,7 +62,9 @@ const mixedResponse: UnifiedSearchResponse = {
   nextCursor: null,
 };
 
-function createScreen(): ResultsScreen {
+function createScreen(
+  onLoadSnippet: (result: HebrewBooksResult) => Promise<string | null> = async () => null,
+): ResultsScreen {
   return new ResultsScreen({
     onBack: () => undefined,
     onEditSearch: () => undefined,
@@ -69,6 +72,7 @@ function createScreen(): ResultsScreen {
     onOpenResult: () => undefined,
     onOpenWebsite: () => undefined,
     onCopyDetails: () => undefined,
+    onLoadSnippet,
   });
 }
 
@@ -79,6 +83,8 @@ function rowTitles(screen: ResultsScreen): string[] {
 }
 
 describe('ResultsScreen partial unified search', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
   it('shows HebrewBooks progress after native results and removes it on completion', () => {
     const screen = createScreen();
 
@@ -88,6 +94,47 @@ describe('ResultsScreen partial unified search', () => {
     expect(screen.root.querySelector('.result-snippet')?.textContent).toBe('בראשית ברא');
     screen.showResults(nativeResponse);
     expect(screen.root.querySelector('.source-progress-banner')).toBeNull();
+  });
+
+  it('shows the complete count separately from the rendered item count', () => {
+    const screen = createScreen();
+
+    screen.setSearch('בדיקה', 3, false, 42);
+
+    expect(screen.root.textContent).toContain('42 תוצאות');
+    expect(screen.root.textContent).toContain('3 פריטים מוצגים');
+  });
+
+  it('loads a HebrewBooks PDF text snippet only when its card approaches the viewport', async () => {
+    class ImmediateIntersectionObserver {
+      readonly root = null;
+      readonly rootMargin = '';
+      readonly thresholds = [0];
+
+      constructor(private readonly callback: IntersectionObserverCallback) {}
+
+      observe(target: Element): void {
+        this.callback([{ isIntersecting: true, target } as IntersectionObserverEntry], this as unknown as IntersectionObserver);
+      }
+
+      disconnect(): void {}
+      unobserve(): void {}
+      takeRecords(): IntersectionObserverEntry[] { return []; }
+    }
+    vi.stubGlobal('IntersectionObserver', ImmediateIntersectionObserver);
+    const load = vi.fn(async () => 'בראשית ברא אלהים');
+    const screen = createScreen(load);
+    document.body.append(screen.root);
+
+    screen.showResults(mixedResponse);
+
+    expect(load).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => {
+      expect(screen.root.querySelector('.hebrewbooks-snippet')?.textContent).toContain(
+        'עמוד 2 · בראשית ברא אלהים',
+      );
+    });
+    screen.root.remove();
   });
 });
 

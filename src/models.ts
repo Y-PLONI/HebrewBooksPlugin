@@ -38,6 +38,14 @@ export interface HebrewBooksResult {
   sourceType: SourceType;
   relativePath: string | null;
   hitCount: number;
+  firstHitPage: number | null;
+}
+
+export interface HebrewBooksSearchPage {
+  results: HebrewBooksResult[];
+  totalBooks: number;
+  totalHits: number;
+  truncated: boolean;
 }
 
 export interface InBookLocations {
@@ -139,6 +147,7 @@ export interface UnifiedSearchResponse {
   results: UnifiedSearchResult[];
   otzariaTotal: number;
   hebrewBooksTotal: number;
+  totalIsLowerBound?: boolean;
   truncated: boolean;
   warnings: string[];
   nextCursor: UnifiedSearchCursor | null;
@@ -147,7 +156,7 @@ export interface UnifiedSearchResponse {
 export const defaultSearchOptions: SearchOptions = {
   proximity: 30,
   fuzziness: 0,
-  max: 500,
+  max: 10_000,
   limit: 100,
   sort: 'hitcount',
   corpus: ['pdf'],

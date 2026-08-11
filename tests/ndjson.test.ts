@@ -39,8 +39,8 @@ describe('parseSearchNdjson', () => {
 
   it('enforces the response limit across multiple chunks', () => {
     const decoder = new SearchNdjsonDecoder();
-    decoder.push('x'.repeat(3 * 1024 * 1024));
-    expect(() => decoder.push('x'.repeat(2 * 1024 * 1024))).toThrow(
+    decoder.push('x'.repeat(10 * 1024 * 1024));
+    expect(() => decoder.push('x'.repeat(7 * 1024 * 1024))).toThrow(
       'תשובת החיפוש גדולה מהמגבלה המותרת',
     );
   });

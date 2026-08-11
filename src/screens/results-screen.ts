@@ -21,6 +21,7 @@ interface ResultsHandlers {
   readonly onOpenResult: (result: UnifiedSearchResult) => void;
   readonly onOpenWebsite: (result: HebrewBooksResult) => void;
   readonly onCopyDetails: (result: HebrewBooksResult) => void;
+  readonly onLoadSnippet: (result: HebrewBooksResult) => Promise<string | null>;
 }
 
 type ResultSource = UnifiedSearchResult['source'];
@@ -72,6 +73,9 @@ export class ResultsScreen {
   private loadMoreButton: HTMLButtonElement | null = null;
   private pendingMessage: string | null = null;
   private treeHost: HTMLElement | null = null;
+  private snippetObserver: IntersectionObserver | null = null;
+  private snippetGeneration = 0;
+  private readonly snippetTargets = new Map<HTMLElement, HebrewBooksResult>();
 
   constructor(private readonly handlers: ResultsHandlers) {
     const bar = topBar();
@@ -87,7 +91,13 @@ export class ResultsScreen {
     this.root.append(bar.root, this.body);
   }
 
-  setSearch(query: string, count: number | null, editable: boolean): void {
+  setSearch(
+    query: string,
+    count: number | null,
+    editable: boolean,
+    totalCount?: number,
+    totalIsLowerBound = false,
+  ): void {
     this.query = query;
     this.editable = editable;
     this.center.replaceChildren(
@@ -98,7 +108,15 @@ export class ResultsScreen {
         : []),
     );
     this.trailing.replaceChildren(
-      element('span', 'top-bar-count', count === null ? 'מחפש בשני המאגרים…' : `${count} תוצאות מוצגות`),
+      element(
+        'span',
+        'top-bar-count',
+        count === null
+          ? 'מחפש בשני המאגרים…'
+          : totalCount === undefined
+            ? `${count} תוצאות מוצגות`
+            : `${totalIsLowerBound ? 'לפחות ' : ''}${totalCount} תוצאות · ${count} פריטים מוצגים`,
+      ),
       topBarDivider(),
       element('span', 'source-label', 'אוצריא + היברובוקס'),
     );
@@ -196,6 +214,7 @@ export class ResultsScreen {
 
     const content = element('section', 'categorized-results');
     const visible = scoped.filter((result) => facetMatches(this.selectedFacet, result));
+    this.prepareSnippetLoading();
     const heading = element('div', 'category-results-heading', this.selectedFacetLabel());
     heading.append(element('span', undefined, ` · ${visible.length}`));
     content.append(heading);
@@ -487,8 +506,47 @@ export class ResultsScreen {
     meta.append(iconElement('layer_24_regular', 16));
     const pages = hit.countPage ? ` · ${hit.countPage} עמודים` : '';
     meta.append(element('span', undefined, `נמצאו ${hit.hitCount} מופעים${pages}`));
-    content.append(meta);
+    content.append(meta, this.buildHebrewBooksSnippet(hit));
     return content;
+  }
+
+  private buildHebrewBooksSnippet(hit: HebrewBooksResult): HTMLElement {
+    const snippet = element('p', 'result-snippet hebrewbooks-snippet');
+    if (hit.firstHitPage === null) {
+      snippet.textContent = 'לא התקבל מיקום לגזיר הטקסט';
+      return snippet;
+    }
+    snippet.textContent = `טוען גזיר טקסט מעמוד ${hit.firstHitPage}…`;
+    this.snippetTargets.set(snippet, hit);
+    this.snippetObserver?.observe(snippet);
+    return snippet;
+  }
+
+  private prepareSnippetLoading(): void {
+    this.snippetGeneration += 1;
+    this.snippetObserver?.disconnect();
+    this.snippetTargets.clear();
+    if (typeof IntersectionObserver !== 'function') {
+      this.snippetObserver = null;
+      return;
+    }
+    const generation = this.snippetGeneration;
+    this.snippetObserver = new IntersectionObserver((entries) => {
+      for (const entry of entries) {
+        if (!entry.isIntersecting) continue;
+        const target = entry.target as HTMLElement;
+        const hit = this.snippetTargets.get(target);
+        if (!hit) continue;
+        this.snippetObserver?.unobserve(target);
+        this.snippetTargets.delete(target);
+        void this.handlers.onLoadSnippet(hit).then((text) => {
+          if (generation !== this.snippetGeneration || !target.isConnected) return;
+          target.textContent = text
+            ? `עמוד ${hit.firstHitPage} · ${text}`
+            : `לא ניתן היה לחלץ גזיר טקסט מעמוד ${hit.firstHitPage}`;
+        });
+      }
+    }, { rootMargin: '300px 0px' });
   }
 }
 

@@ -12,6 +12,7 @@ import type {
 } from './models';
 import { CatalogMappingRepository } from './repositories/catalog-mapping-repository';
 import { HebrewBooksRepository } from './repositories/hebrewbooks-repository';
+import { HebrewBooksSnippetRepository } from './repositories/hebrewbooks-snippet-repository';
 import { OtzariaSearchRepository } from './repositories/otzaria-search-repository';
 import { LibraryScreen } from './screens/library-screen';
 import { ResultsScreen } from './screens/results-screen';
@@ -29,6 +30,7 @@ type Screen = 'library' | 'results' | 'viewer';
 
 export class AppController {
   private readonly repository: HebrewBooksRepository;
+  private readonly snippets = new HebrewBooksSnippetRepository();
   private readonly otzariaRepository: OtzariaSearchRepository;
   private readonly unifiedSearch: UnifiedSearchService;
   private readonly library: LibraryScreen;
@@ -71,6 +73,7 @@ export class AppController {
       onOpenResult: (result) => void this.openResult(result),
       onOpenWebsite: (result) => void this.openWebsite(result),
       onCopyDetails: (result) => void this.copyDetails(result),
+      onLoadSnippet: (result) => this.loadSnippet(result),
     });
 
     this.viewer = new ViewerScreen(
@@ -144,21 +147,21 @@ export class AppController {
     this.results.setSearch(query, null, true);
     this.results.showLoading();
     try {
-      const resultList = await this.repository.search(
+      const searchPage = await this.repository.search(
         this.snapshot,
         (partial) => {
           if (!this.latestSearch.isCurrent(requestId)) return false;
-          this.resultList = [...partial];
-          this.results.setSearch(query, partial.length, true);
+          this.resultList = [...partial.results];
+          this.results.setSearch(query, partial.results.length, true);
           this.results.showPartialResults({
-            results: partial.map((hit) => ({
+            results: partial.results.map((hit) => ({
               source: 'hebrewbooks',
               categoryPath: 'ספרי היברובוקס',
               hit,
             })),
             otzariaTotal: 0,
-            hebrewBooksTotal: partial.reduce((total, result) => total + result.hitCount, 0),
-            truncated: false,
+            hebrewBooksTotal: partial.totalHits,
+            truncated: partial.truncated,
             warnings: [],
             nextCursor: null,
           }, 'מוצגות תוצאות שהתקבלו; החיפוש ממשיך…');
@@ -167,8 +170,14 @@ export class AppController {
         cancellation.signal,
       );
       if (!this.latestSearch.isCurrent(requestId)) return;
-      this.resultList = resultList;
-      this.results.setSearch(query, this.resultList.length, true);
+      this.resultList = searchPage.results;
+      this.results.setSearch(
+        query,
+        this.resultList.length,
+        true,
+        searchPage.totalHits,
+        searchPage.truncated,
+      );
       if (this.resultList.length === 0) this.results.showNoResults();
       else {
         this.results.showResults({
@@ -178,8 +187,8 @@ export class AppController {
             hit,
           })),
           otzariaTotal: 0,
-          hebrewBooksTotal: this.resultList.reduce((total, result) => total + result.hitCount, 0),
-          truncated: this.resultList.length >= options.limit,
+          hebrewBooksTotal: searchPage.totalHits,
+          truncated: searchPage.truncated,
           warnings: [],
           nextCursor: null,
         });
@@ -227,7 +236,13 @@ export class AppController {
       this.resultList = response.results
         .filter((result): result is Extract<UnifiedSearchResult, { source: 'hebrewbooks' }> => result.source === 'hebrewbooks')
         .map((result) => result.hit);
-      this.results.setSearch(request.query, response.results.length, false);
+      this.results.setSearch(
+        request.query,
+        response.results.length,
+        false,
+        response.otzariaTotal + response.hebrewBooksTotal,
+        response.totalIsLowerBound,
+      );
       if (response.results.length === 0) this.results.showNoResults();
       else this.results.showResults(response);
     } catch (error) {
@@ -261,7 +276,13 @@ export class AppController {
             result.source === 'hebrewbooks',
         )
         .map((result) => result.hit);
-      this.results.setSearch(request.query, response.results.length, false);
+      this.results.setSearch(
+        request.query,
+        response.results.length,
+        false,
+        response.otzariaTotal + response.hebrewBooksTotal,
+        response.totalIsLowerBound,
+      );
       this.results.showResults(response);
     } catch (error) {
       if (!this.latestSearch.isCurrent(requestId)) return;
@@ -319,6 +340,17 @@ export class AppController {
     } catch (error) {
       await this.showHostError(messageOf(error));
     }
+  }
+
+  private loadSnippet(result: HebrewBooksResult): Promise<string | null> {
+    const query = this.snapshot?.query;
+    if (!query) return Promise.resolve(null);
+    return this.snippets.load(
+      this.repository.pdfUrl(result.fileId),
+      result.fileId,
+      result.firstHitPage,
+      query,
+    );
   }
 
   private async openBook(result: HebrewBooksResult): Promise<void> {

@@ -1,6 +1,6 @@
 import type { HebrewBooksResult, SourceType } from '../models';
 
-const maximumResponseLength = 4 * 1024 * 1024;
+const maximumResponseLength = 16 * 1024 * 1024;
 const validSourceTypes = new Set<SourceType>(['PDF', 'Text', 'Personal']);
 
 export function parseSearchNdjson(body: string): HebrewBooksResult[] {
@@ -69,6 +69,7 @@ function parseResult(value: unknown, lineNumber: number): HebrewBooksResult {
     sourceType: sourceType as SourceType,
     relativePath: optionalString(value.relativePath),
     hitCount: Number(value.hitCount),
+    firstHitPage: optionalPositiveInteger(value.firstHitPage),
   };
 }
 
@@ -82,4 +83,8 @@ function optionalString(value: unknown): string | null {
 
 function optionalInteger(value: unknown): number | null {
   return Number.isInteger(value) && Number(value) >= 0 ? Number(value) : null;
+}
+
+function optionalPositiveInteger(value: unknown): number | null {
+  return Number.isInteger(value) && Number(value) > 0 ? Number(value) : null;
 }

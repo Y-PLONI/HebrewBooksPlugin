@@ -32,6 +32,7 @@ describe('HebrewBooksRepository', () => {
       method: 'POST',
       timeoutMs: 120_000,
     });
+    expect(JSON.parse(payload?.body ?? '{}')).toMatchObject({ limit: 10_000 });
   });
 
   it('publishes every complete NDJSON batch while the response is open', async () => {
@@ -46,12 +47,40 @@ describe('HebrewBooksRepository', () => {
     const results = await new HebrewBooksRepository(bridge).search(
       snapshot,
       (partial) => {
-        updates.push(partial.map((result) => result.fileId));
+        updates.push(partial.results.map((result) => result.fileId));
       },
     );
 
     expect(updates).toEqual([['41'], ['41', '42']]);
-    expect(results.map((result) => result.fileId)).toEqual(['41', '42']);
+    expect(results.results.map((result) => result.fileId)).toEqual(['41', '42']);
+    expect(results).toMatchObject({ totalBooks: 2, totalHits: 2, truncated: false });
+  });
+
+  it('keeps compact metadata for paging without repeating the server search', async () => {
+    let calls = 0;
+    const bridge = bridgeWith(() => {
+      calls += 1;
+      return networkChunks([
+        `${resultLine('41', 'ספר ראשון', 2)}\n`,
+        `${resultLine('42', 'ספר שני', 3)}\n`,
+        `${resultLine('43', 'ספר שלישי', 1)}\n`,
+      ]);
+    });
+    const repository = new HebrewBooksRepository(bridge);
+    const pagedSnapshot: SearchSnapshot = {
+      ...snapshot,
+      fingerprint: 'paged',
+      options: { ...snapshot.options, limit: 1, max: 3 },
+    };
+
+    const first = await repository.search(pagedSnapshot);
+    const second = await repository.search(pagedSnapshot, undefined, undefined, 1);
+
+    expect(first.results.map((result) => result.fileId)).toEqual(['41']);
+    expect(second.results.map((result) => result.fileId)).toEqual(['42']);
+    expect(first).toMatchObject({ totalBooks: 3, totalHits: 6, truncated: true });
+    expect(second).toMatchObject({ totalBooks: 3, totalHits: 6, truncated: true });
+    expect(calls).toBe(1);
   });
 
   it('closes the host iterator when the caller rejects a stale update', async () => {
@@ -194,6 +223,12 @@ async function* networkChunks(body: string[]): AsyncIterable<NetworkFetchStreamC
   }
 }
 
-function resultLine(fileId: string, bookName: string): string {
-  return JSON.stringify({ fileId, bookName, sourceType: 'PDF', hitCount: 1 });
+function resultLine(fileId: string, bookName: string, hitCount = 1): string {
+  return JSON.stringify({
+    fileId,
+    bookName,
+    sourceType: 'PDF',
+    hitCount,
+    firstHitPage: 3,
+  });
 }

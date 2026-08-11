@@ -1,5 +1,6 @@
 import type {
   HebrewBooksResult,
+  HebrewBooksSearchPage,
   HostBookIdentity,
   HostSearchRequest,
   OtzariaSearchChunk,
@@ -14,14 +15,15 @@ import type {
 
 const hebrewBooksFallbackCategory = 'ספרי היברובוקס';
 const otzariaFallbackCategory = 'ספרי אוצריא';
-const maximumHebrewBooksResults = 500;
+const maximumHebrewBooksResults = 10_000;
 
 interface HebrewBooksSearchSource {
   search(
     snapshot: SearchSnapshot,
-    onUpdate?: (results: readonly HebrewBooksResult[]) => boolean | void,
+    onUpdate?: (page: HebrewBooksSearchPage) => boolean | void,
     signal?: AbortSignal,
-  ): Promise<HebrewBooksResult[]>;
+    offset?: number,
+  ): Promise<HebrewBooksSearchPage>;
 }
 
 interface OtzariaSearchSource {
@@ -47,16 +49,12 @@ export class UnifiedSearchService {
     signal?: AbortSignal,
   ): Promise<UnifiedSearchResponse> {
     const pageSize = normalizePageSize(request.limit);
-    const hebrewBooksLimit = Math.min(
-      maximumHebrewBooksResults,
-      cursor.hebrewBooksOffset + pageSize,
-    );
-    const snapshot = toHebrewBooksSnapshot({ ...request, limit: hebrewBooksLimit });
+    const snapshot = toHebrewBooksSnapshot({ ...request, limit: pageSize });
     const cancellation = new AbortController();
     if (signal?.aborted) cancellation.abort();
     else signal?.addEventListener('abort', () => cancellation.abort(), { once: true });
     let partialNative = { ...emptyOtzariaResponse(), limit: pageSize, offset: cursor.otzariaOffset };
-    let partialHebrewBooks: readonly HebrewBooksResult[] = [];
+    let partialHebrewBooks = emptyHebrewBooksPage();
     const publish = (): boolean => {
       if (cancellation.signal.aborted) return false;
       if (!onUpdate) return true;
@@ -81,14 +79,15 @@ export class UnifiedSearchService {
     const [otzariaResult, hebrewBooksResult] = await Promise.allSettled([
       otzariaSearch,
       cursor.hebrewBooksComplete
-        ? Promise.resolve<HebrewBooksResult[] | null>(null)
+        ? Promise.resolve<HebrewBooksSearchPage | null>(null)
         : this.hebrewBooks.search(
             snapshot,
-            (results) => {
-              partialHebrewBooks = results;
+            (page) => {
+              partialHebrewBooks = page;
               return publish();
             },
             cancellation.signal,
+            cursor.hebrewBooksOffset,
           ),
     ]);
     if (cancellation.signal.aborted) {
@@ -98,10 +97,10 @@ export class UnifiedSearchService {
     const native = otzariaResult.status === 'fulfilled'
       ? otzariaResult.value ?? emptyOtzariaResponse()
       : emptyOtzariaResponse();
-    const externalWindow = hebrewBooksResult.status === 'fulfilled'
-      ? hebrewBooksResult.value ?? []
-      : [];
-    const external = externalWindow.slice(cursor.hebrewBooksOffset, hebrewBooksLimit);
+    const externalPage = hebrewBooksResult.status === 'fulfilled'
+      ? hebrewBooksResult.value ?? emptyHebrewBooksPage()
+      : emptyHebrewBooksPage();
+    const external = externalPage.results;
     if (otzariaResult.status === 'rejected') warnings.push(`החיפוש באוצריא נכשל: ${messageOf(otzariaResult.reason)}`);
     if (hebrewBooksResult.status === 'rejected') {
       warnings.push(`החיפוש בהיברובוקס נכשל: ${messageOf(hebrewBooksResult.reason)}`);
@@ -120,12 +119,8 @@ export class UnifiedSearchService {
       || otzariaOffset >= expectedNativeTotal;
     const hebrewBooksComplete = cursor.hebrewBooksComplete
       || hebrewBooksResult.status === 'rejected'
-      || externalWindow.length < hebrewBooksLimit
-      || hebrewBooksLimit >= maximumHebrewBooksResults;
-    const hebrewBooksCapped = !cursor.hebrewBooksComplete
-      && hebrewBooksResult.status === 'fulfilled'
-      && hebrewBooksLimit >= maximumHebrewBooksResults
-      && externalWindow.length >= maximumHebrewBooksResults;
+      || hebrewBooksOffset >= externalPage.totalBooks;
+    const hebrewBooksCapped = externalPage.truncated;
     const nextCursor = otzariaComplete && hebrewBooksComplete
       ? null
       : { otzariaOffset, hebrewBooksOffset, otzariaComplete, hebrewBooksComplete };
@@ -143,7 +138,8 @@ export class UnifiedSearchService {
         })),
       ],
       otzariaTotal: native.total,
-      hebrewBooksTotal: external.reduce((total, hit) => total + hit.hitCount, 0),
+      hebrewBooksTotal: externalPage.totalHits,
+      totalIsLowerBound: hebrewBooksCapped,
       truncated: nextCursor !== null || hebrewBooksCapped,
       warnings,
       nextCursor,
@@ -184,10 +180,8 @@ export function mergeUnifiedSearchResponses(
   return {
     results: mergedResults,
     otzariaTotal: Math.max(current.otzariaTotal, page.otzariaTotal),
-    hebrewBooksTotal: mergedResults.reduce(
-      (total, result) => total + (result.source === 'hebrewbooks' ? result.hit.hitCount : 0),
-      0,
-    ),
+    hebrewBooksTotal: Math.max(current.hebrewBooksTotal, page.hebrewBooksTotal),
+    totalIsLowerBound: current.totalIsLowerBound === true || page.totalIsLowerBound === true,
     truncated: page.truncated,
     warnings: [...new Set([...current.warnings, ...page.warnings])],
     nextCursor: page.nextCursor,
@@ -199,7 +193,7 @@ export function toHebrewBooksSnapshot(request: HostSearchRequest): SearchSnapsho
     // אוצריא משתמשת ב־0 למילים סמוכות; hbsearch דורש מספר חיובי.
     proximity: Math.max(1, request.distance ?? 0),
     fuzziness: request.mode === 'fuzzy' ? Math.min(2, request.distance ?? 2) : 0,
-    max: 500,
+    max: maximumHebrewBooksResults,
     limit: Math.min(500, Math.max(1, request.limit ?? 100)),
     sort: 'hitcount',
     corpus: ['pdf'],
@@ -292,7 +286,7 @@ async function collectOtzariaSearch(
 
 function partialUnifiedResponse(
   native: OtzariaSearchResponse,
-  hebrewBooks: readonly HebrewBooksResult[],
+  hebrewBooks: HebrewBooksSearchPage,
 ): UnifiedSearchResponse {
   return {
     results: [
@@ -301,18 +295,23 @@ function partialUnifiedResponse(
         categoryPath: normalizeCategory(hit.categoryPath, otzariaFallbackCategory),
         hit,
       })),
-      ...hebrewBooks.map((hit) => ({
+      ...hebrewBooks.results.map((hit) => ({
         source: 'hebrewbooks' as const,
         categoryPath: hebrewBooksFallbackCategory,
         hit,
       })),
     ],
     otzariaTotal: native.total,
-    hebrewBooksTotal: hebrewBooks.reduce((total, hit) => total + hit.hitCount, 0),
-    truncated: false,
+    hebrewBooksTotal: hebrewBooks.totalHits,
+    totalIsLowerBound: hebrewBooks.truncated,
+    truncated: hebrewBooks.truncated,
     warnings: [],
     nextCursor: null,
   };
+}
+
+function emptyHebrewBooksPage(): HebrewBooksSearchPage {
+  return { results: [], totalBooks: 0, totalHits: 0, truncated: false };
 }
 
 function messageOf(error: unknown): string {
