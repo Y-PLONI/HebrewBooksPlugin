@@ -162,22 +162,34 @@ jobs:
           name: windows-installer-${{ github.sha }}
           path: release-input
 
-      - name: Ensure store credentials are configured
+      - name: Check store credentials
+        id: store
         shell: bash
         env:
           OTZARIA_USER: ${{ secrets.OTZARIA_USER }}
           OTZARIA_PASSWORD: ${{ secrets.OTZARIA_PASSWORD }}
         run: |
-          test -n "$OTZARIA_USER" || { echo 'Missing OTZARIA_USER secret.' >&2; exit 1; }
-          test -n "$OTZARIA_PASSWORD" || { echo 'Missing OTZARIA_PASSWORD secret.' >&2; exit 1; }
+          if [[ -n "$OTZARIA_USER" && -n "$OTZARIA_PASSWORD" ]]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Store credentials are missing; skipping otzaria.org publication."
+          fi
 
       - name: Validate, package and publish to otzaria.org
         id: otzaria
+        if: steps.store.outputs.enabled == 'true'
+        continue-on-error: true
         uses: Otzaria/otzaria-plugin-validator@v1
         with:
           path: build-input/dist
           otzaria-user: ${{ secrets.OTZARIA_USER }}
           otzaria-password: ${{ secrets.OTZARIA_PASSWORD }}
+
+      - name: Report store publication failure
+        if: steps.otzaria.outcome == 'failure'
+        shell: bash
+        run: echo "::warning::otzaria.org publication failed; continuing with the GitHub Release."
 
       - name: Determine plugin checksum
         id: plugin
