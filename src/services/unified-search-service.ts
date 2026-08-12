@@ -12,6 +12,7 @@ import type {
   UnifiedSearchResponse,
   UnifiedSearchResult,
 } from '../models';
+import { clampProximity } from '../models';
 
 const hebrewBooksFallbackCategory = 'ספרי היברובוקס';
 const otzariaFallbackCategory = 'ספרי אוצריא';
@@ -190,8 +191,9 @@ export function mergeUnifiedSearchResponses(
 
 export function toHebrewBooksSnapshot(request: HostSearchRequest): SearchSnapshot {
   const options: SearchOptions = {
-    // אוצריא משתמשת ב־0 למילים סמוכות; hbsearch דורש מספר חיובי.
-    proximity: Math.max(1, request.distance ?? 0),
+    // אוצריא משתמשת ב־0 למילים סמוכות; hbsearch דורש מספר חיובי ואינו כופה
+    // תקרה, ולכן חוסמים ב־maximumProximity (הטווח שהשירות תומך בו בפועל).
+    proximity: clampProximity(request.distance ?? 0),
     fuzziness: request.mode === 'fuzzy' ? Math.min(2, request.distance ?? 2) : 0,
     max: maximumHebrewBooksResults,
     limit: Math.min(500, Math.max(1, request.limit ?? 100)),

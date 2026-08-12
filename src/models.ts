@@ -1,5 +1,19 @@
 export type SourceType = 'PDF' | 'Text' | 'Personal';
 
+/// גבולות "מרחק בין מילים" (proximity). hbsearch דוחה כל ערך שאינו מספר שלם
+/// חיובי (400 עם "expects a positive integer") אך אינו כופה תקרה — proximity
+/// גדול פשוט מרחיב את חלון החיפוש בלי הגבלה. הטווח הנתמך בפועל, וזה שה־GUI
+/// של השירות מרשה, הוא 1–30; מעליו התוצאות אינן "מרווח בין מילים" אלא הופעה
+/// מקרית באותו אזור. לכן התוסף חוסם ב־30 בשני מקומות: בדיאלוג האפשרויות
+/// ובתרגום בקשת החיפוש של אוצריא.
+export const minimumProximity = 1;
+export const maximumProximity = 30;
+
+export function clampProximity(value: number | undefined): number {
+  if (value === undefined || !Number.isFinite(value)) return minimumProximity;
+  return Math.min(Math.max(Math.round(value), minimumProximity), maximumProximity);
+}
+
 export interface SearchOptions {
   proximity: number;
   fuzziness: number;

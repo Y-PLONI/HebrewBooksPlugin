@@ -148,6 +148,12 @@ describe('UnifiedSearchService', () => {
     expect(snapshot.options.hybur).toBe(false);
   });
 
+  it('caps the HebrewBooks proximity at the range the service supports', () => {
+    expect(toHebrewBooksSnapshot({ ...request, distance: 30 }).options.proximity).toBe(30);
+    expect(toHebrewBooksSnapshot({ ...request, distance: 31 }).options.proximity).toBe(30);
+    expect(toHebrewBooksSnapshot({ ...request, distance: 5000 }).options.proximity).toBe(30);
+  });
+
   it('places matched HebrewBooks results in the Otzaria category and unmatched results in their own category', async () => {
     const service = new UnifiedSearchService(
       { search: async () => hebrewBooksPage(hbResults.slice(0, 2)) },

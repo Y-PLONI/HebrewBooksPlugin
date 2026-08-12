@@ -1,4 +1,10 @@
-import { defaultSearchOptions, type SearchOptions } from '../models';
+import {
+  clampProximity,
+  defaultSearchOptions,
+  maximumProximity,
+  minimumProximity,
+  type SearchOptions,
+} from '../models';
 import type { IconName } from '../icons.generated';
 import { actionButton, element, iconElement } from '../ui/widgets';
 
@@ -211,7 +217,7 @@ export class SearchDialog {
 
     const grid = element('div', 'options-grid');
     grid.append(
-      this.buildNumberField('מרחק בין מילים', this.options.proximity, 1, 100, (value) => {
+      this.buildNumberField('מרחק בין מילים', this.options.proximity, minimumProximity, maximumProximity, (value) => {
         this.options.proximity = value;
       }),
       this.buildSelectField(
@@ -362,7 +368,12 @@ export class SearchDialog {
 }
 
 function compatibleOptions(options: SearchOptions): SearchOptions {
-  const compatible = { ...defaultSearchOptions, ...options, corpus: [...options.corpus] };
+  const compatible = {
+    ...defaultSearchOptions,
+    ...options,
+    proximity: clampProximity(options.proximity),
+    corpus: [...options.corpus],
+  };
   for (const key of unsupportedExpansionKeys) compatible[key] = false;
   compatible.requireWordOrder = true;
   compatible.fuzziness = Math.min(2, Math.max(0, compatible.fuzziness));
