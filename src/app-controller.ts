@@ -33,9 +33,19 @@ import { applyTheme } from './theme';
 
 type Screen = 'library' | 'results' | 'viewer';
 
+/// תקרת הזמן הכוללת להזרמת קטעי הטקסט למדור החיצוני, וקצב העדכונים החלקיים.
+const snippetsDeadlineMs = 15_000;
+const snippetFlushIntervalMs = 400;
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
 export class AppController {
   private readonly repository: HebrewBooksRepository;
-  private readonly snippets = new HebrewBooksSnippetRepository();
+  // מקביליות 3: עמוד מדור חיצוני טוען עד 20 קטעים בתור, וב-2 במקביל הזנב
+  // חורג מתקרת ההזרמה; מעבר לזה מציף את ה-sidecar בבקשות Range.
+  private readonly snippets = new HebrewBooksSnippetRepository(3);
   private readonly otzariaRepository: OtzariaSearchRepository;
   private readonly unifiedSearch: UnifiedSearchService;
   private readonly library: LibraryScreen;
@@ -221,18 +231,7 @@ export class AppController {
       const page = await this.repository.search(snapshot, sendPartial, undefined, offset);
       // כל העדכונים החלקיים נשלחו לפני הסופי — אחרת עדכון מאחר היה נבלע.
       await partialChain;
-      const results: ExternalSearchResultPayload[] = await Promise.all(
-        page.results.map(async (result) => ({
-          ...this.toExternalResult(result),
-          snippet: (await this.snippetWithTimeout(result, query)) ?? undefined,
-        })),
-      );
-      await this.otzariaRepository.respondExternalSearch(requestId, {
-        results,
-        totalBooks: page.totalBooks,
-        totalHits: page.totalHits,
-        hasMore: offset + page.results.length < page.totalBooks,
-      });
+      await this.streamPageWithSnippets(requestId, page, offset, query);
     } catch (error) {
       await this.otzariaRepository
         .respondExternalSearch(requestId, { error: messageOf(error) })
@@ -250,14 +249,61 @@ export class AppController {
     };
   }
 
-  private snippetWithTimeout(result: HebrewBooksResult, query: string): Promise<string | null> {
-    const load = this.snippets
-      .load(this.repository.pdfUrl(result.fileId), result.fileId, result.firstHitPage, query)
-      .catch(() => null);
-    const timeout = new Promise<string | null>((resolve) => {
-      window.setTimeout(() => resolve(null), 6_000);
-    });
-    return Promise.race([load, timeout]);
+  /// שולח את עמוד התוצאות למדור החיצוני מיד (בלי קטעי טקסט) ומזרים את
+  /// הקטעים בעדכונים חלקיים כשהם נחלצים מה-PDF. חילוץ עמוד אורך שניות
+  /// ותור בעומק עמוד שלם דוחף את רוב הקטעים מעבר לכל תקרה לבקשה בודדת —
+  /// לכן התקרה כאן כוללת, והתשובה הסופית נושאת את מה שהספיק להיטען.
+  private async streamPageWithSnippets(
+    requestId: string,
+    page: HebrewBooksSearchPage,
+    offset: number,
+    query: string,
+  ): Promise<void> {
+    const results: ExternalSearchResultPayload[] = page.results.map((result) =>
+      this.toExternalResult(result),
+    );
+    const totals = {
+      totalBooks: page.totalBooks,
+      totalHits: page.totalHits,
+      hasMore: offset + page.results.length < page.totalBooks,
+    };
+    const respondPartial = (): Promise<void> =>
+      this.otzariaRepository
+        .respondExternalSearch(requestId, { results: [...results], ...totals, done: false })
+        .catch(() => undefined);
+    await respondPartial();
+
+    // עדכוני הקטעים נשלחים ברצף אחד (flushChain) ובקצב מרוסן, כדי שעדכון
+    // מאחר לא יעקוף את הסופי ולא נציף את הגשר בעדכון לכל קטע בנפרד.
+    let finished = false;
+    let flushScheduled = false;
+    let flushChain: Promise<void> = Promise.resolve();
+    const scheduleFlush = (): void => {
+      if (finished || flushScheduled) return;
+      flushScheduled = true;
+      flushChain = flushChain.then(async () => {
+        await delay(snippetFlushIntervalMs);
+        flushScheduled = false;
+        if (!finished) await respondPartial();
+      });
+    };
+    await Promise.race([
+      Promise.all(
+        page.results.map(async (result, index) => {
+          const snippet = await this.snippets
+            .load(this.repository.pdfUrl(result.fileId), result.fileId, result.firstHitPage, query)
+            .catch(() => null);
+          if (snippet && !finished) {
+            results[index] = { ...results[index], snippet };
+            scheduleFlush();
+          }
+        }),
+      ),
+      delay(snippetsDeadlineMs),
+    ]);
+    await flushChain;
+    finished = true;
+    await this.otzariaRepository.respondExternalSearch(requestId, { results, ...totals });
   }
 
   private async fetchHebrewBooksPath(): Promise<void> {
