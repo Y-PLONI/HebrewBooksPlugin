@@ -110,6 +110,19 @@ export class AppController {
       void this.performUnifiedSearch(payload);
     }) as (payload: never) => void);
 
+    // נרשם כאן ולא ב-boot: כשאוצריא מעירה את התוסף דרך פתיחת הדף כדי למסור
+    // אירוע ממוקד, האירוע עלול להגיע לפני ש-boot רץ — מאזין שנרשם רק שם
+    // היה מפספס אותו והבקשה הייתה נופלת בטיימאאוט.
+    this.bridge.on('search.external.requested', ((request: ExternalSearchRequestedEvent) => {
+      void this.handleExternalSearchRequest(request);
+    }) as (payload: never) => void);
+
+    // אותו טעם: הקורא המובנה מאציל אלינו חיפוש-בתוך-ספר לספרי היברובוקס,
+    // וההערה עשויה להגיע עם אירוע ההעֲרָה עצמו.
+    this.bridge.on('reader.inBookSearch.requested', ((request: InBookSearchRequestedEvent) => {
+      void this.handleInBookSearchRequest(request);
+    }) as (payload: never) => void);
+
     shell.append(this.library.root, this.results.root, this.viewer.root);
     this.showScreen('library');
   }
@@ -127,16 +140,6 @@ export class AppController {
         this.hebrewBooksPathVersion += 1;
         this.library.setHebrewBooksPath(path);
       }
-    }) as (payload: never) => void);
-    // הקורא המובנה של אוצריא מאציל אלינו חיפוש-בתוך-ספר לספרי היברובוקס:
-    // אוצריא לא מדברת עם שירות החיפוש בעצמה — רק התוסף.
-    this.bridge.on('reader.inBookSearch.requested', ((request: InBookSearchRequestedEvent) => {
-      void this.handleInBookSearchRequest(request);
-    }) as (payload: never) => void);
-    // טאב החיפוש המובנה של אוצריא מאציל אלינו את חיפוש ההיברובוקס —
-    // התוצאות מוצגות שם במדור ייעודי, והשרת נשאר נגיש לתוסף בלבד.
-    this.bridge.on('search.external.requested', ((request: ExternalSearchRequestedEvent) => {
-      void this.handleExternalSearchRequest(request);
     }) as (payload: never) => void);
     await this.fetchHebrewBooksPath();
     await this.checkHealth();
