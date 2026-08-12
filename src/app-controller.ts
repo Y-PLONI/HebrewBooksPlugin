@@ -443,6 +443,8 @@ export class AppController {
       }
     }
     if (page === null) return null;
+    // סריקות בלי שכבת טקסט מחזירות עמוד ריק — קטע יופיע רק לספרים עם
+    // טקסט משובץ (OCR); הטקסט של הסריקות קיים רק באינדקס שבצד השרת.
     return this.snippets
       .load(this.repository.pdfUrl(result.fileId), result.fileId, page, query)
       .catch(() => null);
