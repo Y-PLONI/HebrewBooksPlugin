@@ -1,5 +1,5 @@
 import type { IconName } from '../icons.generated';
-import type { HebrewBooksResult, UnifiedSearchResponse, UnifiedSearchResult } from '../models';
+import type { HebrewBooksResult, SearchOptions, UnifiedSearchResponse, UnifiedSearchResult } from '../models';
 import { appendHighlightedHtml } from '../utils/highlighted-html';
 import { navTreeGroup, navTreeHeader, navTreeRow, slimSearchField } from '../ui/nav-tree';
 import {
@@ -97,12 +97,13 @@ export class ResultsScreen {
     editable: boolean,
     totalCount?: number,
     totalIsLowerBound = false,
+    options?: SearchOptions | null,
   ): void {
     this.query = query;
     this.editable = editable;
     this.center.replaceChildren(
       element('span', 'top-bar-count', 'מוצגות תוצאות של חיפוש: '),
-      element('span', 'search-term-word', query),
+      ...buildSearchTerms(query, options ?? null),
       ...(editable
         ? [barButton({ tooltip: 'ערוך חיפוש', icon: 'edit_24_regular', onClick: this.handlers.onEditSearch })]
         : []),
@@ -548,6 +549,56 @@ export class ResultsScreen {
       }
     }, { rootMargin: '300px 0px' });
   }
+}
+
+/// מיפוי אפשרויות בוליאניות לקיצורי תצוגה — כמו optionAbbreviations באוצריה.
+const optionAbbreviations: ReadonlyArray<{ key: keyof SearchOptions; abbr: string; suffix?: boolean }> = [
+  { key: 'hybur', abbr: 'או"ש' },
+  { key: 'roots', abbr: 'שר' },
+  { key: 'spelling', abbr: 'מח' },
+  { key: 'gematria', abbr: 'גמ' },
+  { key: 'numberGender', abbr: 'זנ' },
+  { key: 'aramaic', abbr: 'אר' },
+  { key: 'rashetevot', abbr: 'ר"ת' },
+  { key: 'rashiOcr', abbr: 'OCR' },
+  { key: 'requireWordOrder', abbr: 'סדר' },
+  { key: 'firstWord', abbr: 'ראש' },
+  { key: 'lastWord', abbr: 'סוף' },
+];
+
+/// בניית אלמנטי ה-HTML של מילות החיפוש עם קיצורי אפשרויות — המקבילה של
+/// SearchTermsDisplay (lib/search/view/full_text_settings_widgets.dart).
+function buildSearchTerms(query: string, options: SearchOptions | null): HTMLElement[] {
+  if (!options) {
+    return [element('span', 'search-term-word', query)];
+  }
+
+  const activeAbbrs = optionAbbreviations
+    .filter(({ key }) => options[key] === true)
+    .map(({ abbr }) => abbr);
+
+  const container = element('span', 'search-terms');
+
+  // קיצורי אפשרויות לפני מילת החיפוש
+  if (activeAbbrs.length > 0) {
+    container.append(element('span', 'search-term-abbr', `(${activeAbbrs.join(',')})`));
+  }
+
+  // מילת החיפוש עצמה
+  container.append(element('span', 'search-term-word', query));
+
+  // proximity — מרחק בין מילים (רלוונטי רק כשיש יותר ממילה אחת)
+  const words = query.trim().split(/\s+/);
+  if (options.proximity > 1 && words.length > 1) {
+    container.append(element('span', 'search-term-abbr', `מרחק: ${options.proximity}`));
+  }
+
+  // fuzziness — רמת קירוב
+  if (options.fuzziness > 0) {
+    container.append(element('span', 'search-term-abbr', `קירוב: ${options.fuzziness}`));
+  }
+
+  return [container];
 }
 
 /// בניית עץ הקטגוריות מתוך התוצאות עצמן — המקבילה של פריסת ספריית אוצריא

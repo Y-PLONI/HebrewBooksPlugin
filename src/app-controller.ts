@@ -144,7 +144,7 @@ export class AppController {
     this.clearUnifiedSearch();
     this.snapshot = { query, options, fingerprint: createFingerprint(query, options) };
     this.showScreen('results');
-    this.results.setSearch(query, null, true);
+    this.results.setSearch(query, null, true, undefined, false, options);
     this.results.showLoading();
     try {
       const searchPage = await this.repository.search(
@@ -152,7 +152,7 @@ export class AppController {
         (partial) => {
           if (!this.latestSearch.isCurrent(requestId)) return false;
           this.resultList = [...partial.results];
-          this.results.setSearch(query, partial.results.length, true);
+          this.results.setSearch(query, partial.results.length, true, undefined, false, options);
           this.results.showPartialResults({
             results: partial.results.map((hit) => ({
               source: 'hebrewbooks',
@@ -177,6 +177,7 @@ export class AppController {
         true,
         searchPage.totalHits,
         searchPage.truncated,
+        options,
       );
       if (this.resultList.length === 0) this.results.showNoResults();
       else {
@@ -196,7 +197,7 @@ export class AppController {
     } catch (error) {
       if (!this.latestSearch.isCurrent(requestId)) return;
       this.resultList = [];
-      this.results.setSearch(query, 0, true);
+      this.results.setSearch(query, 0, true, undefined, false, options);
       this.results.showError(messageOf(error));
     } finally {
       this.releaseSearchCancellation(cancellation);
@@ -217,7 +218,7 @@ export class AppController {
     this.loadingMore = false;
     this.snapshot = toHebrewBooksSnapshot(request);
     this.showScreen('results');
-    this.results.setSearch(request.query, null, false);
+    this.results.setSearch(request.query, null, false, undefined, false, this.snapshot.options);
     this.results.showLoading();
     try {
       const response = await this.unifiedSearch.search(
@@ -225,7 +226,7 @@ export class AppController {
         undefined,
         (partial) => {
           if (!this.latestSearch.isCurrent(requestId)) return false;
-          this.results.setSearch(request.query, partial.results.length, false);
+          this.results.setSearch(request.query, partial.results.length, false, undefined, false, this.snapshot!.options);
           this.results.showPartialResults(partial, 'מוצגות תוצאות שהתקבלו; החיפוש ממשיך…');
           return true;
         },
@@ -242,13 +243,14 @@ export class AppController {
         false,
         response.otzariaTotal + response.hebrewBooksTotal,
         response.totalIsLowerBound,
+        this.snapshot!.options,
       );
       if (response.results.length === 0) this.results.showNoResults();
       else this.results.showResults(response);
     } catch (error) {
       if (!this.latestSearch.isCurrent(requestId)) return;
       this.resultList = [];
-      this.results.setSearch(request.query, 0, false);
+      this.results.setSearch(request.query, 0, false, undefined, false, this.snapshot!.options);
       this.results.showError(messageOf(error));
     } finally {
       this.releaseSearchCancellation(cancellation);
@@ -282,6 +284,7 @@ export class AppController {
         false,
         response.otzariaTotal + response.hebrewBooksTotal,
         response.totalIsLowerBound,
+        this.snapshot!.options,
       );
       this.results.showResults(response);
     } catch (error) {
