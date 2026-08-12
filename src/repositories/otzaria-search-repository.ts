@@ -1,6 +1,7 @@
 import type { HostBridge } from '../bridge';
 import { requireHostData } from '../bridge';
 import type {
+  ExternalSearchResultPayload,
   HostBookIdentity,
   HostSearchRequest,
   OtzariaSearchChunk,
@@ -83,6 +84,31 @@ export class OtzariaSearchRepository {
     result: { pages: number[]; matchedTerms: string[]; query: string } | { error: string },
   ): Promise<void> {
     await requireHostData<boolean>(this.bridge, 'reader.respondInBookSearch', {
+      requestId,
+      ...result,
+    });
+  }
+
+  /// רושם את התוסף כספק תוצאות חיצוני לטאב החיפוש המובנה — אוצריא תשלח
+  /// אלינו אירועי search.external.requested במקום לפתוח את מסך התוסף.
+  async registerExternalSearchProvider(): Promise<void> {
+    await requireHostData<boolean>(this.bridge, 'reader.registerExternalSearchProvider', {
+      provider: 'hebrewbooks',
+    });
+  }
+
+  async respondExternalSearch(
+    requestId: string,
+    result:
+      | {
+          results: ExternalSearchResultPayload[];
+          totalBooks: number;
+          totalHits: number;
+          hasMore: boolean;
+        }
+      | { error: string },
+  ): Promise<void> {
+    await requireHostData<boolean>(this.bridge, 'reader.respondExternalSearch', {
       requestId,
       ...result,
     });

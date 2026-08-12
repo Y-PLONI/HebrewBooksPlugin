@@ -1,3 +1,6 @@
+// TODO: למחוק את מסך התוצאות של התוסף לאחר שהמדור המובנה בטאב החיפוש של
+// אוצריא (search.external.requested + resultsProvider במניפסט) ייוצב.
+// המסך נשאר בינתיים כגיבוי ולנגישות דרך פתיחת התוסף עצמו.
 import type { IconName } from '../icons.generated';
 import type {
   HebrewBooksResult,

@@ -119,6 +119,28 @@ export interface InBookSearchRequestedEvent {
   query: string;
 }
 
+/// בקשת עמוד תוצאות ממסך החיפוש המובנה של אוצריא (התוסף רשום כספק
+/// תוצאות חיצוני עם registerExternalSearchProvider).
+export interface ExternalSearchRequestedEvent {
+  requestId: string;
+  provider: string;
+  query: string;
+  mode?: HostSearchMode;
+  distance?: number;
+  offset?: number;
+  limit?: number;
+}
+
+/// שורת תוצאה במדור החיצוני של טאב החיפוש המובנה.
+export interface ExternalSearchResultPayload {
+  title: string;
+  meta?: string;
+  snippet?: string;
+  hitCount: number;
+  firstPage?: number;
+  externalId: number;
+}
+
 export interface OtzariaSearchHit extends HostBookIdentity {
   book: string;
   categoryPath: string | null;

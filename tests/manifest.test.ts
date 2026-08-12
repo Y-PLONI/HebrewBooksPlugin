@@ -63,6 +63,18 @@ describe('parallel edition manifest contributions', () => {
     });
   });
 
+  it('שורת ההיברובוקס בדיאלוג החיפוש מפנה לתוצאות בטאב המובנה ולא לתוסף', () => {
+    const items = objectArrayAt(startup, 'searchDialogItems');
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({
+      id: 'include-hebrewbooks',
+      resultsProvider: 'hebrewbooks',
+      resultsTitle: 'תוצאות היברובוקס',
+    });
+    // openPluginOnSubmit הוסר — הסימון פותח טאב חיפוש רגיל עם מדור היברובוקס.
+    expect(items[0]).not.toHaveProperty('openPluginOnSubmit');
+  });
+
   it('keeps computation and clicks declarative without background activation', () => {
     expect(stringArrayAt(manifest, 'permissions')).not.toContain('app.run_on_startup');
     expect(manifest).not.toHaveProperty('background');

@@ -1,6 +1,8 @@
 import type { HostBridge } from './bridge';
 import { requireHostData } from './bridge';
 import type {
+  ExternalSearchRequestedEvent,
+  ExternalSearchResultPayload,
   HealthStatus,
   HebrewBooksResult,
   HostSearchRequest,
@@ -126,11 +128,19 @@ export class AppController {
     this.bridge.on('reader.inBookSearch.requested', ((request: InBookSearchRequestedEvent) => {
       void this.handleInBookSearchRequest(request);
     }) as (payload: never) => void);
+    // טאב החיפוש המובנה של אוצריא מאציל אלינו את חיפוש ההיברובוקס —
+    // התוצאות מוצגות שם במדור ייעודי, והשרת נשאר נגיש לתוסף בלבד.
+    this.bridge.on('search.external.requested', ((request: ExternalSearchRequestedEvent) => {
+      void this.handleExternalSearchRequest(request);
+    }) as (payload: never) => void);
     await this.fetchHebrewBooksPath();
     await this.checkHealth();
     void this.otzariaRepository
       .registerInBookSearchProvider()
       .catch(() => undefined); // מארח ישן שאינו מכיר את ה-API — לא קריטי
+    void this.otzariaRepository
+      .registerExternalSearchProvider()
+      .catch(() => undefined);
   }
 
   private async handleInBookSearchRequest(request: InBookSearchRequestedEvent): Promise<void> {
@@ -158,6 +168,59 @@ export class AppController {
         .respondInBookSearch(requestId, { error: messageOf(error) })
         .catch(() => undefined);
     }
+  }
+
+  /// עמוד תוצאות למדור החיצוני של טאב החיפוש המובנה. הדפדוף נשען על מטמון
+  /// החיפוש של ה-repository (אותו fingerprint), כך שרק העמוד הראשון פונה
+  /// לשרת; קטעי הטקסט נטענים במקביל עם תקרת זמן ואינם מעכבים את התשובה.
+  private async handleExternalSearchRequest(request: ExternalSearchRequestedEvent): Promise<void> {
+    const requestId = typeof request?.requestId === 'string' ? request.requestId : '';
+    if (!requestId) return;
+    try {
+      const query = String(request.query ?? '').trim();
+      if (query.length === 0 || query.length > 500) {
+        throw new Error('בקשת החיפוש אינה תקינה');
+      }
+      const offset = clampInteger(request.offset, 0, 100_000, 0);
+      const limit = clampInteger(request.limit, 1, 50, 20);
+      const snapshot = toHebrewBooksSnapshot({
+        query,
+        mode: request.mode,
+        distance: request.distance,
+        limit,
+      });
+      const page = await this.repository.search(snapshot, undefined, undefined, offset);
+      const results: ExternalSearchResultPayload[] = await Promise.all(
+        page.results.map(async (result) => ({
+          title: result.bookName,
+          meta: metaLineOf(result),
+          snippet: (await this.snippetWithTimeout(result, query)) ?? undefined,
+          hitCount: result.hitCount,
+          firstPage: result.firstHitPage ?? undefined,
+          externalId: Number(result.fileId),
+        })),
+      );
+      await this.otzariaRepository.respondExternalSearch(requestId, {
+        results,
+        totalBooks: page.totalBooks,
+        totalHits: page.totalHits,
+        hasMore: offset + page.results.length < page.totalBooks,
+      });
+    } catch (error) {
+      await this.otzariaRepository
+        .respondExternalSearch(requestId, { error: messageOf(error) })
+        .catch(() => undefined);
+    }
+  }
+
+  private snippetWithTimeout(result: HebrewBooksResult, query: string): Promise<string | null> {
+    const load = this.snippets
+      .load(this.repository.pdfUrl(result.fileId), result.fileId, result.firstHitPage, query)
+      .catch(() => null);
+    const timeout = new Promise<string | null>((resolve) => {
+      window.setTimeout(() => resolve(null), 6_000);
+    });
+    return Promise.race([load, timeout]);
   }
 
   private async fetchHebrewBooksPath(): Promise<void> {
@@ -555,6 +618,19 @@ function isSimpleSearch(options: SearchOptions): boolean {
 
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : 'אירעה שגיאה לא צפויה';
+}
+
+function clampInteger(value: unknown, minimum: number, maximum: number, fallback: number): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return fallback;
+  return Math.min(Math.max(Math.round(value), minimum), maximum);
+}
+
+/// שורת מטא לתצוגה במדור החיצוני: מחבר · מקום · שנה.
+function metaLineOf(result: HebrewBooksResult): string | undefined {
+  const parts = [result.authorName, result.printPlace, result.printYear]
+    .map((part) => part?.trim() ?? '')
+    .filter((part) => part !== '');
+  return parts.length > 0 ? parts.join(' · ') : undefined;
 }
 
 function isHostSearchRequest(value: unknown): value is HostSearchRequest {

@@ -194,7 +194,8 @@
           "type": "checkbox",
           "title": "חפש גם בהיברובוקס",
           "defaultValue": false,
-          "openPluginOnSubmit": true,
+          "resultsProvider": "hebrewbooks",
+          "resultsTitle": "תוצאות היברובוקס",
           "visibleInModes": [
             "exact",
             "advanced"
