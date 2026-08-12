@@ -1,6 +1,7 @@
 import type { HostBridge } from './bridge';
 import { requireHostData } from './bridge';
 import type {
+  ExternalSearchIndexEntry,
   ExternalSearchRequestedEvent,
   ExternalSearchResultPayload,
   HealthStatus,
@@ -23,6 +24,7 @@ import { LibraryScreen } from './screens/library-screen';
 import { ResultsScreen, type SearchTerms } from './screens/results-screen';
 import { SearchDialog } from './screens/search-dialog';
 import { ViewerScreen } from './screens/viewer-screen';
+import { mapHebrewBooksCategory } from './services/hb-category-mapper';
 import { LatestRequest } from './services/latest-request';
 import {
   mergeUnifiedSearchResponses,
@@ -39,6 +41,23 @@ const snippetFlushIntervalMs = 400;
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+/// מזהי עמוד מפורשים מבקשת המדור החיצוני — עד 50 מזהים חיוביים.
+function parseRequestedIds(value: unknown): number[] | null {
+  if (!Array.isArray(value) || value.length === 0 || value.length > 50) return null;
+  const ids = value.filter((id): id is number => Number.isInteger(id) && Number(id) > 0);
+  return ids.length === value.length ? ids : null;
+}
+
+function sumHitCounts(results: readonly HebrewBooksResult[]): number {
+  return results.reduce((total, result) => total + result.hitCount, 0);
+}
+
+function toIndexEntry(result: HebrewBooksResult): ExternalSearchIndexEntry {
+  const id = Number(result.fileId);
+  const category = mapHebrewBooksCategory(result.categories);
+  return category === null ? [id, result.hitCount] : [id, result.hitCount, category];
 }
 
 export class AppController {
@@ -201,12 +220,40 @@ export class AppController {
       }
       const offset = clampInteger(request.offset, 0, 100_000, 0);
       const limit = clampInteger(request.limit, 1, 50, 20);
+      const ids = parseRequestedIds(request.ids);
       const snapshot = toHebrewBooksSnapshot({
         query,
         mode: request.mode,
         distance: request.distance,
         limit,
       });
+
+      if (ids) {
+        // עמוד לפי מזהים: אוצריא מדפדפת בתוצאות מסוננות-קטגוריה שחישבה
+        // מהאינדקס. מוגש מהמטמון; אם התוסף נטען מחדש בינתיים — החיפוש רץ
+        // שוב (בלי עדכוני ביניים) רק כדי לאכלס אותו.
+        let all = this.repository.cachedResultsFor(snapshot.fingerprint);
+        if (!all) {
+          await this.repository.search(snapshot);
+          all = this.repository.cachedResultsFor(snapshot.fingerprint) ?? [];
+        }
+        const byId = new Map(all.map((result) => [Number(result.fileId), result]));
+        const results = ids
+          .map((id) => byId.get(id))
+          .filter((result): result is HebrewBooksResult => result !== undefined);
+        await this.streamPageWithSnippets(
+          requestId,
+          results,
+          {
+            totalBooks: all.length,
+            totalHits: sumHitCounts(all),
+            hasMore: false,
+          },
+          query,
+        );
+        return;
+      }
+
       // הזרמה: כל מקטע NDJSON שמגיע מהשרת נשלח למדור כעדכון חלקי (ללא
       // קטעי טקסט, עם ספירות רף-תחתון), בקצב מרוסן וברצף — כמו במסך התוסף.
       let lastPartialAt = 0;
@@ -231,7 +278,24 @@ export class AppController {
       const page = await this.repository.search(snapshot, sendPartial, undefined, offset);
       // כל העדכונים החלקיים נשלחו לפני הסופי — אחרת עדכון מאחר היה נבלע.
       await partialChain;
-      await this.streamPageWithSnippets(requestId, page, offset, query);
+      // אינדקס הקטגוריות (עמוד ראשון בלבד): כלל התוצאות בתמצות, עם
+      // קטגוריית אוצריא המשוערת מתגיות הקטלוג. אוצריא בונה ממנו את
+      // הספירות בעץ ומעדנת מול DB ההשוואות המקומי שלה.
+      const all = offset === 0
+        ? this.repository.cachedResultsFor(snapshot.fingerprint)
+        : null;
+      const index = all?.map(toIndexEntry);
+      await this.streamPageWithSnippets(
+        requestId,
+        page.results,
+        {
+          totalBooks: page.totalBooks,
+          totalHits: page.totalHits,
+          hasMore: offset + page.results.length < page.totalBooks,
+        },
+        query,
+        index,
+      );
     } catch (error) {
       await this.otzariaRepository
         .respondExternalSearch(requestId, { error: messageOf(error) })
@@ -255,21 +319,25 @@ export class AppController {
   /// לכן התקרה כאן כוללת, והתשובה הסופית נושאת את מה שהספיק להיטען.
   private async streamPageWithSnippets(
     requestId: string,
-    page: HebrewBooksSearchPage,
-    offset: number,
+    pageResults: HebrewBooksResult[],
+    totals: { totalBooks: number; totalHits: number; hasMore: boolean },
     query: string,
+    index?: ExternalSearchIndexEntry[],
   ): Promise<void> {
-    const results: ExternalSearchResultPayload[] = page.results.map((result) =>
+    const results: ExternalSearchResultPayload[] = pageResults.map((result) =>
       this.toExternalResult(result),
     );
-    const totals = {
-      totalBooks: page.totalBooks,
-      totalHits: page.totalHits,
-      hasMore: offset + page.results.length < page.totalBooks,
-    };
+    // האינדקס נשלח גם בעדכון הבסיס וגם בתשובה הסופית: הבסיס כדי שהעץ
+    // יתעדכן בלי להמתין לקטעי הטקסט, הסופית ליתר ביטחון מול עדכון שאבד.
+    const extra = index ? { index } : {};
     const respondPartial = (): Promise<void> =>
       this.otzariaRepository
-        .respondExternalSearch(requestId, { results: [...results], ...totals, done: false })
+        .respondExternalSearch(requestId, {
+          results: [...results],
+          ...totals,
+          ...extra,
+          done: false,
+        })
         .catch(() => undefined);
     await respondPartial();
 
@@ -289,12 +357,13 @@ export class AppController {
     };
     await Promise.race([
       Promise.all(
-        page.results.map(async (result, index) => {
+        pageResults.map(async (result, position) => {
           const snippet = await this.snippets
             .load(this.repository.pdfUrl(result.fileId), result.fileId, result.firstHitPage, query)
             .catch(() => null);
-          if (snippet && !finished) {
-            results[index] = { ...results[index], snippet };
+          const current = results[position];
+          if (snippet && current && !finished) {
+            results[position] = { ...current, snippet };
             scheduleFlush();
           }
         }),
@@ -303,7 +372,7 @@ export class AppController {
     ]);
     await flushChain;
     finished = true;
-    await this.otzariaRepository.respondExternalSearch(requestId, { results, ...totals });
+    await this.otzariaRepository.respondExternalSearch(requestId, { results, ...totals, ...extra });
   }
 
   private async fetchHebrewBooksPath(): Promise<void> {

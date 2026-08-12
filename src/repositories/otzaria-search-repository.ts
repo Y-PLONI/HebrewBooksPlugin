@@ -1,6 +1,7 @@
 import type { HostBridge } from '../bridge';
 import { requireHostData } from '../bridge';
 import type {
+  ExternalSearchIndexEntry,
   ExternalSearchResultPayload,
   HostBookIdentity,
   HostSearchRequest,
@@ -117,6 +118,8 @@ export class OtzariaSearchRepository {
           totalHits: number;
           hasMore: boolean;
           done?: boolean;
+          /// אינדקס כלל התוצאות (עמוד ראשון בלבד) לבניית עץ הקטגוריות.
+          index?: ExternalSearchIndexEntry[];
         }
       | { error: string },
   ): Promise<void> {

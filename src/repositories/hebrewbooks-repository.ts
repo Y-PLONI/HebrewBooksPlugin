@@ -55,6 +55,12 @@ export class HebrewBooksRepository {
     };
   }
 
+  /// כלל תוצאות החיפוש שבמטמון עבור [fingerprint], או null כשאין התאמה.
+  /// משמש את המדור החיצוני לבניית אינדקס הקטגוריות ולעמודים לפי מזהים.
+  cachedResultsFor(fingerprint: string): HebrewBooksResult[] | null {
+    return this.cachedSearch?.fingerprint === fingerprint ? this.cachedSearch.results : null;
+  }
+
   async search(
     snapshot: SearchSnapshot,
     onUpdate?: SearchUpdate,

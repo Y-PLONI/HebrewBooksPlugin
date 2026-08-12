@@ -121,6 +121,9 @@ export interface InBookSearchRequestedEvent {
 
 /// בקשת עמוד תוצאות ממסך החיפוש המובנה של אוצריא (התוסף רשום כספק
 /// תוצאות חיצוני עם registerExternalSearchProvider).
+///
+/// כש-[ids] נשלח, העמוד המבוקש הוא הספרים הללו בסדרם (מתוך תוצאות החיפוש
+/// שבמטמון) — כך אוצריא מדפדפת בתוצאות מסוננות-קטגוריה שהיא חישבה מהאינדקס.
 export interface ExternalSearchRequestedEvent {
   requestId: string;
   provider: string;
@@ -129,6 +132,7 @@ export interface ExternalSearchRequestedEvent {
   distance?: number;
   offset?: number;
   limit?: number;
+  ids?: unknown;
 }
 
 /// שורת תוצאה במדור החיצוני של טאב החיפוש המובנה.
@@ -140,6 +144,11 @@ export interface ExternalSearchResultPayload {
   firstPage?: number;
   externalId: number;
 }
+
+/// רשומת אינדקס בתשובה לחיפוש חיצוני: כלל התוצאות בתמצות — מזהה, מספר
+/// מופעים, וקטגוריית אוצריא המשוערת לפי תגיות הקטלוג של היברובוקס (אם יש).
+/// מיוצג כמערך כדי לחסוך בגודל: [id, hits] או [id, hits, category].
+export type ExternalSearchIndexEntry = [number, number] | [number, number, string];
 
 export interface OtzariaSearchHit extends HostBookIdentity {
   book: string;

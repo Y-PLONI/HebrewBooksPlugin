@@ -66,6 +66,7 @@ describe('AppController HebrewBooks path setting integration', () => {
       printPlace: 'ירושלים',
       printYear: 'תשס"ד',
       sourceType: 'PDF',
+      categories: 'גאונים|שו"ת',
       hitCount: 7,
     });
     const mockBridge: HostBridge = {
@@ -142,7 +143,44 @@ describe('AppController HebrewBooks path setting integration', () => {
           externalId: 43558,
         },
       ],
+      // אינדקס הקטגוריות: כלל התוצאות עם קטגוריית אוצריא מתגיות הקטלוג.
+      index: [[43558, 7, '/שו"ת']],
     });
+
+    // עמוד לפי מזהים מוגש מהמטמון — בלי פנייה נוספת לשרת החיפוש.
+    const fetchCallsBefore = calls.filter((call) => call.method === 'network.fetchStream').length;
+    listeners['search.external.requested']?.({
+      requestId: 'xs-2',
+      provider: 'hebrewbooks',
+      query: 'ברכת המזון',
+      mode: 'exact',
+      distance: 2,
+      ids: [43558],
+    });
+    await vi.waitFor(() => {
+      expect(
+        calls.some(
+          (call) =>
+            call.method === 'reader.respondExternalSearch' &&
+            call.payload?.requestId === 'xs-2' &&
+            call.payload?.done !== false,
+        ),
+      ).toBe(true);
+    });
+    const idsResponse = [...calls]
+      .reverse()
+      .find(
+        (call) =>
+          call.method === 'reader.respondExternalSearch' && call.payload?.requestId === 'xs-2',
+      );
+    expect(idsResponse?.payload).toMatchObject({
+      hasMore: false,
+      results: [{ externalId: 43558, hitCount: 7 }],
+    });
+    expect(idsResponse?.payload?.index).toBeUndefined();
+    expect(calls.filter((call) => call.method === 'network.fetchStream')).toHaveLength(
+      fetchCallsBefore,
+    );
   });
 
   it('does not let a delayed settings.get response overwrite a newer settings.changed event', async () => {
