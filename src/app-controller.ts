@@ -98,7 +98,11 @@ export class AppController {
 
     this.dialog = new SearchDialog((request) => {
       this.dialog.close();
-      void this.performSearch(request.query, request.options);
+      // חיפוש מהתוסף נפתח בכרטיסיית חיפוש מובנית של אוצריא (המדור החיצוני
+      // מציג שם את התוצאות); מארח ישן שאינו מכיר את ה-API נופל למסך התוסף.
+      void this.otzariaRepository
+        .openSearchTab(request.query)
+        .catch(() => this.performSearch(request.query, request.options));
     });
 
     this.bridge.on('search.requested', ((payload: HostSearchRequestedEvent) => {

@@ -89,6 +89,15 @@ export class OtzariaSearchRepository {
     });
   }
 
+  /// פותח כרטיסיית חיפוש מובנית באוצריא עם שורת ההיברובוקס מסומנת —
+  /// התוצאות יוצגו שם דרך ספק התוצאות החיצוני.
+  async openSearchTab(query: string): Promise<void> {
+    await requireHostData<boolean>(this.bridge, 'reader.openSearchTab', {
+      query,
+      selectItems: ['include-hebrewbooks'],
+    });
+  }
+
   /// רושם את התוסף כספק תוצאות חיצוני לטאב החיפוש המובנה — אוצריא תשלח
   /// אלינו אירועי search.external.requested במקום לפתוח את מסך התוסף.
   async registerExternalSearchProvider(): Promise<void> {
