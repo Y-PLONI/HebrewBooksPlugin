@@ -20,8 +20,8 @@ const request: HostSearchRequest = {
   distance: 4,
   limit: 100,
   wordOptions: {
-    'חכמה_0': { 'קידומות דקדוקיות': true, 'כתיב מלא/חסר': true },
-    'בינה_1': { 'ראשי תיבות': true },
+    'חכמה_0': { 'קידומות דקדוקיות': true, 'כתיב מלא/חסר': true, 'ראשי תיבות': true },
+    'בינה_1': { 'קידומות דקדוקיות': true, 'כתיב מלא/חסר': true, 'ראשי תיבות': true },
   },
 };
 
@@ -123,6 +123,29 @@ describe('UnifiedSearchService', () => {
     const snapshot = toHebrewBooksSnapshot({ ...request, distance: 0 });
 
     expect(snapshot.options.proximity).toBe(1);
+  });
+
+  it('maps a global Otzaria option when no per-word override is supplied', () => {
+    const snapshot = toHebrewBooksSnapshot({
+      ...request,
+      options: { 'תרגום ארמי': true },
+      wordOptions: undefined,
+    });
+
+    expect(snapshot.options.aramaic).toBe(true);
+    expect(snapshot.options).toMatchObject({ roots: false, gematria: false, numberGender: false, rashiOcr: false });
+  });
+
+  it('does not apply a per-word Otzaria option globally in HebrewBooks', () => {
+    const snapshot = toHebrewBooksSnapshot({
+      ...request,
+      wordOptions: {
+        'חכמה_0': { 'קידומות דקדוקיות': true },
+        'בינה_1': {},
+      },
+    });
+
+    expect(snapshot.options.hybur).toBe(false);
   });
 
   it('caps the HebrewBooks proximity at the range the service supports', () => {

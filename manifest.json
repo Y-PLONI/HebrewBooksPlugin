@@ -20,7 +20,9 @@
     "search.dialog",
     "ui.feedback",
     "app.open_url",
-    "events.subscribe:theme.changed"
+    "events.subscribe:theme.changed",
+    "settings.read",
+    "events.subscribe:settings.changed"
   ],
   "network": {
     "enabled": true,
@@ -303,7 +305,7 @@
           "id": "include-hebrewbooks",
           "type": "checkbox",
           "title": "חפש גם בהיברובוקס",
-          "defaultValue": true,
+          "defaultValue": false,
           "openPluginOnSubmit": true,
           "visibleInModes": ["exact", "advanced"],
           "disabledSearchOptions": {

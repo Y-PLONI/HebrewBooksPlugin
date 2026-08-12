@@ -9,6 +9,7 @@ import { actionButton, centeredProgress, element, iconElement, informativeState,
 export class LibraryScreen {
   readonly root = element('main', 'screen library-screen');
   private readonly body = element('div', 'screen-body library-body');
+  private currentHebrewBooksPath: string | null = null;
 
   constructor(
     private readonly handlers: {
@@ -25,7 +26,18 @@ export class LibraryScreen {
     this.body.replaceChildren(centeredProgress());
   }
 
-  showReady(statusText: string): void {
+  setHebrewBooksPath(path: string | null): void {
+    this.currentHebrewBooksPath = path;
+    const el = this.body.querySelector('.library-hebrewbooks-path-status');
+    if (el) {
+      el.textContent = formatHebrewBooksPathStatus(path);
+    }
+  }
+
+  showReady(statusText: string, hebrewBooksPath?: string | null): void {
+    if (hebrewBooksPath !== undefined) {
+      this.currentHebrewBooksPath = hebrewBooksPath;
+    }
     const view = element('section', 'library-setup-view');
     view.append(iconElement('library_24_regular', 64, 'icon hero-icon'));
     view.append(element('h2', undefined, 'ספריית היברובוקס'));
@@ -48,17 +60,40 @@ export class LibraryScreen {
       }),
     );
     view.append(element('p', 'library-status', statusText));
+    view.append(
+      element(
+        'p',
+        'library-hebrewbooks-path-status',
+        formatHebrewBooksPathStatus(this.currentHebrewBooksPath),
+      ),
+    );
     this.body.replaceChildren(view);
   }
 
-  showOffline(message: string): void {
-    this.body.replaceChildren(
-      informativeState({
-        icon: 'warning_24_regular',
-        title: 'שירות החיפוש אינו זמין',
-        message,
-        action: { text: 'בדוק שוב', icon: 'search_24_regular', onClick: this.handlers.onRetry },
-      }),
+  showOffline(message: string, hebrewBooksPath?: string | null): void {
+    if (hebrewBooksPath !== undefined) {
+      this.currentHebrewBooksPath = hebrewBooksPath;
+    }
+    const infoState = informativeState({
+      icon: 'warning_24_regular',
+      title: 'שירות החיפוש אינו זמין',
+      message,
+      action: { text: 'בדוק שוב', icon: 'search_24_regular', onClick: this.handlers.onRetry },
+    });
+    infoState.append(
+      element(
+        'p',
+        'library-hebrewbooks-path-status',
+        formatHebrewBooksPathStatus(this.currentHebrewBooksPath),
+      ),
     );
+    this.body.replaceChildren(infoState);
   }
+}
+
+export function formatHebrewBooksPathStatus(path: string | null | undefined): string {
+  if (typeof path === 'string' && path.trim() !== '') {
+    return `מיקום ספרי היברובוקס באוצריא: הוגדר (${path.trim()})`;
+  }
+  return 'מיקום ספרי היברובוקס באוצריא: לא הוגדר';
 }

@@ -22,13 +22,13 @@ const modes: ReadonlyArray<{ id: SearchMode; icon: IconName; label: string; desc
     id: 'exact',
     icon: 'text_quote_24_regular',
     label: 'מדויק',
-    description: 'חיפוש המילים כפי שהוקלדו, ללא הרחבות.',
+    description: 'חיפוש המילים כפי שהוקלדו, לפי הסדר ובמרחק שנבחר.',
   },
   {
     id: 'advanced',
     icon: 'search_info_24_regular',
     label: 'מתקדם',
-    description: 'הרחבת החיפוש לאותיות שימוש, שורשים, כתיב מלא וחסר ועוד.',
+    description: 'הרחבת החיפוש לאפשרויות המשותפות לאוצריא ולהיברובוקס.',
   },
   {
     id: 'fuzzy',
@@ -49,19 +49,28 @@ type ExpansionKey = {
   [K in keyof SearchOptions]: SearchOptions[K] extends boolean ? K : never;
 }[keyof SearchOptions];
 
-const expansionEntries: ReadonlyArray<{ key: ExpansionKey; label: string }> = [
+const expansionEntries: ReadonlyArray<{
+  key: ExpansionKey;
+  label: string;
+  readonly disabled?: boolean;
+  readonly disabledReason?: string;
+}> = [
   { key: 'hybur', label: 'אותיות שימוש' },
-  { key: 'roots', label: 'שורשים ונטיות' },
   { key: 'spelling', label: 'כתיב מלא וחסר' },
-  { key: 'gematria', label: 'גימטריה' },
-  { key: 'numberGender', label: 'זכר ונקבה במספרים' },
   { key: 'aramaic', label: 'עברית וארמית' },
   { key: 'rashetevot', label: 'ראשי תיבות' },
-  { key: 'rashiOcr', label: 'שגיאות OCR בכתב רש״י' },
-  { key: 'requireWordOrder', label: 'שמירת סדר המילים' },
-  { key: 'firstWord', label: 'מילה ראשונה בעמוד' },
-  { key: 'lastWord', label: 'מילה אחרונה בעמוד' },
+  { key: 'requireWordOrder', label: 'שמירת סדר המילים', disabled: true, disabledReason: 'מופעל תמיד בחיפוש זה' },
+  { key: 'roots', label: 'שורשים ונטיות', disabled: true, disabledReason: 'אינו נתמך באוצריא' },
+  { key: 'gematria', label: 'גימטריה', disabled: true, disabledReason: 'אינו נתמך באוצריא' },
+  { key: 'numberGender', label: 'זכר ונקבה במספרים', disabled: true, disabledReason: 'אינו נתמך באוצריא' },
+  { key: 'rashiOcr', label: 'שגיאות OCR בכתב רש״י', disabled: true, disabledReason: 'אינו נתמך באוצריא' },
+  { key: 'firstWord', label: 'מילה ראשונה בעמוד', disabled: true, disabledReason: 'אינו נתמך באוצריא' },
+  { key: 'lastWord', label: 'מילה אחרונה בעמוד', disabled: true, disabledReason: 'אינו נתמך באוצריא' },
 ];
+
+const unsupportedExpansionKeys: readonly ExpansionKey[] = expansionEntries
+  .filter((entry) => entry.disabled && entry.key !== 'requireWordOrder')
+  .map((entry) => entry.key);
 
 export interface SearchRequest {
   readonly query: string;
@@ -75,7 +84,7 @@ export class SearchDialog {
   private readonly modeDescription = element('p', 'mode-description');
   private readonly modeContent = element('div', 'mode-content');
   private mode: SearchMode = 'exact';
-  private options: SearchOptions = { ...defaultSearchOptions };
+  private options: SearchOptions = compatibleOptions(defaultSearchOptions);
 
   constructor(private readonly onSubmit: (request: SearchRequest) => void) {
     const layout = element('div', 'search-dialog-layout');
@@ -109,10 +118,10 @@ export class SearchDialog {
 
   /// מאפשר לפתוח את הדיאלוג לעריכת חיפוש קיים — כמו editTab באוצריא.
   setOptions(options: SearchOptions): void {
-    this.options = { ...options, proximity: clampProximity(options.proximity) };
-    this.mode = options.fuzziness > 0
+    this.options = compatibleOptions(options);
+    this.mode = this.options.fuzziness > 0
       ? 'fuzzy'
-      : expansionEntries.some(({ key }) => options[key] === true)
+      : expansionEntries.some(({ key, disabled }) => !disabled && this.options[key] === true)
         ? 'advanced'
         : 'exact';
     this.renderModeSelector();
@@ -167,8 +176,11 @@ export class SearchDialog {
           this.mode = mode.id;
           if (mode.id !== 'fuzzy') this.options.fuzziness = 0;
           if (mode.id === 'exact') {
-            for (const { key } of expansionEntries) this.options[key] = false;
+            for (const { key, disabled } of expansionEntries) {
+              if (!disabled) this.options[key] = false;
+            }
           }
+          this.options.requireWordOrder = true;
           if (mode.id === 'fuzzy' && this.options.fuzziness === 0) this.options.fuzziness = 1;
           this.renderModeSelector();
           this.renderModeContent();
@@ -234,7 +246,7 @@ export class SearchDialog {
       grid.append(
         this.buildCheckbox(entry.label, this.options[entry.key], (checked) => {
           this.options[entry.key] = checked;
-        }),
+        }, entry.disabled, entry.disabledReason),
       );
     }
     card.append(grid);
@@ -259,7 +271,7 @@ export class SearchDialog {
     card.append(hint);
     const grid = element('div', 'options-grid');
     grid.append(
-      this.buildNumberField('רמת קירוב', this.options.fuzziness, 1, 10, (value) => {
+      this.buildNumberField('רמת קירוב', this.options.fuzziness, 1, 2, (value) => {
         this.options.fuzziness = value;
       }),
     );
@@ -267,11 +279,22 @@ export class SearchDialog {
     return card;
   }
 
-  private buildCheckbox(label: string, checked: boolean, onChange: (checked: boolean) => void): HTMLElement {
+  private buildCheckbox(
+    label: string,
+    checked: boolean,
+    onChange: (checked: boolean) => void,
+    disabled = false,
+    disabledReason?: string,
+  ): HTMLElement {
     const row = element('label', 'checkbox-row');
     const input = element('input');
     input.type = 'checkbox';
     input.checked = checked;
+    input.disabled = disabled;
+    if (disabled) {
+      row.classList.add('disabled');
+      if (disabledReason) row.title = disabledReason;
+    }
     input.addEventListener('change', () => onChange(input.checked));
     row.append(input, element('span', undefined, label));
     return row;
@@ -340,6 +363,19 @@ export class SearchDialog {
   }
 
   private submit(): void {
-    this.onSubmit({ query: this.queryInput.value, options: { ...this.options } });
+    this.onSubmit({ query: this.queryInput.value, options: compatibleOptions(this.options) });
   }
+}
+
+function compatibleOptions(options: SearchOptions): SearchOptions {
+  const compatible = {
+    ...defaultSearchOptions,
+    ...options,
+    proximity: clampProximity(options.proximity),
+    corpus: [...options.corpus],
+  };
+  for (const key of unsupportedExpansionKeys) compatible[key] = false;
+  compatible.requireWordOrder = true;
+  compatible.fuzziness = Math.min(2, Math.max(0, compatible.fuzziness));
+  return compatible;
 }
