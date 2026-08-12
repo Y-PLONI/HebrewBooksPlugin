@@ -106,6 +106,8 @@ export class OtzariaSearchRepository {
     });
   }
 
+  /// `done: false` — עדכון חלקי תוך כדי הזרמת החיפוש; הבקשה נשארת פתוחה
+  /// בצד אוצריא והמדור מתעדכן חי. ללא השדה התשובה נחשבת סופית.
   async respondExternalSearch(
     requestId: string,
     result:
@@ -114,6 +116,7 @@ export class OtzariaSearchRepository {
           totalBooks: number;
           totalHits: number;
           hasMore: boolean;
+          done?: boolean;
         }
       | { error: string },
   ): Promise<void> {

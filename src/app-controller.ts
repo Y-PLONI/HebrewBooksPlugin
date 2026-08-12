@@ -5,6 +5,7 @@ import type {
   ExternalSearchResultPayload,
   HealthStatus,
   HebrewBooksResult,
+  HebrewBooksSearchPage,
   HostSearchRequest,
   HostSearchRequestedEvent,
   InBookSearchRequestedEvent,
@@ -193,15 +194,34 @@ export class AppController {
         distance: request.distance,
         limit,
       });
-      const page = await this.repository.search(snapshot, undefined, undefined, offset);
+      // הזרמה: כל מקטע NDJSON שמגיע מהשרת נשלח למדור כעדכון חלקי (ללא
+      // קטעי טקסט, עם ספירות רף-תחתון), בקצב מרוסן וברצף — כמו במסך התוסף.
+      let lastPartialAt = 0;
+      let partialChain: Promise<void> = Promise.resolve();
+      const sendPartial = (partial: HebrewBooksSearchPage): void => {
+        const now = Date.now();
+        if (now - lastPartialAt < 250) return;
+        lastPartialAt = now;
+        const payload = {
+          results: partial.results.map((result) => this.toExternalResult(result)),
+          totalBooks: partial.totalBooks,
+          totalHits: partial.totalHits,
+          hasMore: true,
+          done: false,
+        };
+        partialChain = partialChain.then(() =>
+          this.otzariaRepository
+            .respondExternalSearch(requestId, payload)
+            .catch(() => undefined),
+        );
+      };
+      const page = await this.repository.search(snapshot, sendPartial, undefined, offset);
+      // כל העדכונים החלקיים נשלחו לפני הסופי — אחרת עדכון מאחר היה נבלע.
+      await partialChain;
       const results: ExternalSearchResultPayload[] = await Promise.all(
         page.results.map(async (result) => ({
-          title: result.bookName,
-          meta: metaLineOf(result),
+          ...this.toExternalResult(result),
           snippet: (await this.snippetWithTimeout(result, query)) ?? undefined,
-          hitCount: result.hitCount,
-          firstPage: result.firstHitPage ?? undefined,
-          externalId: Number(result.fileId),
         })),
       );
       await this.otzariaRepository.respondExternalSearch(requestId, {
@@ -215,6 +235,16 @@ export class AppController {
         .respondExternalSearch(requestId, { error: messageOf(error) })
         .catch(() => undefined);
     }
+  }
+
+  private toExternalResult(result: HebrewBooksResult): ExternalSearchResultPayload {
+    return {
+      title: result.bookName,
+      meta: metaLineOf(result),
+      hitCount: result.hitCount,
+      firstPage: result.firstHitPage ?? undefined,
+      externalId: Number(result.fileId),
+    };
   }
 
   private snippetWithTimeout(result: HebrewBooksResult, query: string): Promise<string | null> {

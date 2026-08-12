@@ -113,11 +113,23 @@ describe('AppController HebrewBooks path setting integration', () => {
       limit: 20,
     });
     await vi.waitFor(() => {
-      expect(calls.some((call) => call.method === 'reader.respondExternalSearch')).toBe(true);
+      expect(
+        calls.some(
+          (call) =>
+            call.method === 'reader.respondExternalSearch' && call.payload?.done !== false,
+        ),
+      ).toBe(true);
     });
 
-    const response = calls.find((call) => call.method === 'reader.respondExternalSearch');
-    expect(response?.payload).toMatchObject({
+    const responses = calls.filter((call) => call.method === 'reader.respondExternalSearch');
+    // הזרמה: עדכון חלקי (done: false, בלי קטעי טקסט) לפני התשובה הסופית.
+    expect(responses[0]?.payload).toMatchObject({
+      requestId: 'xs-1',
+      done: false,
+      hasMore: true,
+      results: [{ title: 'קובץ שיטות קמאי', externalId: 43558 }],
+    });
+    expect(responses.at(-1)?.payload).toMatchObject({
       requestId: 'xs-1',
       totalBooks: 1,
       totalHits: 7,
