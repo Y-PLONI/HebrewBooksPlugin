@@ -195,7 +195,7 @@
           "title": "חפש גם בהיברובוקס",
           "defaultValue": false,
           "resultsProvider": "hebrewbooks",
-          "resultsTitle": "תוצאות היברובוקס",
+          "resultsTitle": "היברובוקס",
           "visibleInModes": [
             "exact",
             "advanced"

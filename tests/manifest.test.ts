@@ -69,7 +69,7 @@ describe('parallel edition manifest contributions', () => {
     expect(items[0]).toMatchObject({
       id: 'include-hebrewbooks',
       resultsProvider: 'hebrewbooks',
-      resultsTitle: 'תוצאות היברובוקס',
+      resultsTitle: 'היברובוקס',
     });
     // openPluginOnSubmit הוסר — הסימון פותח טאב חיפוש רגיל עם מדור היברובוקס.
     expect(items[0]).not.toHaveProperty('openPluginOnSubmit');
