@@ -24,26 +24,21 @@ describe('parallel edition manifest contributions', () => {
     });
   });
 
-  it('contributes exactly a default button and a separate editions menu', () => {
-    expect(toolbarItems).toHaveLength(2);
-    expect(toolbarItems.map((item) => item.type)).toEqual(['button', 'menu']);
+  it('contributes a single split button: default edition plus the editions menu', () => {
+    expect(toolbarItems).toHaveLength(1);
+    expect(toolbarItems.map((item) => item.type)).toEqual(['split']);
     expect(toolbarItems.every((item) =>
       objectAt(item, 'binding').program === 'find-parallel-editions'
     )).toBe(true);
 
     expect(toolbarItems[0]).toMatchObject({
-      id: 'open-default-parallel-edition',
+      id: 'open-parallel-edition',
       contexts: ['reader-text', 'reader-pdf'],
       binding: { visibleOutput: 'defaultEdition' },
       action: {
         type: 'reader.openBook',
         args: { identity: { '$output': 'defaultEdition.identity' } },
       },
-    });
-    expect(toolbarItems[1]).toMatchObject({
-      id: 'open-parallel-editions-menu',
-      contexts: ['reader-text', 'reader-pdf'],
-      binding: { visibleOutput: 'editions' },
       childrenBinding: {
         itemsOutput: 'editions',
         maxItems: 20,

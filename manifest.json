@@ -222,8 +222,8 @@
       ],
       "toolbarItems": [
         {
-          "id": "open-default-parallel-edition",
-          "type": "button",
+          "id": "open-parallel-edition",
+          "type": "split",
           "title": "פתח ספר זה במהדורה המקבילה",
           "icon": "book_24_regular",
           "contexts": ["reader-text", "reader-pdf"],
@@ -236,17 +236,6 @@
             "args": {
               "identity": { "$output": "defaultEdition.identity" }
             }
-          }
-        },
-        {
-          "id": "open-parallel-editions-menu",
-          "type": "menu",
-          "title": "מהדורות מקבילות",
-          "icon": "book_24_regular",
-          "contexts": ["reader-text", "reader-pdf"],
-          "binding": {
-            "program": "find-parallel-editions",
-            "visibleOutput": "editions"
           },
           "childrenBinding": {
             "itemsOutput": "editions",
