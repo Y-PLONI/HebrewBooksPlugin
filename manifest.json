@@ -140,6 +140,7 @@
           "title": "הצג מהדורה מקבילה לצד הספר",
           "icon": "dual_screen_24_regular",
           "placement": "overflow",
+          "order": 55,
           "contexts": [
             "reader-text",
             "reader-pdf"

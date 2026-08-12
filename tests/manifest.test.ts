@@ -38,6 +38,8 @@ describe('parallel edition manifest contributions', () => {
       id: 'show-parallel-edition-beside',
       type: 'split',
       placement: 'overflow',
+      // משקל 55 — מיד לפני "הדפסה" (60) בתפריט שלוש הנקודות בשני המסכים.
+      order: 55,
       contexts: ['reader-text', 'reader-pdf'],
       binding: {
         program: 'find-parallel-editions',
