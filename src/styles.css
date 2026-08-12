@@ -644,6 +644,13 @@ ul {
   color: var(--color-on-surface-variant);
 }
 
+.library-hebrewbooks-path-status {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--color-on-surface-variant);
+  word-break: break-word;
+}
+
 .library-status.offline {
   color: var(--color-error);
 }

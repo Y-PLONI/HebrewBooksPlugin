@@ -39,6 +39,7 @@ export class AppController {
   private readonly dialog: SearchDialog;
 
   private healthStatus: HealthStatus | null = null;
+  private hebrewBooksPath: string | null = null;
   private snapshot: SearchSnapshot | null = null;
   private resultList: HebrewBooksResult[] = [];
   private selectedResult: HebrewBooksResult | null = null;
@@ -106,7 +107,34 @@ export class AppController {
   async boot(payload: OtzariaBootPayload): Promise<void> {
     applyTheme(payload.theme);
     this.bridge.on('theme.changed', ((theme: OtzariaTheme) => applyTheme(theme)) as (payload: never) => void);
+    this.bridge.on('settings.changed', ((eventPayload: { key?: string; newValue?: string }) => {
+      if (eventPayload && eventPayload.key === 'key-hebrew-books-path') {
+        const path =
+          typeof eventPayload.newValue === 'string' && eventPayload.newValue.trim() !== ''
+            ? eventPayload.newValue.trim()
+            : null;
+        this.hebrewBooksPath = path;
+        this.library.setHebrewBooksPath(path);
+      }
+    }) as (payload: never) => void);
+    await this.fetchHebrewBooksPath();
     await this.checkHealth();
+  }
+
+  private async fetchHebrewBooksPath(): Promise<void> {
+    try {
+      const response = await this.bridge.call<string | null>('settings.get', {
+        key: 'key-hebrew-books-path',
+      });
+      if (response.success && typeof response.data === 'string' && response.data.trim() !== '') {
+        this.hebrewBooksPath = response.data.trim();
+      } else {
+        this.hebrewBooksPath = null;
+      }
+    } catch {
+      this.hebrewBooksPath = null;
+    }
+    this.library.setHebrewBooksPath(this.hebrewBooksPath);
   }
 
   private async checkHealth(): Promise<void> {
@@ -115,11 +143,12 @@ export class AppController {
       this.healthStatus = await this.repository.health();
       const capability = this.healthStatus.kind === 'onlineFull' ? 'חיפוש ועיון' : 'חיפוש בלבד';
       const version = this.healthStatus.serverVersion ? ` · גרסה ${this.healthStatus.serverVersion}` : '';
-      this.library.showReady(`שירות החיפוש מחובר (${capability})${version}`);
+      this.library.showReady(`שירות החיפוש מחובר (${capability})${version}`, this.hebrewBooksPath);
     } catch (error) {
       this.healthStatus = null;
       this.library.showOffline(
         `${messageOf(error)}\nוודא שהשירות המקומי של היברובוקס פועל, ולחץ "בדוק שוב".`,
+        this.hebrewBooksPath,
       );
     }
   }
