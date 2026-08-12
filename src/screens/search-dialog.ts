@@ -1,4 +1,10 @@
-import { defaultSearchOptions, type SearchOptions } from '../models';
+import {
+  clampProximity,
+  defaultSearchOptions,
+  maximumProximity,
+  minimumProximity,
+  type SearchOptions,
+} from '../models';
 import type { IconName } from '../icons.generated';
 import { actionButton, element, iconElement } from '../ui/widgets';
 
@@ -103,7 +109,7 @@ export class SearchDialog {
 
   /// מאפשר לפתוח את הדיאלוג לעריכת חיפוש קיים — כמו editTab באוצריא.
   setOptions(options: SearchOptions): void {
-    this.options = { ...options };
+    this.options = { ...options, proximity: clampProximity(options.proximity) };
     this.mode = options.fuzziness > 0
       ? 'fuzzy'
       : expansionEntries.some(({ key }) => options[key] === true)
@@ -199,7 +205,7 @@ export class SearchDialog {
 
     const grid = element('div', 'options-grid');
     grid.append(
-      this.buildNumberField('מרחק בין מילים', this.options.proximity, 1, 100, (value) => {
+      this.buildNumberField('מרחק בין מילים', this.options.proximity, minimumProximity, maximumProximity, (value) => {
         this.options.proximity = value;
       }),
       this.buildSelectField(

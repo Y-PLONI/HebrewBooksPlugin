@@ -358,7 +358,7 @@ hebrewbooks-otzaria-plugin/
 | שדה | סוג | כללים בתוסף |
 |---|---|---|
 | `q` | string | חובה; 1–500 תווים אחרי trim |
-| `proximity` | integer | 1–100; ברירת מחדל 30 |
+| `proximity` | integer | 1–30; ברירת מחדל 30 |
 | `fuzziness` | integer | 0–10 |
 | `max` | integer | מספר המסמכים שמנוע החיפוש רשאי לאסוף |
 | `limit` | integer | מספר השורות שיוחזרו לאחר סינון ומיון |
@@ -380,6 +380,17 @@ hebrewbooks-otzaria-plugin/
 | `restrictFileIds` | string[] | פנימי בלבד; לא לחשוף ב־UI של גרסה 1 |
 
 אין לשלוח `weak`; השרת הנבדק מתעלם ממנו ב־HTTP.
+
+`proximity` נבדק מול השרת הפועל (hbsearch, apiVersion 2): כל מספר שלם חיובי
+מתקבל ומרחיב את חלון החיפוש בלי תקרה (proximity=1000 החזיר פי־6 מופעים
+מ־proximity=30), ואילו 0 או מספר שלילי נדחים ב־400 עם
+`option '--proximity' expects a positive integer`, ערך לא־שלם נדחה ב־400 על
+פענוח ה־JSON, ו־`null` או שדה חסר מתורגמים לברירת המחדל 30. כלומר אין לשרת
+מגבלה עליונה, והמגבלה היא של הטווח הנתמך — ה־GUI של השירות מרשה עד 30 בלבד.
+לכן התוסף חוסם ב־30: `minimumProximity`/`maximumProximity` ב־`models.ts`,
+דרך `clampProximity`, גם בדיאלוג האפשרויות וגם בתרגום `distance` של אוצריא
+ב־`toHebrewBooksSnapshot`. `/inbook` מקבל את אותו ערך מה־snapshot, ולכן חסום
+באותה צורה.
 
 ### 11.2 ברירות מחדל
 
