@@ -248,6 +248,13 @@ const server = http.createServer((request, response) => {
   proxy(request, response);
 });
 
+// ברירת המחדל של Node (5 שניות) סוגרת חיבורי keep-alive במנוחה בדיוק כשה-
+// HTTP client של אוצריא ממחזר אותם מה-pool, מה שמפיל בקשות עם
+// "Connection closed before full header was received". מאריכים ל-2 דקות,
+// ו-headersTimeout חייב להיות גדול מ-keepAliveTimeout כדי שלא יקטע לפניו.
+server.keepAliveTimeout = 120_000;
+server.headersTimeout = 125_000;
+
 server.listen(LISTEN_PORT, LISTEN_HOST, () => {
   log(`hb-sidecar ${SIDECAR_VERSION} on http://${LISTEN_HOST}:${LISTEN_PORT} → upstream :${UPSTREAM_PORT}, pdfs: ${PDFS_ROOT}`);
 });
