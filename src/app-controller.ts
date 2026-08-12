@@ -9,6 +9,7 @@ import type {
   HebrewBooksSearchPage,
   HostSearchRequest,
   HostSearchRequestedEvent,
+  InBookLocations,
   InBookSearchRequestedEvent,
   SearchOptions,
   SearchSnapshot,
@@ -35,12 +36,35 @@ import { applyTheme } from './theme';
 
 type Screen = 'library' | 'results' | 'viewer';
 
-/// תקרת הזמן הכוללת להזרמת קטעי הטקסט למדור החיצוני, וקצב העדכונים החלקיים.
+/// תקרת הזמן הכוללת להזרמת קטעי הטקסט למדור החיצוני, קצב העדכונים החלקיים,
+/// ומספר הקטעים הנטענים במקביל (איתור עמוד ב-/inbook + חילוץ מה-PDF).
 const snippetsDeadlineMs = 15_000;
 const snippetFlushIntervalMs = 400;
+const snippetConcurrency = 3;
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+/// מריץ את [task] על כל פריט במקביליות מוגבלת, בסדר התור המקורי.
+async function mapWithConcurrency<T>(
+  items: readonly T[],
+  concurrency: number,
+  task: (item: T, index: number) => Promise<void>,
+): Promise<void> {
+  let next = 0;
+  const workers = Array.from(
+    { length: Math.min(concurrency, items.length) },
+    async () => {
+      while (next < items.length) {
+        const index = next++;
+        const item = items[index];
+        if (item === undefined) continue;
+        await task(item, index).catch(() => undefined);
+      }
+    },
+  );
+  await Promise.all(workers);
 }
 
 /// מזהי עמוד מפורשים מבקשת המדור החיצוני — עד 50 מזהים חיוביים.
@@ -234,7 +258,24 @@ export class AppController {
         // שוב (בלי עדכוני ביניים) רק כדי לאכלס אותו.
         let all = this.repository.cachedResultsFor(snapshot.fingerprint);
         if (!all) {
-          await this.repository.search(snapshot);
+          // עדכוני "עוד חי" ריקים תוך כדי: בלעדיהם הצד של אוצריא משגר את
+          // הבקשה שוב אחרי 8 שניות (ומריץ חיפוש מלא כפול), וטיימאאוט
+          // חוסר-הפעילות עלול לנצח חיפוש ארוך.
+          let lastKeepAliveAt = 0;
+          await this.repository.search(snapshot, (partial) => {
+            const now = Date.now();
+            if (now - lastKeepAliveAt < 1_000) return;
+            lastKeepAliveAt = now;
+            void this.otzariaRepository
+              .respondExternalSearch(requestId, {
+                results: [],
+                totalBooks: partial.totalBooks,
+                totalHits: partial.totalHits,
+                hasMore: false,
+                done: false,
+              })
+              .catch(() => undefined);
+          });
           all = this.repository.cachedResultsFor(snapshot.fingerprint) ?? [];
         }
         const byId = new Map(all.map((result) => [Number(result.fileId), result]));
@@ -250,6 +291,7 @@ export class AppController {
             hasMore: false,
           },
           query,
+          snapshot,
         );
         return;
       }
@@ -294,6 +336,7 @@ export class AppController {
           hasMore: offset + page.results.length < page.totalBooks,
         },
         query,
+        snapshot,
         index,
       );
     } catch (error) {
@@ -322,24 +365,25 @@ export class AppController {
     pageResults: HebrewBooksResult[],
     totals: { totalBooks: number; totalHits: number; hasMore: boolean },
     query: string,
+    snapshot: SearchSnapshot,
     index?: ExternalSearchIndexEntry[],
   ): Promise<void> {
     const results: ExternalSearchResultPayload[] = pageResults.map((result) =>
       this.toExternalResult(result),
     );
-    // האינדקס נשלח גם בעדכון הבסיס וגם בתשובה הסופית: הבסיס כדי שהעץ
-    // יתעדכן בלי להמתין לקטעי הטקסט, הסופית ליתר ביטחון מול עדכון שאבד.
-    const extra = index ? { index } : {};
-    const respondPartial = (): Promise<void> =>
+    // האינדקס (שעשוי להגיע ל-10K רשומות) נשלח בעדכון הבסיס — כדי שהעץ
+    // יתעדכן בלי להמתין לקטעים — ושוב בתשובה הסופית ליתר ביטחון; עדכוני
+    // הקטעים שביניהם נשלחים בלעדיו, כדי לא לגרור אותו על הגשר שוב ושוב.
+    const respondPartial = (withIndex: boolean): Promise<void> =>
       this.otzariaRepository
         .respondExternalSearch(requestId, {
           results: [...results],
           ...totals,
-          ...extra,
+          ...(withIndex && index ? { index } : {}),
           done: false,
         })
         .catch(() => undefined);
-    await respondPartial();
+    await respondPartial(true);
 
     // עדכוני הקטעים נשלחים ברצף אחד (flushChain) ובקצב מרוסן, כדי שעדכון
     // מאחר לא יעקוף את הסופי ולא נציף את הגשר בעדכון לכל קטע בנפרד.
@@ -352,27 +396,66 @@ export class AppController {
       flushChain = flushChain.then(async () => {
         await delay(snippetFlushIntervalMs);
         flushScheduled = false;
-        if (!finished) await respondPartial();
+        if (!finished) await respondPartial(false);
       });
     };
     await Promise.race([
-      Promise.all(
-        pageResults.map(async (result, position) => {
-          const snippet = await this.snippets
-            .load(this.repository.pdfUrl(result.fileId), result.fileId, result.firstHitPage, query)
-            .catch(() => null);
-          const current = results[position];
-          if (snippet && current && !finished) {
-            results[position] = { ...current, snippet };
-            scheduleFlush();
-          }
-        }),
-      ),
+      mapWithConcurrency(pageResults, snippetConcurrency, async (result, position) => {
+        const snippet = await this.loadResultSnippet(snapshot, result, query);
+        const current = results[position];
+        if (snippet && current && !finished) {
+          results[position] = { ...current, snippet };
+          scheduleFlush();
+        }
+      }),
       delay(snippetsDeadlineMs),
     ]);
     await flushChain;
     finished = true;
-    await this.otzariaRepository.respondExternalSearch(requestId, { results, ...totals, ...extra });
+    await this.otzariaRepository.respondExternalSearch(requestId, {
+      results,
+      ...totals,
+      ...(index ? { index } : {}),
+    });
+  }
+
+  /// קטע טקסט לתוצאה: תוצאות ברמת ספר מגיעות מהשרת בלי עמוד ההתאמה
+  /// הראשונה (firstHitPage ריק), ולכן מאתרים אותו קודם דרך /inbook —
+  /// עם מטמון לפי חיפוש+ספר, שגם מאיץ את פתיחת הספר בלחיצה.
+  private async loadResultSnippet(
+    snapshot: SearchSnapshot,
+    result: HebrewBooksResult,
+    query: string,
+  ): Promise<string | null> {
+    let page = result.firstHitPage;
+    if (page === null) {
+      try {
+        page = (await this.locateInBook(snapshot, result.fileId)).pages[0] ?? null;
+      } catch {
+        page = null;
+      }
+    }
+    if (page === null) return null;
+    return this.snippets
+      .load(this.repository.pdfUrl(result.fileId), result.fileId, page, query)
+      .catch(() => null);
+  }
+
+  private readonly inBookLocationsCache = new Map<string, Promise<InBookLocations>>();
+
+  private locateInBook(snapshot: SearchSnapshot, fileId: string): Promise<InBookLocations> {
+    const key = `${snapshot.fingerprint} ${fileId}`;
+    const existing = this.inBookLocationsCache.get(key);
+    if (existing) return existing;
+    const request = this.repository.inBook(snapshot, fileId);
+    if (this.inBookLocationsCache.size >= 300) {
+      const oldest = this.inBookLocationsCache.keys().next().value;
+      if (oldest !== undefined) this.inBookLocationsCache.delete(oldest);
+    }
+    this.inBookLocationsCache.set(key, request);
+    // כישלון אינו נשמר — הבקשה הבאה לאותו ספר תנסה שוב.
+    request.catch(() => this.inBookLocationsCache.delete(key));
+    return request;
   }
 
   private async fetchHebrewBooksPath(): Promise<void> {
