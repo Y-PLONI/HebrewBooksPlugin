@@ -81,6 +81,8 @@ export interface HostSearchRequest {
   grouping?: 'none' | 'sameSection' | 'identicalText';
   wordMatchMode?: 'all' | 'anyWord' | 'mostWords' | 'atLeast';
   wordMatchCount?: number;
+  /** אפשרויות החלות על כל מילות השאילתה; wordOptions גובר עליהן לכל מילה. */
+  options?: Record<string, boolean>;
   wordOptions?: Record<string, Record<string, boolean>>;
   alternativeWords?: Record<string, string[]>;
   customSpacing?: Record<string, string>;

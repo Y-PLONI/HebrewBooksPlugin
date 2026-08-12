@@ -15,7 +15,7 @@ import { HebrewBooksRepository } from './repositories/hebrewbooks-repository';
 import { HebrewBooksSnippetRepository } from './repositories/hebrewbooks-snippet-repository';
 import { OtzariaSearchRepository } from './repositories/otzaria-search-repository';
 import { LibraryScreen } from './screens/library-screen';
-import { ResultsScreen } from './screens/results-screen';
+import { ResultsScreen, type SearchTerms } from './screens/results-screen';
 import { SearchDialog } from './screens/search-dialog';
 import { ViewerScreen } from './screens/viewer-screen';
 import { LatestRequest } from './services/latest-request';
@@ -40,6 +40,7 @@ export class AppController {
 
   private healthStatus: HealthStatus | null = null;
   private hebrewBooksPath: string | null = null;
+  private hebrewBooksPathVersion = 0;
   private snapshot: SearchSnapshot | null = null;
   private resultList: HebrewBooksResult[] = [];
   private selectedResult: HebrewBooksResult | null = null;
@@ -114,6 +115,7 @@ export class AppController {
             ? eventPayload.newValue.trim()
             : null;
         this.hebrewBooksPath = path;
+        this.hebrewBooksPathVersion += 1;
         this.library.setHebrewBooksPath(path);
       }
     }) as (payload: never) => void);
@@ -122,17 +124,19 @@ export class AppController {
   }
 
   private async fetchHebrewBooksPath(): Promise<void> {
+    const versionAtRequest = this.hebrewBooksPathVersion;
     try {
       const response = await this.bridge.call<string | null>('settings.get', {
         key: 'key-hebrew-books-path',
       });
-      if (response.success && typeof response.data === 'string' && response.data.trim() !== '') {
-        this.hebrewBooksPath = response.data.trim();
-      } else {
-        this.hebrewBooksPath = null;
+      if (versionAtRequest === this.hebrewBooksPathVersion) {
+        this.hebrewBooksPath =
+          response.success && typeof response.data === 'string' && response.data.trim() !== ''
+            ? response.data.trim()
+            : null;
       }
     } catch {
-      this.hebrewBooksPath = null;
+      if (versionAtRequest === this.hebrewBooksPathVersion) this.hebrewBooksPath = null;
     }
     this.library.setHebrewBooksPath(this.hebrewBooksPath);
   }
@@ -173,7 +177,7 @@ export class AppController {
     this.clearUnifiedSearch();
     this.snapshot = { query, options, fingerprint: createFingerprint(query, options) };
     this.showScreen('results');
-    this.results.setSearch(query, null, true, undefined, false, options);
+    this.results.setSearch(query, null, true, undefined, false, hebrewBooksSearchTerms(options));
     this.results.showLoading();
     try {
       const searchPage = await this.repository.search(
@@ -181,7 +185,7 @@ export class AppController {
         (partial) => {
           if (!this.latestSearch.isCurrent(requestId)) return false;
           this.resultList = [...partial.results];
-          this.results.setSearch(query, partial.results.length, true, undefined, false, options);
+          this.results.setSearch(query, partial.results.length, true, undefined, false, hebrewBooksSearchTerms(options));
           this.results.showPartialResults({
             results: partial.results.map((hit) => ({
               source: 'hebrewbooks',
@@ -206,7 +210,7 @@ export class AppController {
         true,
         searchPage.totalHits,
         searchPage.truncated,
-        options,
+        hebrewBooksSearchTerms(options),
       );
       if (this.resultList.length === 0) this.results.showNoResults();
       else {
@@ -226,7 +230,7 @@ export class AppController {
     } catch (error) {
       if (!this.latestSearch.isCurrent(requestId)) return;
       this.resultList = [];
-      this.results.setSearch(query, 0, true, undefined, false, options);
+      this.results.setSearch(query, 0, true, undefined, false, hebrewBooksSearchTerms(options));
       this.results.showError(messageOf(error));
     } finally {
       this.releaseSearchCancellation(cancellation);
@@ -247,7 +251,7 @@ export class AppController {
     this.loadingMore = false;
     this.snapshot = toHebrewBooksSnapshot(request);
     this.showScreen('results');
-    this.results.setSearch(request.query, null, false, undefined, false, this.snapshot.options);
+    this.results.setSearch(request.query, null, false, undefined, false, otzariaSearchTerms(request));
     this.results.showLoading();
     try {
       const response = await this.unifiedSearch.search(
@@ -255,7 +259,7 @@ export class AppController {
         undefined,
         (partial) => {
           if (!this.latestSearch.isCurrent(requestId)) return false;
-          this.results.setSearch(request.query, partial.results.length, false, undefined, false, this.snapshot!.options);
+          this.results.setSearch(request.query, partial.results.length, false, undefined, false, otzariaSearchTerms(request));
           this.results.showPartialResults(partial, 'מוצגות תוצאות שהתקבלו; החיפוש ממשיך…');
           return true;
         },
@@ -272,14 +276,14 @@ export class AppController {
         false,
         response.otzariaTotal + response.hebrewBooksTotal,
         response.totalIsLowerBound,
-        this.snapshot!.options,
+        otzariaSearchTerms(request),
       );
       if (response.results.length === 0) this.results.showNoResults();
       else this.results.showResults(response);
     } catch (error) {
       if (!this.latestSearch.isCurrent(requestId)) return;
       this.resultList = [];
-      this.results.setSearch(request.query, 0, false, undefined, false, this.snapshot!.options);
+      this.results.setSearch(request.query, 0, false, undefined, false, otzariaSearchTerms(request));
       this.results.showError(messageOf(error));
     } finally {
       this.releaseSearchCancellation(cancellation);
@@ -313,7 +317,7 @@ export class AppController {
         false,
         response.otzariaTotal + response.hebrewBooksTotal,
         response.totalIsLowerBound,
-        this.snapshot!.options,
+        otzariaSearchTerms(request),
       );
       this.results.showResults(response);
     } catch (error) {
@@ -472,7 +476,15 @@ export class AppController {
 }
 
 function createFingerprint(query: string, options: SearchOptions): string {
-  return `${query} ${JSON.stringify(options)}`;
+  return `${query}\u0000${JSON.stringify(options)}`;
+}
+
+function hebrewBooksSearchTerms(options: SearchOptions): SearchTerms {
+  return { source: 'hebrewbooks', options };
+}
+
+function otzariaSearchTerms(request: HostSearchRequest): SearchTerms {
+  return { source: 'otzaria', request };
 }
 
 function normalizeTitle(value: string): string {

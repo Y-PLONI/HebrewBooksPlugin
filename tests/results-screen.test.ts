@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { HebrewBooksResult, UnifiedSearchResponse } from '../src/models';
+import type { HebrewBooksResult, HostSearchRequest, UnifiedSearchResponse } from '../src/models';
 import { ResultsScreen } from '../src/screens/results-screen';
 
 function otzariaResult(book: string, categoryPath: string) {
@@ -103,6 +103,24 @@ describe('ResultsScreen partial unified search', () => {
 
     expect(screen.root.textContent).toContain('42 תוצאות');
     expect(screen.root.textContent).toContain('3 פריטים מוצגים');
+  });
+
+  it('renders the original Otzaria options per word, rather than HebrewBooks defaults', () => {
+    const screen = createScreen();
+    const request: HostSearchRequest = {
+      query: 'חכמה בינה',
+      mode: 'advanced',
+      options: { 'כתיב מלא/חסר': true },
+      wordOptions: {
+        'חכמה_0': { 'קידומות דקדוקיות': true },
+        'בינה_1': { 'ראשי תיבות': true },
+      },
+    };
+
+    screen.setSearch('חכמה בינה', 2, false, undefined, false, { source: 'otzaria', request });
+
+    expect(screen.root.querySelector('.search-terms')?.textContent).toBe('(קד)חכמה+(רת)בינה');
+    expect(screen.root.textContent).not.toContain('סדר');
   });
 
   it('loads a HebrewBooks PDF text snippet only when its card approaches the viewport', async () => {

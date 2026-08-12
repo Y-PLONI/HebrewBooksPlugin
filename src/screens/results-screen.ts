@@ -1,5 +1,11 @@
 import type { IconName } from '../icons.generated';
-import type { HebrewBooksResult, SearchOptions, UnifiedSearchResponse, UnifiedSearchResult } from '../models';
+import type {
+  HebrewBooksResult,
+  HostSearchRequest,
+  SearchOptions,
+  UnifiedSearchResponse,
+  UnifiedSearchResult,
+} from '../models';
 import { appendHighlightedHtml } from '../utils/highlighted-html';
 import { navTreeGroup, navTreeHeader, navTreeRow, slimSearchField } from '../ui/nav-tree';
 import {
@@ -56,6 +62,10 @@ export interface CategoryTreeNode {
   readonly books: readonly CategoryTreeBook[];
 }
 
+export type SearchTerms =
+  | { source: 'hebrewbooks'; options: SearchOptions }
+  | { source: 'otzaria'; request: HostSearchRequest };
+
 export class ResultsScreen {
   readonly root = element('main', 'screen results-screen');
   private readonly body = element('div', 'screen-body results-body');
@@ -97,13 +107,13 @@ export class ResultsScreen {
     editable: boolean,
     totalCount?: number,
     totalIsLowerBound = false,
-    options?: SearchOptions | null,
+    searchTerms?: SearchTerms | null,
   ): void {
     this.query = query;
     this.editable = editable;
     this.center.replaceChildren(
       element('span', 'top-bar-count', 'מוצגות תוצאות של חיפוש: '),
-      ...buildSearchTerms(query, options ?? null),
+      ...buildSearchTerms(query, searchTerms ?? null),
       ...(editable
         ? [barButton({ tooltip: 'ערוך חיפוש', icon: 'edit_24_regular', onClick: this.handlers.onEditSearch })]
         : []),
@@ -551,8 +561,8 @@ export class ResultsScreen {
   }
 }
 
-/// מיפוי אפשרויות בוליאניות לקיצורי תצוגה — כמו optionAbbreviations באוצריה.
-const optionAbbreviations: ReadonlyArray<{ key: keyof SearchOptions; abbr: string; suffix?: boolean }> = [
+/// קיצורי האפשרויות של HebrewBooks, במסך החיפוש העצמאי של התוסף.
+const hebrewBooksOptionAbbreviations: ReadonlyArray<{ key: keyof SearchOptions; abbr: string }> = [
   { key: 'hybur', abbr: 'או"ש' },
   { key: 'roots', abbr: 'שר' },
   { key: 'spelling', abbr: 'מח' },
@@ -566,14 +576,33 @@ const optionAbbreviations: ReadonlyArray<{ key: keyof SearchOptions; abbr: strin
   { key: 'lastWord', abbr: 'סוף' },
 ];
 
-/// בניית אלמנטי ה-HTML של מילות החיפוש עם קיצורי אפשרויות — המקבילה של
-/// SearchTermsDisplay (lib/search/view/full_text_settings_widgets.dart).
-function buildSearchTerms(query: string, options: SearchOptions | null): HTMLElement[] {
-  if (!options) {
+/// הקיצורים ואפשרויות־הסיומת זהים ל-SearchTermsDisplay של אוצריא.
+const otzariaOptionAbbreviations: Readonly<Record<string, string>> = {
+  'קידומות': 'ק',
+  'סיומות': 'ס',
+  'קידומות דקדוקיות': 'קד',
+  'סיומות דקדוקיות': 'סד',
+  'כתיב מלא/חסר': 'מח',
+  'חלק ממילה': 'ש',
+  'קידומות ארמיות': 'קא',
+  'סיומות ארמיות': 'סא',
+  'התעלם מגרשיים': 'גר',
+  'תרגום ארמי': 'תא',
+  'ראשי תיבות': 'רת',
+};
+
+const otzariaSuffixOptions = new Set(['סיומות', 'סיומות דקדוקיות', 'סיומות ארמיות']);
+
+function buildSearchTerms(query: string, searchTerms: SearchTerms | null): HTMLElement[] {
+  if (!searchTerms) {
     return [element('span', 'search-term-word', query)];
   }
+  if (searchTerms.source === 'otzaria') return buildOtzariaSearchTerms(searchTerms.request);
+  return buildHebrewBooksSearchTerms(query, searchTerms.options);
+}
 
-  const activeAbbrs = optionAbbreviations
+function buildHebrewBooksSearchTerms(query: string, options: SearchOptions): HTMLElement[] {
+  const activeAbbrs = hebrewBooksOptionAbbreviations
     .filter(({ key }) => options[key] === true)
     .map(({ abbr }) => abbr);
 
@@ -599,6 +628,45 @@ function buildSearchTerms(query: string, options: SearchOptions | null): HTMLEle
   }
 
   return [container];
+}
+
+/// מציג את בקשת אוצריא המקורית, ולא את ההמרה החלקית שנשלחה ל-HebrewBooks.
+/// כך אפשרויות שאינן נתמכות ב-HebrewBooks נשארות גלויות עבור תוצאות אוצריא,
+/// אך אינן מוצגות כאילו הן הופעלו במנוע השני.
+function buildOtzariaSearchTerms(request: HostSearchRequest): HTMLElement[] {
+  const words = request.query.trim().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return [element('span', 'search-term-word', request.query)];
+
+  const container = element('span', 'search-terms');
+  for (const [index, word] of words.entries()) {
+    const enabled = enabledOtzariaOptions(request, word, index);
+    const prefixes = enabled.filter((option) => !otzariaSuffixOptions.has(option));
+    const suffixes = enabled.filter((option) => otzariaSuffixOptions.has(option));
+    if (prefixes.length > 0) {
+      container.append(element('span', 'search-term-abbr', `(${prefixes.map(abbreviateOtzariaOption).join(',')})`));
+    }
+    container.append(element('span', 'search-term-word', word));
+    if (suffixes.length > 0) {
+      container.append(element('span', 'search-term-abbr', `(${suffixes.map(abbreviateOtzariaOption).join(',')})`));
+    }
+    if (index < words.length - 1) {
+      const spacing = request.customSpacing?.[`${index}-${index + 1}`];
+      container.append(element('span', 'search-term-word', spacing ? `+${spacing}` : '+'));
+    }
+  }
+  return [container];
+}
+
+function enabledOtzariaOptions(request: HostSearchRequest, word: string, index: number): string[] {
+  // wordOptions גובר על options עבור המילה כולה, בדיוק כמו ב-PluginSearchApi.
+  const effectiveOptions = request.wordOptions?.[`${word}_${index}`] ?? request.options ?? {};
+  return Object.entries(effectiveOptions)
+    .filter(([, enabled]) => enabled === true)
+    .map(([option]) => option);
+}
+
+function abbreviateOtzariaOption(option: string): string {
+  return otzariaOptionAbbreviations[option] ?? option;
 }
 
 /// בניית עץ הקטגוריות מתוך התוצאות עצמן — המקבילה של פריסת ספריית אוצריא

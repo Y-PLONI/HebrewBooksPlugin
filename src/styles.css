@@ -651,6 +651,12 @@ ul {
   word-break: break-word;
 }
 
+.checkbox-row.disabled {
+  color: var(--color-on-surface-variant);
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 .library-status.offline {
   color: var(--color-error);
 }

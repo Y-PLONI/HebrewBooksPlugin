@@ -198,13 +198,14 @@ export function toHebrewBooksSnapshot(request: HostSearchRequest): SearchSnapsho
     sort: 'hitcount',
     corpus: ['pdf'],
     compactCharClass: true,
-    hybur: optionEnabled(request.wordOptions, 'קידומות דקדוקיות'),
+    // רק אפשרויות שקיימות בשני המנועים מועברות ל-HebrewBooks.
+    hybur: sharedOptionEnabled(request, 'קידומות דקדוקיות'),
     roots: false,
     gematria: false,
-    spelling: optionEnabled(request.wordOptions, 'כתיב מלא/חסר'),
+    spelling: sharedOptionEnabled(request, 'כתיב מלא/חסר'),
     numberGender: false,
-    aramaic: optionEnabled(request.wordOptions, 'תרגום ארמי'),
-    rashetevot: optionEnabled(request.wordOptions, 'ראשי תיבות'),
+    aramaic: sharedOptionEnabled(request, 'תרגום ארמי'),
+    rashetevot: sharedOptionEnabled(request, 'ראשי תיבות'),
     firstWord: false,
     lastWord: false,
     requireWordOrder: true,
@@ -217,11 +218,15 @@ export function toHebrewBooksSnapshot(request: HostSearchRequest): SearchSnapsho
   };
 }
 
-function optionEnabled(
-  wordOptions: Record<string, Record<string, boolean>> | undefined,
-  option: string,
-): boolean {
-  return Object.values(wordOptions ?? {}).some((word) => word[option] === true);
+function sharedOptionEnabled(request: HostSearchRequest, option: string): boolean {
+  const words = request.query.trim().split(/\s+/).filter(Boolean);
+  return words.length > 0 && words.every((word, index) => {
+    // ב-SDK של אוצריא מפת wordOptions מחליפה את options עבור אותה מילה,
+    // ולא מתמזגת בה. HebrewBooks תומך באפשרות לכל השאילתה בלבד, ולכן
+    // מפעילים אותה רק אם היא פעילה באופן זהה בכל מילות השאילתה.
+    const effectiveOptions = request.wordOptions?.[`${word}_${index}`] ?? request.options;
+    return effectiveOptions?.[option] === true;
+  });
 }
 
 function initialCursor(request: HostSearchRequest): UnifiedSearchCursor {
