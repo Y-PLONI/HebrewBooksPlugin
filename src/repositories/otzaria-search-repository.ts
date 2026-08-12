@@ -53,12 +53,38 @@ export class OtzariaSearchRepository {
     return resolved.flat().map(parseResolvedBook);
   }
 
-  async openBook(identity: HostBookIdentity, index: number, searchQuery: string): Promise<boolean> {
+  async openBook(
+    identity: HostBookIdentity,
+    index: number,
+    searchQuery: string,
+    matches?: { pages: number[]; matchedTerms: string[] },
+  ): Promise<boolean> {
     return requireHostData<boolean>(this.bridge, 'reader.openBook', {
       ...identity,
       index,
       searchQuery,
       navigateToPositionIfReused: true,
+      ...(matches && matches.pages.length > 0
+        ? { matchPages: matches.pages, matchedTerms: matches.matchedTerms }
+        : {}),
+    });
+  }
+
+  /// רושם את התוסף כספק חיפוש-בתוך-ספר לספרי היברובוקס — הקורא המובנה של
+  /// אוצריא ישלח אלינו אירועי reader.inBookSearch.requested.
+  async registerInBookSearchProvider(): Promise<void> {
+    await requireHostData<boolean>(this.bridge, 'reader.registerInBookSearchProvider', {
+      provider: 'hebrewbooks',
+    });
+  }
+
+  async respondInBookSearch(
+    requestId: string,
+    result: { pages: number[]; matchedTerms: string[]; query: string } | { error: string },
+  ): Promise<void> {
+    await requireHostData<boolean>(this.bridge, 'reader.respondInBookSearch', {
+      requestId,
+      ...result,
     });
   }
 }

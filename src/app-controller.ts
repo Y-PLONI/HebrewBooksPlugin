@@ -5,11 +5,13 @@ import type {
   HebrewBooksResult,
   HostSearchRequest,
   HostSearchRequestedEvent,
+  InBookSearchRequestedEvent,
   SearchOptions,
   SearchSnapshot,
   UnifiedSearchResponse,
   UnifiedSearchResult,
 } from './models';
+import { defaultSearchOptions } from './models';
 import { CatalogMappingRepository } from './repositories/catalog-mapping-repository';
 import { HebrewBooksRepository } from './repositories/hebrewbooks-repository';
 import { HebrewBooksSnippetRepository } from './repositories/hebrewbooks-snippet-repository';
@@ -119,8 +121,43 @@ export class AppController {
         this.library.setHebrewBooksPath(path);
       }
     }) as (payload: never) => void);
+    // הקורא המובנה של אוצריא מאציל אלינו חיפוש-בתוך-ספר לספרי היברובוקס:
+    // אוצריא לא מדברת עם שירות החיפוש בעצמה — רק התוסף.
+    this.bridge.on('reader.inBookSearch.requested', ((request: InBookSearchRequestedEvent) => {
+      void this.handleInBookSearchRequest(request);
+    }) as (payload: never) => void);
     await this.fetchHebrewBooksPath();
     await this.checkHealth();
+    void this.otzariaRepository
+      .registerInBookSearchProvider()
+      .catch(() => undefined); // מארח ישן שאינו מכיר את ה-API — לא קריטי
+  }
+
+  private async handleInBookSearchRequest(request: InBookSearchRequestedEvent): Promise<void> {
+    const requestId = typeof request?.requestId === 'string' ? request.requestId : '';
+    if (!requestId) return;
+    try {
+      const query = String(request.query ?? '').trim();
+      const fileId = String(request.externalId ?? '');
+      if (query.length === 0 || query.length > 500 || !/^\d+$/.test(fileId)) {
+        throw new Error('בקשת חיפוש בספר אינה תקינה');
+      }
+      const snapshot: SearchSnapshot = {
+        query,
+        options: defaultSearchOptions,
+        fingerprint: createFingerprint(query, defaultSearchOptions),
+      };
+      const locations = await this.repository.inBook(snapshot, fileId);
+      await this.otzariaRepository.respondInBookSearch(requestId, {
+        pages: locations.pages,
+        matchedTerms: locations.matchedTerms,
+        query,
+      });
+    } catch (error) {
+      await this.otzariaRepository
+        .respondInBookSearch(requestId, { error: messageOf(error) })
+        .catch(() => undefined);
+    }
   }
 
   private async fetchHebrewBooksPath(): Promise<void> {
@@ -364,13 +401,19 @@ export class AppController {
       const snapshot = this.snapshot;
       if (!snapshot) return;
       const locations = await this.repository.inBook(snapshot, result.hit.fileId);
-      const page = snapshot.options.firstWord || snapshot.options.lastWord ? 1 : locations.pages[0] ?? 1;
+      // בעיגון מילה ראשונה/אחרונה מספרי העמודים אינם מיקומי התאמה אמינים —
+      // פותחים מעמוד 1 ולא מעבירים אותם לקורא.
+      const anchored = snapshot.options.firstWord || snapshot.options.lastWord;
+      const page = anchored ? 1 : locations.pages[0] ?? 1;
       const externalId = Number(result.hit.fileId);
       if (!Number.isInteger(externalId) || externalId <= 0) throw new Error('מזהה הספר בהיברובוקס אינו תקין');
       const opened = await this.otzariaRepository.openBook(
         { external: { provider: 'hebrewbooks', id: externalId } },
         Math.max(0, page - 1),
         snapshot.query,
+        anchored
+          ? undefined
+          : { pages: locations.pages, matchedTerms: locations.matchedTerms },
       );
       if (!opened) throw new Error('הספר לא נמצא בקטלוג היברובוקס של אוצריא');
     } catch (error) {

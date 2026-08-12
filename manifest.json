@@ -26,7 +26,9 @@
   ],
   "network": {
     "enabled": true,
-    "allowlist": ["http://127.0.0.1:8080"]
+    "allowlist": [
+      "http://127.0.0.1:8080"
+    ]
   },
   "contributes": {
     "toolTab": {
@@ -47,46 +49,36 @@
       "programs": [
         {
           "id": "find-parallel-editions",
-          "version": 1,
-          "triggers": ["reader.activeBookChanged"],
+          "version": 2,
+          "triggers": [
+            "reader.activeBookChanged"
+          ],
           "when": {
             "op": "or",
             "conditions": [
               {
-                "op": "and",
-                "conditions": [
-                  {
-                    "op": "equals",
-                    "left": { "$context": "reader.book.type" },
-                    "right": { "$literal": "text" }
-                  },
-                  {
-                    "op": "equals",
-                    "left": { "$context": "reader.book.source" },
-                    "right": { "$literal": "library" }
-                  },
-                  {
-                    "op": "exists",
-                    "value": { "$context": "reader.book.id" }
-                  },
-                  {
-                    "op": "notEquals",
-                    "left": { "$context": "reader.book.external.provider" },
-                    "right": { "$literal": "hebrewbooks" }
-                  }
-                ]
+                "op": "exists",
+                "value": {
+                  "$context": "reader.book.id"
+                }
               },
               {
                 "op": "and",
                 "conditions": [
                   {
                     "op": "equals",
-                    "left": { "$context": "reader.book.external.provider" },
-                    "right": { "$literal": "hebrewbooks" }
+                    "left": {
+                      "$context": "reader.book.external.provider"
+                    },
+                    "right": {
+                      "$literal": "hebrewbooks"
+                    }
                   },
                   {
                     "op": "exists",
-                    "value": { "$context": "reader.book.external.id" }
+                    "value": {
+                      "$context": "reader.book.external.id"
+                    }
                   }
                 ]
               }
@@ -94,179 +86,64 @@
           },
           "commands": [
             {
-              "id": "hebrewbooksMatches",
-              "type": "database.select",
-              "args": {
-                "sourceId": "external_catalog",
-                "from": {
-                  "table": "otzaria_hebrew_books",
-                  "alias": "m"
-                },
-                "joins": [
-                  {
-                    "type": "left",
-                    "table": "hebrew_books",
-                    "alias": "h",
-                    "on": [
-                      {
-                        "left": "m.hb_id",
-                        "op": "=",
-                        "right": "h.id_book"
-                      }
-                    ]
-                  }
-                ],
-                "select": [
-                  { "expr": "m.hb_id", "as": "hb_id" },
-                  { "expr": "h.title", "as": "title" },
-                  { "expr": "h.author", "as": "author" },
-                  { "expr": "m.is_best", "as": "is_best" },
-                  { "expr": "m.confidence", "as": "confidence" }
-                ],
-                "where": {
-                  "op": "=",
-                  "left": "m.otzaria_id",
-                  "value": { "$context": "reader.book.id" }
-                },
-                "orderBy": [
-                  { "expr": "m.is_best", "direction": "desc" },
-                  { "expr": "m.confidence", "direction": "desc" },
-                  { "expr": "m.hb_id", "direction": "asc" }
-                ],
-                "limit": 20,
-                "rowFormat": "object"
-              }
-            },
-            {
-              "id": "hebrewbooksEditions",
-              "type": "library.resolveBooks",
-              "args": {
-                "items": { "$result": "hebrewbooksMatches.rows" },
-                "identity": {
-                  "external": {
-                    "provider": { "$literal": "hebrewbooks" },
-                    "id": { "$row": "hb_id" }
-                  }
-                },
-                "keepInputFields": true,
-                "limit": 20
-              }
-            },
-            {
-              "id": "otzariaMatches",
-              "type": "database.select",
-              "args": {
-                "sourceId": "external_catalog",
-                "from": {
-                  "table": "otzaria_hebrew_books",
-                  "alias": "m"
-                },
-                "select": [
-                  { "expr": "m.otzaria_id", "as": "otzaria_id" },
-                  { "expr": "m.otzaria_title", "as": "title" },
-                  { "expr": "m.is_best", "as": "is_best" },
-                  { "expr": "m.confidence", "as": "confidence" }
-                ],
-                "where": {
-                  "op": "=",
-                  "left": "m.hb_id",
-                  "value": { "$context": "reader.book.external.id" }
-                },
-                "orderBy": [
-                  { "expr": "m.is_best", "direction": "desc" },
-                  { "expr": "m.confidence", "direction": "desc" },
-                  { "expr": "m.otzaria_id", "direction": "asc" }
-                ],
-                "limit": 20,
-                "rowFormat": "object"
-              }
-            },
-            {
-              "id": "otzariaEditions",
-              "type": "library.resolveBooks",
-              "args": {
-                "items": { "$result": "otzariaMatches.rows" },
-                "identity": {
-                  "id": { "$row": "otzaria_id" },
-                  "type": { "$literal": "text" },
-                  "source": { "$literal": "library" }
-                },
-                "keepInputFields": true,
-                "limit": 20
-              }
-            },
-            {
               "id": "editions",
-              "type": "data.choose",
+              "type": "library.parallelEditions",
               "args": {
-                "condition": {
-                  "op": "equals",
-                  "left": { "$context": "reader.book.external.provider" },
-                  "right": { "$literal": "hebrewbooks" }
-                },
-                "whenTrue": { "$result": "otzariaEditions" },
-                "whenFalse": { "$result": "hebrewbooksEditions" }
+                "identity": {
+                  "id": {
+                    "$context": "reader.book.id"
+                  },
+                  "bookId": {
+                    "$context": "reader.book.bookId"
+                  },
+                  "type": {
+                    "$context": "reader.book.type"
+                  },
+                  "source": {
+                    "$context": "reader.book.source"
+                  },
+                  "external": {
+                    "provider": {
+                      "$context": "reader.book.external.provider"
+                    },
+                    "id": {
+                      "$context": "reader.book.external.id"
+                    }
+                  }
+                }
               }
             },
             {
               "id": "defaultEdition",
               "type": "data.first",
               "args": {
-                "items": { "$result": "editions" }
+                "items": {
+                  "$result": "editions"
+                }
               }
             }
           ],
           "outputs": {
-            "editions": { "$result": "editions" },
-            "defaultEdition": { "$result": "defaultEdition" }
+            "editions": {
+              "$result": "editions"
+            },
+            "defaultEdition": {
+              "$result": "defaultEdition"
+            }
           }
         }
       ],
       "toolbarItems": [
         {
-          "id": "open-parallel-edition",
-          "type": "split",
-          "title": "פתח ספר זה במהדורה המקבילה",
-          "icon": "book_24_regular",
-          "contexts": ["reader-text", "reader-pdf"],
-          "binding": {
-            "program": "find-parallel-editions",
-            "visibleOutput": "defaultEdition"
-          },
-          "action": {
-            "type": "reader.openBook",
-            "args": {
-              "identity": { "$output": "defaultEdition.identity" }
-            }
-          },
-          "childrenBinding": {
-            "itemsOutput": "editions",
-            "maxItems": 20,
-            "itemTemplate": {
-              "id": {
-                "$concat": [
-                  "parallel-edition-",
-                  { "$item": "identity.id" },
-                  "-",
-                  { "$item": "identity.external.id" }
-                ]
-              },
-              "title": { "$item": "title" },
-              "action": {
-                "type": "reader.openBook",
-                "args": {
-                  "identity": { "$item": "identity" }
-                }
-              }
-            }
-          }
-        },
-        {
           "id": "show-parallel-edition-beside",
           "type": "split",
           "title": "הצג מהדורה מקבילה לצד הספר",
           "icon": "dual_screen_24_regular",
-          "contexts": ["reader-text", "reader-pdf"],
+          "placement": "overflow",
+          "contexts": [
+            "reader-text",
+            "reader-pdf"
+          ],
           "binding": {
             "program": "find-parallel-editions",
             "visibleOutput": "defaultEdition"
@@ -274,7 +151,9 @@
           "action": {
             "type": "reader.openBookInSidePane",
             "args": {
-              "identity": { "$output": "defaultEdition.identity" }
+              "identity": {
+                "$output": "defaultEdition.identity"
+              }
             }
           },
           "childrenBinding": {
@@ -284,16 +163,24 @@
               "id": {
                 "$concat": [
                   "beside-edition-",
-                  { "$item": "identity.id" },
+                  {
+                    "$item": "identity.id"
+                  },
                   "-",
-                  { "$item": "identity.external.id" }
+                  {
+                    "$item": "identity.external.id"
+                  }
                 ]
               },
-              "title": { "$item": "title" },
+              "title": {
+                "$item": "title"
+              },
               "action": {
                 "type": "reader.openBookInSidePane",
                 "args": {
-                  "identity": { "$item": "identity" }
+                  "identity": {
+                    "$item": "identity"
+                  }
                 }
               }
             }
@@ -307,7 +194,10 @@
           "title": "חפש גם בהיברובוקס",
           "defaultValue": false,
           "openPluginOnSubmit": true,
-          "visibleInModes": ["exact", "advanced"],
+          "visibleInModes": [
+            "exact",
+            "advanced"
+          ],
           "disabledSearchOptions": {
             "advanced": [
               "word.grammatical-suffixes",

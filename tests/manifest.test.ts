@@ -10,13 +10,18 @@ const program = objectArrayAt(startup, 'programs')[0]!;
 const toolbarItems = objectArrayAt(startup, 'toolbarItems');
 
 describe('parallel edition manifest contributions', () => {
-  it('declares the static toolbar permission and a single bidirectional program', () => {
+  it('declares the static toolbar permission and a single host-computed program', () => {
     expect(stringArrayAt(manifest, 'permissions')).toContain('reader.toolbar');
     expect(objectArrayAt(startup, 'programs')).toHaveLength(1);
     expect(program.id).toBe('find-parallel-editions');
 
+    // המהדורות (מובנית + היברובוקס מקומיות) מחושבות במנוע המובנה של אוצריא —
+    // אותה רשימה בדיוק כמו הלחצן המובנה בסרגל.
     const commands = objectArrayAt(program, 'commands');
-    expect(commands.map((command) => command.type)).toContain('data.choose');
+    expect(commands.map((command) => command.type)).toEqual([
+      'library.parallelEditions',
+      'data.first',
+    ]);
     expect(commands.at(-1)).toMatchObject({
       id: 'defaultEdition',
       type: 'data.first',
@@ -24,38 +29,20 @@ describe('parallel edition manifest contributions', () => {
     });
   });
 
-  it('contributes two split buttons: open the edition, or show it side by side', () => {
-    expect(toolbarItems).toHaveLength(2);
-    expect(toolbarItems.map((item) => item.type)).toEqual(['split', 'split']);
-    expect(toolbarItems.every((item) =>
-      objectAt(item, 'binding').program === 'find-parallel-editions'
-    )).toBe(true);
+  it('contributes a single show-beside split button inside the overflow menu', () => {
+    expect(toolbarItems).toHaveLength(1);
 
+    // לחצן "פתח מהדורה מקבילה" הוסר — הוא מובנה באוצריא עצמה; התוסף תורם
+    // רק את "הצג בצד", בתפריט שלוש הנקודות ולא בסרגל הראשי.
     expect(toolbarItems[0]).toMatchObject({
-      id: 'open-parallel-edition',
-      contexts: ['reader-text', 'reader-pdf'],
-      binding: { visibleOutput: 'defaultEdition' },
-      action: {
-        type: 'reader.openBook',
-        args: { identity: { '$output': 'defaultEdition.identity' } },
-      },
-      childrenBinding: {
-        itemsOutput: 'editions',
-        maxItems: 20,
-        itemTemplate: {
-          action: {
-            type: 'reader.openBook',
-            args: { identity: { '$item': 'identity' } },
-          },
-        },
-      },
-    });
-
-    // הלחצן השני זהה, אלא שהוא מציג את המהדורה כחלונית בטאב הנוכחי.
-    expect(toolbarItems[1]).toMatchObject({
       id: 'show-parallel-edition-beside',
+      type: 'split',
+      placement: 'overflow',
       contexts: ['reader-text', 'reader-pdf'],
-      binding: { visibleOutput: 'defaultEdition' },
+      binding: {
+        program: 'find-parallel-editions',
+        visibleOutput: 'defaultEdition',
+      },
       action: {
         type: 'reader.openBookInSidePane',
         args: { identity: { '$output': 'defaultEdition.identity' } },
@@ -64,6 +51,7 @@ describe('parallel edition manifest contributions', () => {
         itemsOutput: 'editions',
         maxItems: 20,
         itemTemplate: {
+          title: { '$item': 'title' },
           action: {
             type: 'reader.openBookInSidePane',
             args: { identity: { '$item': 'identity' } },

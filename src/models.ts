@@ -111,6 +111,14 @@ export interface HostSearchRequestedEvent {
   request: HostSearchRequest;
 }
 
+/// בקשת חיפוש-בתוך-ספר מהקורא המובנה של אוצריא (התוסף רשום כספק).
+export interface InBookSearchRequestedEvent {
+  requestId: string;
+  provider: string;
+  externalId: number | string;
+  query: string;
+}
+
 export interface OtzariaSearchHit extends HostBookIdentity {
   book: string;
   categoryPath: string | null;
