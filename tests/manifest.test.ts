@@ -24,9 +24,9 @@ describe('parallel edition manifest contributions', () => {
     });
   });
 
-  it('contributes a single split button: default edition plus the editions menu', () => {
-    expect(toolbarItems).toHaveLength(1);
-    expect(toolbarItems.map((item) => item.type)).toEqual(['split']);
+  it('contributes two split buttons: open the edition, or show it side by side', () => {
+    expect(toolbarItems).toHaveLength(2);
+    expect(toolbarItems.map((item) => item.type)).toEqual(['split', 'split']);
     expect(toolbarItems.every((item) =>
       objectAt(item, 'binding').program === 'find-parallel-editions'
     )).toBe(true);
@@ -45,6 +45,27 @@ describe('parallel edition manifest contributions', () => {
         itemTemplate: {
           action: {
             type: 'reader.openBook',
+            args: { identity: { '$item': 'identity' } },
+          },
+        },
+      },
+    });
+
+    // הלחצן השני זהה, אלא שהוא מציג את המהדורה כחלונית בטאב הנוכחי.
+    expect(toolbarItems[1]).toMatchObject({
+      id: 'show-parallel-edition-beside',
+      contexts: ['reader-text', 'reader-pdf'],
+      binding: { visibleOutput: 'defaultEdition' },
+      action: {
+        type: 'reader.openBookInSidePane',
+        args: { identity: { '$output': 'defaultEdition.identity' } },
+      },
+      childrenBinding: {
+        itemsOutput: 'editions',
+        maxItems: 20,
+        itemTemplate: {
+          action: {
+            type: 'reader.openBookInSidePane',
             args: { identity: { '$item': 'identity' } },
           },
         },

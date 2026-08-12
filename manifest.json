@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "org.hebrewbooks2026.otzaria-search",
   "name": "היברובוקס",
-  "version": "0.5.3",
+  "version": "0.5.4",
   "description": "חיפוש וקריאת ספרי HebrewBooks ישירות מתוך אוצריא.",
   "author": "קהילת אוצריא",
   "stability": "experimental",
@@ -252,6 +252,44 @@
               "title": { "$item": "title" },
               "action": {
                 "type": "reader.openBook",
+                "args": {
+                  "identity": { "$item": "identity" }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": "show-parallel-edition-beside",
+          "type": "split",
+          "title": "הצג מהדורה מקבילה לצד הספר",
+          "icon": "dual_screen_24_regular",
+          "contexts": ["reader-text", "reader-pdf"],
+          "binding": {
+            "program": "find-parallel-editions",
+            "visibleOutput": "defaultEdition"
+          },
+          "action": {
+            "type": "reader.openBookInSidePane",
+            "args": {
+              "identity": { "$output": "defaultEdition.identity" }
+            }
+          },
+          "childrenBinding": {
+            "itemsOutput": "editions",
+            "maxItems": 20,
+            "itemTemplate": {
+              "id": {
+                "$concat": [
+                  "beside-edition-",
+                  { "$item": "identity.id" },
+                  "-",
+                  { "$item": "identity.external.id" }
+                ]
+              },
+              "title": { "$item": "title" },
+              "action": {
+                "type": "reader.openBookInSidePane",
                 "args": {
                   "identity": { "$item": "identity" }
                 }
