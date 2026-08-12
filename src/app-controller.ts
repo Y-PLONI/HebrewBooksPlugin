@@ -218,7 +218,9 @@ export class AppController {
         options: defaultSearchOptions,
         fingerprint: createFingerprint(query, defaultSearchOptions),
       };
-      const locations = await this.repository.inBook(snapshot, fileId);
+      // דרך המטמון: שלב הקטעים של המדור החיצוני כבר איתר את העמודים לרוב
+      // הספרים, ולחיצת פתיחה נענית מיידית.
+      const locations = await this.locateInBook(snapshot, fileId);
       await this.otzariaRepository.respondInBookSearch(requestId, {
         pages: locations.pages,
         matchedTerms: locations.matchedTerms,
@@ -291,7 +293,6 @@ export class AppController {
             hasMore: false,
           },
           query,
-          snapshot,
         );
         return;
       }
@@ -336,7 +337,6 @@ export class AppController {
           hasMore: offset + page.results.length < page.totalBooks,
         },
         query,
-        snapshot,
         index,
       );
     } catch (error) {
@@ -365,7 +365,6 @@ export class AppController {
     pageResults: HebrewBooksResult[],
     totals: { totalBooks: number; totalHits: number; hasMore: boolean },
     query: string,
-    snapshot: SearchSnapshot,
     index?: ExternalSearchIndexEntry[],
   ): Promise<void> {
     const results: ExternalSearchResultPayload[] = pageResults.map((result) =>
@@ -401,7 +400,7 @@ export class AppController {
     };
     await Promise.race([
       mapWithConcurrency(pageResults, snippetConcurrency, async (result, position) => {
-        const snippet = await this.loadResultSnippet(snapshot, result, query);
+        const snippet = await this.loadResultSnippet(result, query);
         const current = results[position];
         if (snippet && current && !finished) {
           results[position] = { ...current, snippet };
@@ -423,14 +422,22 @@ export class AppController {
   /// הראשונה (firstHitPage ריק), ולכן מאתרים אותו קודם דרך /inbook —
   /// עם מטמון לפי חיפוש+ספר, שגם מאיץ את פתיחת הספר בלחיצה.
   private async loadResultSnippet(
-    snapshot: SearchSnapshot,
     result: HebrewBooksResult,
     query: string,
   ): Promise<string | null> {
     let page = result.firstHitPage;
     if (page === null) {
+      // איתור בברירות המחדל (proximity 30, בלי סדר-מילים) ולא באפשרויות
+      // החיפוש: /inbook עם proximity הדוק מחזיר 0 עמודים גם לספרים
+      // ש-/search מצא בהם מופעים — לכן גם מסלול הפתיחה-בלחיצה משתמש בהן.
+      const inBookSnapshot: SearchSnapshot = {
+        query,
+        options: defaultSearchOptions,
+        fingerprint: createFingerprint(query, defaultSearchOptions),
+      };
       try {
-        page = (await this.locateInBook(snapshot, result.fileId)).pages[0] ?? null;
+        page =
+          (await this.locateInBook(inBookSnapshot, result.fileId)).pages[0] ?? null;
       } catch {
         page = null;
       }
@@ -444,7 +451,7 @@ export class AppController {
   private readonly inBookLocationsCache = new Map<string, Promise<InBookLocations>>();
 
   private locateInBook(snapshot: SearchSnapshot, fileId: string): Promise<InBookLocations> {
-    const key = `${snapshot.fingerprint} ${fileId}`;
+    const key = `${snapshot.fingerprint}\u0000${fileId}`;
     const existing = this.inBookLocationsCache.get(key);
     if (existing) return existing;
     const request = this.repository.inBook(snapshot, fileId);
