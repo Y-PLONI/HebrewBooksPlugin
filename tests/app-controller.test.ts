@@ -56,6 +56,49 @@ describe('AppController HebrewBooks path setting integration', () => {
     expect(statusEl?.textContent).toBe('מיקום ספרי היברובוקס באוצריא: לא הוגדר');
   });
 
+  it('מתעלם מבקשות חיפוש שאינן מיועדות לספק hebrewbooks', async () => {
+    const listeners: Record<string, (payload: unknown) => void> = {};
+    const calls: Array<{ method: string; payload?: Record<string, unknown> }> = [];
+    const mockBridge: HostBridge = {
+      call: vi.fn(async (method: string, payload?: Record<string, unknown>) => {
+        calls.push({ method, payload });
+        return { success: true, data: null, error: null };
+      }) as unknown as HostBridge['call'],
+      on: (event: string, callback: (payload: never) => void) => {
+        listeners[event] = callback as (payload: unknown) => void;
+      },
+    };
+
+    const controller = new AppController(mockBridge, document.createElement('div'));
+    await controller.boot({
+      app: { platform: 'macos', version: '0.9.97', locale: 'he', textDirection: 'rtl' },
+      plugin: { id: 'hebrewbooks', version: '0.5.6' },
+      theme: {
+        mode: 'light',
+        colorScheme: {},
+        typography: { fontFamily: 'Roboto', fontSize: 14, lineHeight: 1.4 },
+      },
+      permissions: [],
+    });
+    await Promise.resolve();
+    calls.length = 0;
+
+    listeners['search.external.requested']?.({
+      requestId: 'xs-foreign',
+      provider: 'other-provider',
+      query: 'שלום',
+    });
+    listeners['reader.inBookSearch.requested']?.({
+      requestId: 'ibs-foreign',
+      provider: 'other-provider',
+      externalId: 1,
+      query: 'שלום',
+    });
+    await Promise.resolve();
+
+    expect(calls).toEqual([]);
+  });
+
   it('נרשם כספק תוצאות חיצוני ועונה לבקשת search.external.requested בעמוד ממופה', async () => {
     const listeners: Record<string, (payload: unknown) => void> = {};
     const calls: Array<{ method: string; payload?: Record<string, unknown> }> = [];

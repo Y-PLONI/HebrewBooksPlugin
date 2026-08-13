@@ -1,5 +1,6 @@
 import type { HostBridge } from '../bridge';
 import { requireHostData } from '../bridge';
+import { hebrewBooksProvider } from '../models';
 import type {
   ExternalSearchIndexEntry,
   ExternalSearchResultPayload,
@@ -87,7 +88,7 @@ export class OtzariaSearchRepository {
   /// אוצריא ישלח אלינו אירועי reader.inBookSearch.requested.
   async registerInBookSearchProvider(): Promise<void> {
     await requireHostData<boolean>(this.bridge, 'reader.registerInBookSearchProvider', {
-      provider: 'hebrewbooks',
+      provider: hebrewBooksProvider,
     });
   }
 
@@ -114,7 +115,7 @@ export class OtzariaSearchRepository {
   /// אלינו אירועי search.external.requested במקום לפתוח את מסך התוסף.
   async registerExternalSearchProvider(): Promise<void> {
     await requireHostData<boolean>(this.bridge, 'reader.registerExternalSearchProvider', {
-      provider: 'hebrewbooks',
+      provider: hebrewBooksProvider,
     });
   }
 

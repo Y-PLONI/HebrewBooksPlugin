@@ -1,6 +1,6 @@
 {
   "name": "hebrewbooks-otzaria-plugin",
-  "version": "0.5.2",
+  "version": "0.5.6",
   "private": true,
   "type": "module",
   "scripts": {
