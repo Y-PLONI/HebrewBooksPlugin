@@ -466,6 +466,27 @@ describe('ספק התוצאות החיצוני — גזירי טקסט', () => {
     ).toBe(false);
   });
 
+  it('אירוע כפול עם אותו requestId מטופל פעם אחת בלבד', async () => {
+    // אוצריא משגרת את האירוע שוב אם אין תגובה תוך 8 שניות (boot איטי);
+    // טיפול כפול היה מריץ שני חיפושים מלאים ועונה done=true פעמיים.
+    let searches = 0;
+    const host = await bootController({
+      network: {
+        '/search': () => {
+          searches += 1;
+          return { body: hebrewBooksNdjson([hebrewBooksRow({ fileId: '405', firstHitPage: 7 })]) };
+        },
+      },
+    });
+    host.emit('search.external.requested', externalRequest());
+    host.emit('search.external.requested', externalRequest());
+    const final = await finalResponse(host);
+    expect(resultsOf(final)[0]).toMatchObject({ externalId: 405 });
+    expect(searches).toBe(1);
+    const finals = responsesFor(host, 'xs-1').filter((response) => response.done === undefined);
+    expect(finals).toHaveLength(1);
+  });
+
   it('ספר שלא נמצא בו עמוד נשלח בלי גזיר', async () => {
     const host = await bootController({
       network: {
@@ -495,7 +516,8 @@ describe('ספק התוצאות החיצוני — גזירי טקסט', () => {
       host.emit('search.external.requested', externalRequest());
       // ההזרמה מגיעה עד ההמתנה על תקרת הזמן, ורק אז מקדמים את השעון.
       await flushMicrotasks();
-      await vi.advanceTimersByTimeAsync(20_000);
+      // תקרת ההזרמה היא 25 שניות — מקדמים מעבר לה.
+      await vi.advanceTimersByTimeAsync(30_000);
       const final = responsesFor(host, 'xs-1').at(-1) ?? {};
       // תשובה סופית נשלחת בלי השדה done, ונושאת את מה שהספיק להיטען.
       expect(final.done).toBeUndefined();
