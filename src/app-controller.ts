@@ -82,10 +82,16 @@ function sumHitCounts(results: readonly HebrewBooksResult[]): number {
   return results.reduce((total, result) => total + result.hitCount, 0);
 }
 
-function toIndexEntry(result: HebrewBooksResult): ExternalSearchIndexEntry {
+function toIndexEntry(result: HebrewBooksResult, withTitle: boolean): ExternalSearchIndexEntry {
   const id = Number(result.fileId);
   const category = mapHebrewBooksCategory(result.categories);
+  if (withTitle) return [id, result.hitCount, category ?? '', result.bookName];
   return category === null ? [id, result.hitCount] : [id, result.hitCount, category];
+}
+
+/// אותה רשומה עם נתיב קטגוריה מעודן, בלי לאבד את שם הספר שכבר יושב עליה.
+function withCategoryPath(entry: ExternalSearchIndexEntry, path: string): ExternalSearchIndexEntry {
+  return entry.length === 4 ? [entry[0], entry[1], path, entry[3]] : [entry[0], entry[1], path];
 }
 
 export class AppController {
@@ -377,7 +383,13 @@ export class AppController {
             done: false,
           })
           .catch(() => undefined);
-        index = await this.refineIndex(snapshot.fingerprint, all);
+        // שם הספר נשלח רק כשהמארח הצהיר שהוא צורך אותו: מארח ותיק זורק
+        // רשומה בת ארבעה איברים בסניטציה, ואיתה את הסיווג כולו.
+        index = await this.refineIndex(
+          snapshot.fingerprint,
+          all,
+          request.indexTitles === true,
+        );
       }
       await this.streamPageWithSnippets(
         requestId,
@@ -409,10 +421,14 @@ export class AppController {
   private async refineIndex(
     fingerprint: string,
     all: HebrewBooksResult[],
+    withTitles: boolean,
   ): Promise<ExternalSearchIndexEntry[]> {
-    const cached = this.refinedIndexCache.get(fingerprint);
+    // צורת הרשומה היא חלק מהמטמון: אותו חיפוש עשוי להישאל פעם עם שמות ופעם
+    // בלעדיהם (מארח ותיק), וגרסה אחת אינה משמשת לשנייה.
+    const cacheKey = withTitles ? `${fingerprint}|t` : fingerprint;
+    const cached = this.refinedIndexCache.get(cacheKey);
     if (cached) return cached;
-    const base = all.map(toIndexEntry);
+    const base = all.map((result) => toIndexEntry(result, withTitles));
     let refined = base;
     try {
       const mapping = await this.catalogMapping.findBestOtzariaIdsBulk(
@@ -425,7 +441,7 @@ export class AppController {
         refined = base.map((entry) => {
           const otzariaId = mapping.get(String(entry[0]));
           const path = otzariaId === undefined ? null : pathByOtzariaId.get(otzariaId) ?? null;
-          return path ? [entry[0], entry[1], path] : entry;
+          return path ? withCategoryPath(entry, path) : entry;
         });
       }
     } catch {
@@ -435,7 +451,7 @@ export class AppController {
       const oldest = this.refinedIndexCache.keys().next().value;
       if (oldest !== undefined) this.refinedIndexCache.delete(oldest);
     }
-    this.refinedIndexCache.set(fingerprint, refined);
+    this.refinedIndexCache.set(cacheKey, refined);
     return refined;
   }
 

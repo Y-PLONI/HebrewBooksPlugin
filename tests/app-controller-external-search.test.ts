@@ -384,6 +384,63 @@ describe('ספק התוצאות החיצוני — אינדקס הקטגוריו
     ]);
   });
 
+  it('שם הספר נשלח כאיבר רביעי רק כשהמארח ביקש זאת', async () => {
+    const host = await bootController({
+      network: {
+        '/search': () => ({
+          body: hebrewBooksNdjson([
+            hebrewBooksRow({
+              fileId: '201',
+              bookName: 'שו"ת מהרש"ם',
+              categories: 'גאונים|שו"ת',
+              hitCount: 3,
+              firstHitPage: undefined,
+            }),
+            hebrewBooksRow({
+              fileId: '202',
+              bookName: 'ספר בלי סיווג',
+              categories: undefined,
+              hitCount: 1,
+              firstHitPage: undefined,
+            }),
+          ]),
+        }),
+      },
+    });
+
+    host.emit('search.external.requested', externalRequest({ indexTitles: true }));
+    const withTitles = await finalResponse(host);
+    expect(withTitles.index).toEqual([
+      [201, 3, '/שו"ת', 'שו"ת מהרש"ם'],
+      // בלי סיווג הקטגוריה ריקה — השם עדיין מגיע.
+      [202, 1, '', 'ספר בלי סיווג'],
+    ]);
+
+    // אותו חיפוש בלי הדגל: אותו מטמון אינו מגיש רשומות בנות ארבעה איברים.
+    host.emit('search.external.requested', externalRequest({ requestId: 'xs-2' }));
+    const withoutTitles = await finalResponse(host, 'xs-2');
+    expect(withoutTitles.index).toEqual([
+      [201, 3, '/שו"ת'],
+      [202, 1],
+    ]);
+  });
+
+  it('שם הספר נשמר גם כשמיפוי ההשוואות מדייק את הקטגוריה', async () => {
+    const host = await bootController({
+      network: twoRows,
+      methods: {
+        'database.batchQuery': () => ({ results: [{ rows: [{ hb_id: 201, otzaria_id: 900 }] }] }),
+        'library.resolveCategoryPaths': () => ['/הלכה/שולחן ערוך'],
+      },
+    });
+    host.emit('search.external.requested', externalRequest({ indexTitles: true }));
+    const final = await finalResponse(host);
+    expect(final.index).toEqual([
+      [201, 3, '/הלכה/שולחן ערוך', 'קובץ שיטות קמאי'],
+      [202, 5, '/תלמוד בבלי', 'קובץ שיטות קמאי'],
+    ]);
+  });
+
   it('מטמון האינדקס משוחרר אחרי שמונה חיפושים שונים', async () => {
     const host = await bootController({
       network: {
