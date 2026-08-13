@@ -75,6 +75,8 @@ export interface HealthStatus {
 
 export type HostSearchMode = 'exact' | 'advanced' | 'fuzzy';
 
+export const hebrewBooksProvider = 'hebrewbooks' as const;
+
 export interface HostBookIdentity {
   id?: number | null;
   bookId?: string;
@@ -114,7 +116,7 @@ export interface HostSearchRequestedEvent {
 /// בקשת חיפוש-בתוך-ספר מהקורא המובנה של אוצריא (התוסף רשום כספק).
 export interface InBookSearchRequestedEvent {
   requestId: string;
-  provider: string;
+  provider: typeof hebrewBooksProvider;
   externalId: number | string;
   query: string;
 }
@@ -126,7 +128,7 @@ export interface InBookSearchRequestedEvent {
 /// שבמטמון) — כך אוצריא מדפדפת בתוצאות מסוננות-קטגוריה שהיא חישבה מהאינדקס.
 export interface ExternalSearchRequestedEvent {
   requestId: string;
-  provider: string;
+  provider: typeof hebrewBooksProvider;
   query: string;
   mode?: HostSearchMode;
   distance?: number;

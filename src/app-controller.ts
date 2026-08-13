@@ -1,5 +1,6 @@
 import type { HostBridge } from './bridge';
 import { requireHostData } from './bridge';
+import { hebrewBooksProvider } from './models';
 import type {
   ExternalSearchIndexEntry,
   ExternalSearchRequestedEvent,
@@ -207,6 +208,7 @@ export class AppController {
   }
 
   private async handleInBookSearchRequest(request: InBookSearchRequestedEvent): Promise<void> {
+    if (request?.provider !== hebrewBooksProvider) return;
     const requestId = typeof request?.requestId === 'string' ? request.requestId : '';
     if (!requestId) return;
     try {
@@ -239,6 +241,7 @@ export class AppController {
   /// החיפוש של ה-repository (אותו fingerprint), כך שרק העמוד הראשון פונה
   /// לשרת; קטעי הטקסט נטענים במקביל עם תקרת זמן ואינם מעכבים את התשובה.
   private async handleExternalSearchRequest(request: ExternalSearchRequestedEvent): Promise<void> {
+    if (request?.provider !== hebrewBooksProvider) return;
     const requestId = typeof request?.requestId === 'string' ? request.requestId : '';
     if (!requestId) return;
     try {
