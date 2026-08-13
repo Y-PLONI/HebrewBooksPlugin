@@ -46,6 +46,17 @@ export class OtzariaSearchRepository {
     }
   }
 
+  /// נתיב הקטגוריה בעץ הספרייה לכל מזהה ספר אוצריא, מיושר לסדר הקלט —
+  /// מסלול bulk (עד 20K מזהים בקריאה אחת) לסיווג אינדקס תוצאות שלם.
+  async resolveCategoryPaths(ids: number[]): Promise<Array<string | null>> {
+    if (ids.length === 0) return [];
+    const paths = await requireHostData<unknown[]>(this.bridge, 'library.resolveCategoryPaths', { ids });
+    if (!Array.isArray(paths) || paths.length !== ids.length) {
+      throw new Error('אוצריא החזירה נתיבי קטגוריות לא תקינים');
+    }
+    return paths.map(optionalString);
+  }
+
   async resolveBooks(identities: HostBookIdentity[]): Promise<Array<ResolvedBook | null>> {
     if (identities.length === 0) return [];
     const chunks = chunk(identities, 100);

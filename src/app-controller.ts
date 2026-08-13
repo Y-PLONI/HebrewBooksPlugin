@@ -90,6 +90,7 @@ export class AppController {
   // חורג מתקרת ההזרמה; מעבר לזה מציף את ה-sidecar בבקשות Range.
   private readonly snippets = new HebrewBooksSnippetRepository(3);
   private readonly otzariaRepository: OtzariaSearchRepository;
+  private readonly catalogMapping: CatalogMappingRepository;
   private readonly unifiedSearch: UnifiedSearchService;
   private readonly library: LibraryScreen;
   private readonly results: ResultsScreen;
@@ -112,10 +113,11 @@ export class AppController {
   constructor(private readonly bridge: HostBridge, shell: HTMLElement) {
     this.repository = new HebrewBooksRepository(bridge);
     this.otzariaRepository = new OtzariaSearchRepository(bridge);
+    this.catalogMapping = new CatalogMappingRepository(bridge);
     this.unifiedSearch = new UnifiedSearchService(
       this.repository,
       this.otzariaRepository,
-      new CatalogMappingRepository(bridge),
+      this.catalogMapping,
     );
 
     this.library = new LibraryScreen({
@@ -321,13 +323,28 @@ export class AppController {
       const page = await this.repository.search(snapshot, sendPartial, undefined, offset);
       // כל העדכונים החלקיים נשלחו לפני הסופי — אחרת עדכון מאחר היה נבלע.
       await partialChain;
-      // אינדקס הקטגוריות (עמוד ראשון בלבד): כלל התוצאות בתמצות, עם
-      // קטגוריית אוצריא המשוערת מתגיות הקטלוג. אוצריא בונה ממנו את
-      // הספירות בעץ ומעדנת מול DB ההשוואות המקומי שלה.
+      // אינדקס הקטגוריות (עמוד ראשון בלבד): כלל התוצאות בתמצות, עם קטגוריית
+      // אוצריא לכל ספר. הסיווג כולו כאן, בצד התוסף: מיפוי ההשוואות
+      // (hb→otzaria, דרך ה-DB של המארח במסלול bulk) קובע נתיב מדויק, ותגיות
+      // הקטלוג משמשות fallback. אוצריא רק מאמתת את הנתיבים מול עץ הספרייה.
       const all = offset === 0
         ? this.repository.cachedResultsFor(snapshot.fingerprint)
         : null;
-      const index = all?.map(toIndexEntry);
+      let index: ExternalSearchIndexEntry[] | undefined;
+      if (all) {
+        // התוצאות עצמן לא ממתינות לעידון האינדקס — עמוד ראשון נשלח מיד,
+        // והאינדקס המסווג מצטרף בעדכון הבסיס של הזרמת הקטעים.
+        await this.otzariaRepository
+          .respondExternalSearch(requestId, {
+            results: page.results.map((result) => this.toExternalResult(result)),
+            totalBooks: page.totalBooks,
+            totalHits: page.totalHits,
+            hasMore: offset + page.results.length < page.totalBooks,
+            done: false,
+          })
+          .catch(() => undefined);
+        index = await this.refineIndex(snapshot.fingerprint, all);
+      }
       await this.streamPageWithSnippets(
         requestId,
         page.results,
@@ -344,6 +361,47 @@ export class AppController {
         .respondExternalSearch(requestId, { error: messageOf(error) })
         .catch(() => undefined);
     }
+  }
+
+  /// אינדקסים מסווגים לפי חתימת חיפוש — חיפוש חוזר (או בקשת ids אחרי
+  /// טעינה-מחדש) לא משלם שוב את מעברי הגשר של המיפוי.
+  private readonly refinedIndexCache = new Map<string, ExternalSearchIndexEntry[]>();
+
+  /// בונה את אינדקס הקטגוריות של כלל התוצאות: ספר שמושווה לספר אוצריא
+  /// (בטבלת otzaria_hebrew_books, דרך מסלול ה-bulk של ה-DB) מקבל את נתיב
+  /// הקטגוריה המדויק שלו בספרייה; לשאר נשארת הקטגוריה המשוערת מתגיות
+  /// הקטלוג. במארח ישן (בלי bulk / resolveCategoryPaths) נופלים לתגיות.
+  private async refineIndex(
+    fingerprint: string,
+    all: HebrewBooksResult[],
+  ): Promise<ExternalSearchIndexEntry[]> {
+    const cached = this.refinedIndexCache.get(fingerprint);
+    if (cached) return cached;
+    const base = all.map(toIndexEntry);
+    let refined = base;
+    try {
+      const mapping = await this.catalogMapping.findBestOtzariaIdsBulk(
+        all.map((result) => result.fileId),
+      );
+      if (mapping.size > 0) {
+        const otzariaIds = [...new Set(mapping.values())];
+        const paths = await this.otzariaRepository.resolveCategoryPaths(otzariaIds);
+        const pathByOtzariaId = new Map(otzariaIds.map((id, position) => [id, paths[position] ?? null]));
+        refined = base.map((entry) => {
+          const otzariaId = mapping.get(String(entry[0]));
+          const path = otzariaId === undefined ? null : pathByOtzariaId.get(otzariaId) ?? null;
+          return path ? [entry[0], entry[1], path] : entry;
+        });
+      }
+    } catch {
+      // מיפוי או פתרון קטגוריות שנכשלו אינם מעכבים את האינדקס.
+    }
+    if (this.refinedIndexCache.size >= 8) {
+      const oldest = this.refinedIndexCache.keys().next().value;
+      if (oldest !== undefined) this.refinedIndexCache.delete(oldest);
+    }
+    this.refinedIndexCache.set(fingerprint, refined);
+    return refined;
   }
 
   private toExternalResult(result: HebrewBooksResult): ExternalSearchResultPayload {

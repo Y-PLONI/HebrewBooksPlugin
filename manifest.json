@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "org.hebrewbooks2026.otzaria-search",
   "name": "היברובוקס",
-  "version": "0.5.4",
+  "version": "0.5.5",
   "description": "חיפוש וקריאת ספרי HebrewBooks ישירות מתוך אוצריא.",
   "author": "קהילת אוצריא",
   "stability": "experimental",
@@ -186,6 +186,20 @@
               }
             }
           }
+        }
+      ],
+      "externalEditions": [
+        {
+          "id": "hebrewbooks-editions",
+          "provider": "hebrewbooks",
+          "sourceId": "external_catalog",
+          "table": "otzaria_hebrew_books",
+          "externalIdColumn": "hb_id",
+          "otzariaIdColumn": "otzaria_id",
+          "orderBy": [
+            { "column": "is_best", "direction": "desc" },
+            { "column": "confidence", "direction": "desc" }
+          ]
         }
       ],
       "searchDialogItems": [

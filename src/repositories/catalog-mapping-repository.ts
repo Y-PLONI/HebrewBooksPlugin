@@ -9,8 +9,63 @@ interface DatabaseBatchResult {
   results: DatabaseQueryResult[];
 }
 
+/// מכסות מסלול ה-bulk של המארח (ראו PluginDatabasePolicy של external_catalog):
+/// עד 1000 ערכי IN לשאילתה ועד 10 שאילתות ל-batch. צ'אנק של 500 משאיר
+/// מרווח לשורות כפולות (hb_id עם כמה מיפויי is_best) מתחת לתקרת ה-limit.
+const bulkChunkSize = 500;
+const bulkQueriesPerBatch = 10;
+const bulkRowLimit = 1000;
+
 export class CatalogMappingRepository {
   constructor(private readonly bridge: HostBridge) {}
+
+  /// מיפוי hb_id → otzaria_id לאינדקס שלם (עד ~20K מזהים) במינימום מעברי
+  /// גשר: 5000 מזהים לכל קריאת batchQuery. במארח ישן (מכסות קטנות) הקריאה
+  /// נכשלת — המתקשר נופל לסיווג מהתגיות בלבד.
+  async findBestOtzariaIdsBulk(fileIds: string[]): Promise<Map<string, number>> {
+    const ids = [...new Set(fileIds.map(Number).filter((id) => Number.isInteger(id) && id > 0))];
+    if (ids.length === 0) return new Map();
+
+    const queries = chunk(ids, bulkChunkSize).map((values) => ({
+      sourceId: 'external_catalog',
+      from: { table: 'otzaria_hebrew_books', alias: 'm' },
+      select: [
+        { expr: 'm.hb_id', as: 'hb_id' },
+        { expr: 'm.otzaria_id', as: 'otzaria_id' },
+      ],
+      where: {
+        op: 'and',
+        conditions: [
+          { op: 'in', left: 'm.hb_id', value: values },
+          { op: '=', left: 'm.is_best', value: 1 },
+        ],
+      },
+      orderBy: [{ expr: 'm.confidence', direction: 'desc' }],
+      limit: bulkRowLimit,
+      rowFormat: 'object',
+    }));
+
+    const mapping = new Map<string, number>();
+    // הרצה טורית של ה-batches (לרוב יש אחד) — לא מציפים את הגשר במקביל.
+    for (const batch of chunk(queries, bulkQueriesPerBatch)) {
+      const response = await requireHostData<DatabaseBatchResult>(this.bridge, 'database.batchQuery', {
+        queries: batch,
+      });
+      if (!Array.isArray(response.results)) throw new Error('טבלת ההשוואה החזירה תשובה לא תקינה');
+      for (const result of response.results) {
+        if (!Array.isArray(result.rows)) throw new Error('טבלת ההשוואה החזירה שורות לא תקינות');
+        for (const row of result.rows) {
+          const hbId = Number(row.hb_id);
+          const otzariaId = Number(row.otzaria_id);
+          if (Number.isInteger(hbId) && hbId > 0 && Number.isInteger(otzariaId) && otzariaId > 0) {
+            // המיון לפי confidence יורד — השורה הראשונה לכל hb_id היא הטובה.
+            if (!mapping.has(String(hbId))) mapping.set(String(hbId), otzariaId);
+          }
+        }
+      }
+    }
+    return mapping;
+  }
 
   async findBestOtzariaIds(fileIds: string[]): Promise<Map<string, number>> {
     const ids = [...new Set(fileIds.map(Number).filter((id) => Number.isInteger(id) && id > 0))];

@@ -94,4 +94,39 @@ describe('OtzariaSearchRepository', () => {
     expect(cancelled).toBe(true);
     await iterator.return?.();
   });
+
+  describe('resolveCategoryPaths', () => {
+    it('שולח קריאה אחת ומחזיר נתיבים מיושרים לקלט', async () => {
+      const payloads: Record<string, unknown>[] = [];
+      const bridge: HostBridge = {
+        call: (async <T>(method: string, payload?: Record<string, unknown>) => {
+          expect(method).toBe('library.resolveCategoryPaths');
+          payloads.push(payload ?? {});
+          return { success: true, data: ['/הלכה', null, '  '] as T, error: null };
+        }) as HostBridge['call'],
+        on: () => undefined,
+      };
+      const paths = await new OtzariaSearchRepository(bridge).resolveCategoryPaths([7, 8, 9]);
+      // מחרוזת ריקה מנורמלת ל-null, וכל קריאה אחת לכל האצווה.
+      expect(paths).toEqual(['/הלכה', null, null]);
+      expect(payloads).toEqual([{ ids: [7, 8, 9] }]);
+    });
+
+    it('קלט ריק אינו פונה למארח; אורך תשובה שגוי — שגיאה', async () => {
+      let calls = 0;
+      const bridge: HostBridge = {
+        call: (async <T>() => {
+          calls += 1;
+          return { success: true, data: ['/אחד'] as T, error: null };
+        }) as unknown as HostBridge['call'],
+        on: () => undefined,
+      };
+      const repository = new OtzariaSearchRepository(bridge);
+      expect(await repository.resolveCategoryPaths([])).toEqual([]);
+      expect(calls).toBe(0);
+      await expect(repository.resolveCategoryPaths([1, 2])).rejects.toThrow(
+        'נתיבי קטגוריות לא תקינים',
+      );
+    });
+  });
 });

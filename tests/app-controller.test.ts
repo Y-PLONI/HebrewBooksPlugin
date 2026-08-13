@@ -183,6 +183,111 @@ describe('AppController HebrewBooks path setting integration', () => {
     );
   });
 
+  it('מעדן את אינדקס הקטגוריות דרך מיפוי ההשוואות ומסלול ה-bulk של המארח', async () => {
+    const listeners: Record<string, (payload: unknown) => void> = {};
+    const calls: Array<{ method: string; payload?: Record<string, unknown> }> = [];
+    const searchRow = JSON.stringify({
+      fileId: '43558',
+      bookName: 'קובץ שיטות קמאי',
+      sourceType: 'PDF',
+      categories: 'גאונים|שו"ת',
+      hitCount: 7,
+    });
+    const mockBridge: HostBridge = {
+      call: vi.fn((method: string, payload?: Record<string, unknown>) => {
+        calls.push({ method, payload });
+        if (method === 'network.fetchStream') {
+          return (async function* () {
+            yield { sequence: 0, type: 'response', status: 200, ok: true, headers: {} };
+            yield { sequence: 1, type: 'data', body: `${searchRow}\n` };
+          })();
+        }
+        if (method === 'database.batchQuery') {
+          return Promise.resolve({
+            success: true,
+            data: { results: [{ rows: [{ hb_id: 43558, otzaria_id: 2001 }] }] },
+            error: null,
+          });
+        }
+        if (method === 'library.resolveCategoryPaths') {
+          expect(payload?.ids).toEqual([2001]);
+          return Promise.resolve({ success: true, data: ['/הלכה/שולחן ערוך'], error: null });
+        }
+        return Promise.resolve({ success: true, data: true, error: null });
+      }) as unknown as HostBridge['call'],
+      on: (event: string, callback: (payload: never) => void) => {
+        listeners[event] = callback as (payload: unknown) => void;
+      },
+    };
+
+    const shell = document.createElement('div');
+    const controller = new AppController(mockBridge, shell);
+    await controller.boot({
+      app: { platform: 'macos', version: '0.9.97', locale: 'he', textDirection: 'rtl' },
+      plugin: { id: 'hebrewbooks', version: '0.5.5' },
+      theme: {
+        mode: 'light',
+        colorScheme: {},
+        typography: { fontFamily: 'Roboto', fontSize: 14, lineHeight: 1.4 },
+      },
+      permissions: [],
+    });
+
+    listeners['search.external.requested']?.({
+      requestId: 'xs-1',
+      provider: 'hebrewbooks',
+      query: 'ברכת המזון',
+      mode: 'exact',
+      distance: 2,
+      offset: 0,
+      limit: 20,
+    });
+    await vi.waitFor(() => {
+      expect(
+        calls.some(
+          (call) =>
+            call.method === 'reader.respondExternalSearch' && call.payload?.done !== false,
+        ),
+      ).toBe(true);
+    });
+
+    // ספר ממופה מקבל את נתיב הקטגוריה המדויק מהספרייה — לא את הצעת התגיות.
+    const responses = calls.filter((call) => call.method === 'reader.respondExternalSearch');
+    expect(responses.at(-1)?.payload).toMatchObject({
+      index: [[43558, 7, '/הלכה/שולחן ערוך']],
+    });
+    // התוצאות עצמן לא המתינו לעידון: עדכון עם התוצאות נשלח לפני שהאינדקס מוכן.
+    const firstWithResults = responses.find(
+      (call) => Array.isArray(call.payload?.results) && (call.payload.results as unknown[]).length > 0,
+    );
+    expect(firstWithResults?.payload?.index).toBeUndefined();
+
+    // חיפוש חוזר זהה מוגש ממטמון האינדקס המעודן — בלי מיפוי נוסף על הגשר.
+    const mappingCallsBefore = calls.filter((call) => call.method === 'database.batchQuery').length;
+    listeners['search.external.requested']?.({
+      requestId: 'xs-2',
+      provider: 'hebrewbooks',
+      query: 'ברכת המזון',
+      mode: 'exact',
+      distance: 2,
+      offset: 0,
+      limit: 20,
+    });
+    await vi.waitFor(() => {
+      expect(
+        calls.some(
+          (call) =>
+            call.method === 'reader.respondExternalSearch' &&
+            call.payload?.requestId === 'xs-2' &&
+            call.payload?.done !== false,
+        ),
+      ).toBe(true);
+    });
+    expect(calls.filter((call) => call.method === 'database.batchQuery')).toHaveLength(
+      mappingCallsBefore,
+    );
+  });
+
   it('does not let a delayed settings.get response overwrite a newer settings.changed event', async () => {
     const listeners: Record<string, (payload: unknown) => void> = {};
     let resolveSetting!: (value: { success: boolean; data: string | null; error: null }) => void;
