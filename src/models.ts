@@ -135,6 +135,8 @@ export interface ExternalSearchRequestedEvent {
   offset?: number;
   limit?: number;
   ids?: unknown;
+  /// המארח צורך שמות ספרים באינדקס (ומציג מהם את ספרי דלי "עוד מהיברובוקס").
+  indexTitles?: boolean;
 }
 
 /// שורת תוצאה במדור החיצוני של טאב החיפוש המובנה.
@@ -148,9 +150,16 @@ export interface ExternalSearchResultPayload {
 }
 
 /// רשומת אינדקס בתשובה לחיפוש חיצוני: כלל התוצאות בתמצות — מזהה, מספר
-/// מופעים, וקטגוריית אוצריא המשוערת לפי תגיות הקטלוג של היברובוקס (אם יש).
-/// מיוצג כמערך כדי לחסוך בגודל: [id, hits] או [id, hits, category].
-export type ExternalSearchIndexEntry = [number, number] | [number, number, string];
+/// מופעים, קטגוריית אוצריא המשוערת לפי תגיות הקטלוג של היברובוקס (אם יש),
+/// ושם הספר. מיוצג כמערך כדי לחסוך בגודל: [id, hits], [id, hits, category]
+/// או [id, hits, category, title] (קטגוריה ריקה כשיש שם בלי סיווג).
+///
+/// הצורה הרביעית נשלחת רק כשהבקשה נשאה `indexTitles` — מארח ותיק זורק
+/// רשומה בת ארבעה איברים, ואיתה את כל הסיווג.
+export type ExternalSearchIndexEntry =
+  | [number, number]
+  | [number, number, string]
+  | [number, number, string, string];
 
 export interface OtzariaSearchHit extends HostBookIdentity {
   book: string;

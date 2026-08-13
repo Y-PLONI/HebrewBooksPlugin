@@ -75,9 +75,15 @@ describe('parallel edition manifest contributions', () => {
     expect(items[0]).not.toHaveProperty('openPluginOnSubmit');
   });
 
-  it('keeps computation and clicks declarative without background activation', () => {
-    expect(stringArrayAt(manifest, 'permissions')).not.toContain('app.run_on_startup');
+  it('מנוע רקע מוער רק מבקשת חיפוש חיצוני, לא מלחיצות בסרגל', () => {
+    // בקשת חיפוש מהמסך המובנה מעירה מנוע רקע נסתר במקום לפתוח את טאב
+    // התוסף ולגנוב פוקוס — דורש את ההרשאה הרגישה app.run_on_startup.
+    expect(stringArrayAt(manifest, 'permissions')).toContain('app.run_on_startup');
+    expect(stringArrayAt(startup, 'activationEvents')).toEqual([
+      'search.external.requested',
+    ]);
     expect(manifest).not.toHaveProperty('background');
+    // לחיצות בסרגל נשארות דקלרטיביות ואינן מדליקות מנוע.
     expect(toolbarItems).not.toEqual(
       expect.arrayContaining([expect.objectContaining({ openPlugin: true })]),
     );

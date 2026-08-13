@@ -285,13 +285,16 @@ function appendBody(current: string, chunk: string): string {
 
 function ensureSuccessful(response: NetworkResponse, fallback: string): void {
   if (response.ok && response.status >= 200 && response.status < 300) return;
+  // גוף שגיאה של hbsearch הוא {"error": "..."}; כל גוף אחר (HTML של פרוקסי,
+  // טקסט חופשי, גוף ריק) נופל להודעה עם קוד ה-HTTP ולא לשגיאת הפירסור עצמה.
+  let serverMessage: string | null = null;
   try {
-    const error = JSON.parse(response.body) as { error?: unknown };
-    if (typeof error.error === 'string') throw new Error(error.error);
-  } catch (error) {
-    if (error instanceof Error && error.message !== response.body) throw error;
+    const parsed = JSON.parse(response.body) as { error?: unknown };
+    if (typeof parsed.error === 'string' && parsed.error.trim() !== '') serverMessage = parsed.error;
+  } catch {
+    serverMessage = null;
   }
-  throw new Error(`${fallback} (HTTP ${response.status})`);
+  throw new Error(serverMessage ?? `${fallback} (HTTP ${response.status})`);
 }
 
 function parseJsonRecord(body: string, context: string): Record<string, unknown> {

@@ -39,9 +39,12 @@ type Screen = 'library' | 'results' | 'viewer';
 
 /// תקרת הזמן הכוללת להזרמת קטעי הטקסט למדור החיצוני, קצב העדכונים החלקיים,
 /// ומספר הקטעים הנטענים במקביל (איתור עמוד ב-/inbook + חילוץ מה-PDF).
-const snippetsDeadlineMs = 15_000;
+/// מקביליות 2 ולא 3: הגשר של אוצריא מתיר עד 4 זרמי רשת פעילים לתוסף, וזרם
+/// חיפוש של בקשה קודמת עשוי עוד להיות חי — 2 קריאות /inbook + 2 זרמי חיפוש
+/// נשארים בתקרה, בעוד 3 היו מפילים את איתור העמודים על error.rate_limited.
+const snippetsDeadlineMs = 25_000;
 const snippetFlushIntervalMs = 400;
-const snippetConcurrency = 3;
+const snippetConcurrency = 2;
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
@@ -79,10 +82,16 @@ function sumHitCounts(results: readonly HebrewBooksResult[]): number {
   return results.reduce((total, result) => total + result.hitCount, 0);
 }
 
-function toIndexEntry(result: HebrewBooksResult): ExternalSearchIndexEntry {
+function toIndexEntry(result: HebrewBooksResult, withTitle: boolean): ExternalSearchIndexEntry {
   const id = Number(result.fileId);
   const category = mapHebrewBooksCategory(result.categories);
+  if (withTitle) return [id, result.hitCount, category ?? '', result.bookName];
   return category === null ? [id, result.hitCount] : [id, result.hitCount, category];
+}
+
+/// אותה רשומה עם נתיב קטגוריה מעודן, בלי לאבד את שם הספר שכבר יושב עליה.
+function withCategoryPath(entry: ExternalSearchIndexEntry, path: string): ExternalSearchIndexEntry {
+  return entry.length === 4 ? [entry[0], entry[1], path, entry[3]] : [entry[0], entry[1], path];
 }
 
 export class AppController {
@@ -237,6 +246,11 @@ export class AppController {
     }
   }
 
+  /// בקשות שכבר בטיפול: אוצריא משגרת את אותו אירוע שוב אם לא ענינו תוך
+  /// 8 שניות (boot של מנוע רקע לוקח יותר), והפעלה כפולה מריצה שני חיפושים
+  /// מלאים במקביל — הכפיל גם מחניק את הזרמת הקטעים וגם עונה done מוקדם.
+  private readonly inFlightExternalRequests = new Map<string, AbortController>();
+
   /// עמוד תוצאות למדור החיצוני של טאב החיפוש המובנה. הדפדוף נשען על מטמון
   /// החיפוש של ה-repository (אותו fingerprint), כך שרק העמוד הראשון פונה
   /// לשרת; קטעי הטקסט נטענים במקביל עם תקרת זמן ואינם מעכבים את התשובה.
@@ -244,6 +258,26 @@ export class AppController {
     if (request?.provider !== hebrewBooksProvider) return;
     const requestId = typeof request?.requestId === 'string' ? request.requestId : '';
     if (!requestId) return;
+    if (this.inFlightExternalRequests.has(requestId)) return;
+    // המדור המובנה מציג בקשה אחת בכל רגע — בקשה חדשה מייתרת את הקודמות,
+    // וביטולן משחרר את זרמי הרשת של הגשר לטובת החיפוש והקטעים הנוכחיים.
+    for (const [previousId, controller] of this.inFlightExternalRequests) {
+      if (previousId !== requestId) controller.abort();
+    }
+    const abort = new AbortController();
+    this.inFlightExternalRequests.set(requestId, abort);
+    try {
+      await this.serveExternalSearchRequest(request, requestId, abort.signal);
+    } finally {
+      this.inFlightExternalRequests.delete(requestId);
+    }
+  }
+
+  private async serveExternalSearchRequest(
+    request: ExternalSearchRequestedEvent,
+    requestId: string,
+    signal: AbortSignal,
+  ): Promise<void> {
     try {
       const query = String(request.query ?? '').trim();
       if (query.length === 0 || query.length > 500) {
@@ -273,6 +307,7 @@ export class AppController {
             const now = Date.now();
             if (now - lastKeepAliveAt < 1_000) return;
             lastKeepAliveAt = now;
+            if (signal.aborted) return;
             void this.otzariaRepository
               .respondExternalSearch(requestId, {
                 results: [],
@@ -282,7 +317,7 @@ export class AppController {
                 done: false,
               })
               .catch(() => undefined);
-          });
+          }, signal);
           all = this.repository.cachedResultsFor(snapshot.fingerprint) ?? [];
         }
         const byId = new Map(all.map((result) => [Number(result.fileId), result]));
@@ -298,6 +333,8 @@ export class AppController {
             hasMore: false,
           },
           query,
+          undefined,
+          signal,
         );
         return;
       }
@@ -323,7 +360,7 @@ export class AppController {
             .catch(() => undefined),
         );
       };
-      const page = await this.repository.search(snapshot, sendPartial, undefined, offset);
+      const page = await this.repository.search(snapshot, sendPartial, signal, offset);
       // כל העדכונים החלקיים נשלחו לפני הסופי — אחרת עדכון מאחר היה נבלע.
       await partialChain;
       // אינדקס הקטגוריות (עמוד ראשון בלבד): כלל התוצאות בתמצות, עם קטגוריית
@@ -346,7 +383,13 @@ export class AppController {
             done: false,
           })
           .catch(() => undefined);
-        index = await this.refineIndex(snapshot.fingerprint, all);
+        // שם הספר נשלח רק כשהמארח הצהיר שהוא צורך אותו: מארח ותיק זורק
+        // רשומה בת ארבעה איברים בסניטציה, ואיתה את הסיווג כולו.
+        index = await this.refineIndex(
+          snapshot.fingerprint,
+          all,
+          request.indexTitles === true,
+        );
       }
       await this.streamPageWithSnippets(
         requestId,
@@ -358,6 +401,7 @@ export class AppController {
         },
         query,
         index,
+        signal,
       );
     } catch (error) {
       await this.otzariaRepository
@@ -377,10 +421,14 @@ export class AppController {
   private async refineIndex(
     fingerprint: string,
     all: HebrewBooksResult[],
+    withTitles: boolean,
   ): Promise<ExternalSearchIndexEntry[]> {
-    const cached = this.refinedIndexCache.get(fingerprint);
+    // צורת הרשומה היא חלק מהמטמון: אותו חיפוש עשוי להישאל פעם עם שמות ופעם
+    // בלעדיהם (מארח ותיק), וגרסה אחת אינה משמשת לשנייה.
+    const cacheKey = withTitles ? `${fingerprint}|t` : fingerprint;
+    const cached = this.refinedIndexCache.get(cacheKey);
     if (cached) return cached;
-    const base = all.map(toIndexEntry);
+    const base = all.map((result) => toIndexEntry(result, withTitles));
     let refined = base;
     try {
       const mapping = await this.catalogMapping.findBestOtzariaIdsBulk(
@@ -393,7 +441,7 @@ export class AppController {
         refined = base.map((entry) => {
           const otzariaId = mapping.get(String(entry[0]));
           const path = otzariaId === undefined ? null : pathByOtzariaId.get(otzariaId) ?? null;
-          return path ? [entry[0], entry[1], path] : entry;
+          return path ? withCategoryPath(entry, path) : entry;
         });
       }
     } catch {
@@ -403,7 +451,7 @@ export class AppController {
       const oldest = this.refinedIndexCache.keys().next().value;
       if (oldest !== undefined) this.refinedIndexCache.delete(oldest);
     }
-    this.refinedIndexCache.set(fingerprint, refined);
+    this.refinedIndexCache.set(cacheKey, refined);
     return refined;
   }
 
@@ -427,6 +475,7 @@ export class AppController {
     totals: { totalBooks: number; totalHits: number; hasMore: boolean },
     query: string,
     index?: ExternalSearchIndexEntry[],
+    signal?: AbortSignal,
   ): Promise<void> {
     const results: ExternalSearchResultPayload[] = pageResults.map((result) =>
       this.toExternalResult(result),
@@ -461,6 +510,8 @@ export class AppController {
     };
     await Promise.race([
       mapWithConcurrency(pageResults, snippetConcurrency, async (result, position) => {
+        // בקשה שבוטלה (חיפוש חדש החליף אותה) — אין טעם להמשיך לחלץ קטעים.
+        if (signal?.aborted) return;
         const snippet = await this.loadResultSnippet(result, query);
         const current = results[position];
         if (snippet && current && !finished) {
@@ -472,6 +523,9 @@ export class AppController {
     ]);
     await flushChain;
     finished = true;
+    console.info(
+      `external ${requestId}: ${results.filter((r) => r.snippet).length}/${results.length} snippets loaded`,
+    );
     await this.otzariaRepository.respondExternalSearch(requestId, {
       results,
       ...totals,
@@ -499,7 +553,8 @@ export class AppController {
       try {
         page =
           (await this.locateInBook(inBookSnapshot, result.fileId)).pages[0] ?? null;
-      } catch {
+      } catch (error) {
+        console.warn(`snippet ${result.fileId}: inbook failed — ${messageOf(error)}`);
         page = null;
       }
     }
@@ -508,7 +563,10 @@ export class AppController {
     // טקסט משובץ (OCR); הטקסט של הסריקות קיים רק באינדקס שבצד השרת.
     return this.snippets
       .load(this.repository.pdfUrl(result.fileId), result.fileId, page, query)
-      .catch(() => null);
+      .catch((error: unknown) => {
+        console.warn(`snippet ${result.fileId} p${page}: extract failed — ${messageOf(error)}`);
+        return null;
+      });
   }
 
   private readonly inBookLocationsCache = new Map<string, Promise<InBookLocations>>();

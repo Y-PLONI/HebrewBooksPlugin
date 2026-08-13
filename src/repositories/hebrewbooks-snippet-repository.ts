@@ -1,4 +1,11 @@
 import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
+import * as pdfjsWorker from 'pdfjs-dist/legacy/build/pdf.worker.min.mjs';
+
+// דפי התוסף נטענים מ-file://, שם WebView2 חוסם גם יצירת Worker וגם את
+// ה-import הדינמי שה-fake worker מנסה — כל getDocument היה נכשל. הצבת
+// המודול (המצורף ל-bundle) ב-globalThis גורמת ל-pdf.js להשתמש בו ישירות
+// על ה-main thread בלי שום טעינה דינמית.
+(globalThis as { pdfjsWorker?: unknown }).pdfjsWorker = pdfjsWorker;
 
 const rangeChunkSize = 256 * 1024;
 const maximumCacheEntries = 300;
@@ -48,7 +55,14 @@ export class HebrewBooksSnippetRepository {
           this.cache.set(request.key, snippet);
           request.resolve(snippet);
         })
-        .catch(() => request.resolve(null))
+        .catch((error: unknown) => {
+          // כשל חילוץ (רשת/PDF פגום) שקוף למשתמש — קטע פשוט לא מוצג; הרישום
+          // כאן הוא העדות היחידה, כי המבטיח של load מיושב עם null.
+          console.warn(
+            `snippet extract failed (page ${request.pageNumber}): ${error instanceof Error ? error.message : String(error)}`,
+          );
+          request.resolve(null);
+        })
         .finally(() => {
           this.pending.delete(request.key);
           this.active -= 1;
