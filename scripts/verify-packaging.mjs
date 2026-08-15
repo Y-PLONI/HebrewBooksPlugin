@@ -30,6 +30,13 @@ assert(
   installer.includes('Flags: postinstall runhidden nowait skipifsilent runasoriginaluser'),
   'The Otzaria launcher must run as the installing desktop user.',
 );
+// WinSW קורא את קובץ ה-XML כ-UTF-8. SaveStringToFile כותב ב-ANSI לפי ה-code
+// page של המערכת ושובר כל נתיב לא-לטיני (למשל שם משתמש בעברית).
+assert(
+  installer.includes('SaveStringsToUTF8File(ConfigPath, Lines, False)') &&
+    !installer.includes('SaveStringToFile('),
+  'The WinSW configuration must be written as UTF-8, never as ANSI.',
+);
 assert(
   launcher.includes('otzaria://plugin/install-local?path='),
   'The launcher must use Otzaria local plugin installation deep link.',

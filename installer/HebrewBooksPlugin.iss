@@ -171,7 +171,7 @@ end;
 
 procedure WriteServiceConfig();
 var
-  Config: String;
+  Lines: TArrayOfString;
   ConfigPath: String;
   LogsPath: String;
 begin
@@ -179,29 +179,34 @@ begin
   LogsPath := ExpandConstant('{commonappdata}\Otzaria\HebrewBooksSearch\logs');
   ForceDirectories(LogsPath);
 
-  Config :=
-    '<service>' + #13#10 +
-    '  <id>{#ServiceId}</id>' + #13#10 +
-    '  <name>Otzaria HebrewBooks Search</name>' + #13#10 +
-    '  <description>Local HebrewBooks search service for Otzaria</description>' + #13#10 +
-    '  <executable>%BASE%\runtime\hbsearch.exe</executable>' + #13#10 +
-    '  <arguments>--serve --port 8080 --data-root &quot;' +
-      XmlEscape(GetDataRoot('')) + '&quot;</arguments>' + #13#10 +
-    '  <workingdirectory>%BASE%\runtime</workingdirectory>' + #13#10 +
-    '  <startmode>Automatic</startmode>' + #13#10 +
-    '  <delayedAutoStart/>' + #13#10 +
-    '  <logpath>' + XmlEscape(LogsPath) + '</logpath>' + #13#10 +
-    '  <log mode="roll-by-size">' + #13#10 +
-    '    <sizeThreshold>10240</sizeThreshold>' + #13#10 +
-    '    <keepFiles>8</keepFiles>' + #13#10 +
-    '  </log>' + #13#10 +
-    '  <onfailure action="restart" delay="30 sec"/>' + #13#10 +
-    '  <onfailure action="restart" delay="1 min"/>' + #13#10 +
-    '  <resetfailure>1 hour</resetfailure>' + #13#10 +
-    '  <stoptimeout>15 sec</stoptimeout>' + #13#10 +
-    '</service>' + #13#10;
+  SetArrayLength(Lines, 20);
+  Lines[0] := '<?xml version="1.0" encoding="utf-8"?>';
+  Lines[1] := '<service>';
+  Lines[2] := '  <id>{#ServiceId}</id>';
+  Lines[3] := '  <name>Otzaria HebrewBooks Search</name>';
+  Lines[4] := '  <description>Local HebrewBooks search service for Otzaria</description>';
+  Lines[5] := '  <executable>%BASE%\runtime\hbsearch.exe</executable>';
+  Lines[6] := '  <arguments>--serve --port 8080 --data-root &quot;' +
+    XmlEscape(GetDataRoot('')) + '&quot;</arguments>';
+  Lines[7] := '  <workingdirectory>%BASE%\runtime</workingdirectory>';
+  Lines[8] := '  <startmode>Automatic</startmode>';
+  Lines[9] := '  <delayedAutoStart/>';
+  Lines[10] := '  <logpath>' + XmlEscape(LogsPath) + '</logpath>';
+  Lines[11] := '  <log mode="roll-by-size">';
+  Lines[12] := '    <sizeThreshold>10240</sizeThreshold>';
+  Lines[13] := '    <keepFiles>8</keepFiles>';
+  Lines[14] := '  </log>';
+  Lines[15] := '  <onfailure action="restart" delay="30 sec"/>';
+  Lines[16] := '  <onfailure action="restart" delay="1 min"/>';
+  Lines[17] := '  <resetfailure>1 hour</resetfailure>';
+  Lines[18] := '  <stoptimeout>15 sec</stoptimeout>';
+  Lines[19] := '</service>';
 
-  if not SaveStringToFile(ConfigPath, Config, False) then
+  // חובה UTF-8: WinSW קורא את הקובץ כ-UTF-8, בעוד SaveStringToFile כותב ב-ANSI
+  // לפי ה-code page של המערכת. נתיב הנתונים מכיל את שם המשתמש, ולכן שם משתמש
+  // בעברית (או כל תו לא-לטיני בנתיב שנבחר) הפיל את השירות עם
+  // "Invalid character in the given encoding".
+  if not SaveStringsToUTF8File(ConfigPath, Lines, False) then
     RaiseException('לא ניתן ליצור את תצורת שירות החיפוש.');
 end;
 
