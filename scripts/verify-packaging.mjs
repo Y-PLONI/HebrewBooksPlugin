@@ -27,7 +27,9 @@ assert(
   'The service must start hbsearch in HTTP server mode with an explicit data root.',
 );
 assert(
-  installer.includes('Flags: postinstall runhidden nowait skipifsilent runasoriginaluser'),
+  installer.includes(
+    'Flags: postinstall runhidden waituntilterminated skipifsilent runasoriginaluser',
+  ),
   'The Otzaria launcher must run as the installing desktop user.',
 );
 // WinSW קורא את קובץ ה-XML כ-UTF-8. SaveStringToFile כותב ב-ANSI לפי ה-code
@@ -40,6 +42,16 @@ assert(
 assert(
   launcher.includes('otzaria://plugin/install-local?path='),
   'The launcher must use Otzaria local plugin installation deep link.',
+);
+// הפעלה ישירה של otzaria.exe היא המסלול הראשי — היא עובדת גם כשפרוטוקול
+// otzaria:// אינו רשום, ובניגוד ל-ShellExecute היא מדווחת על כישלון.
+assert(
+  launcher.includes('Get-OtzariaExecutable') && launcher.includes('Start-Process -FilePath'),
+  'The launcher must locate otzaria.exe and launch it directly before falling back to the deep link.',
+);
+assert(
+  launcher.includes('Show-Message'),
+  'The launcher must tell the user when the plugin could not be handed to Otzaria.',
 );
 assert(workflow.includes('push:'), 'The installer must be built on every pushed commit.');
 assert(

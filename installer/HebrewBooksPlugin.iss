@@ -48,7 +48,11 @@ Source: "staging\service\{#ServiceExecutable}"; DestDir: "{app}"; Flags: ignorev
 Root: HKLM; Subkey: "Software\Otzaria\HebrewBooksSearch"; ValueType: string; ValueName: "DataRoot"; ValueData: "{code:GetDataRoot}"; Flags: uninsdeletekeyifempty
 
 [Run]
-Filename: "powershell.exe"; Parameters: "-NoProfile -NonInteractive -ExecutionPolicy Bypass -File ""{app}\installer\Install-OtzariaPlugin.ps1"" -PluginPath ""{app}\plugin\{#PluginArchive}"""; Description: "התקן את התוסף באוצריא"; Flags: postinstall runhidden nowait skipifsilent runasoriginaluser
+; runasoriginaluser קריטי כאן ולא רק נימוס: רישום הפרוטוקול `otzaria://` והתקנת
+; אוצריא עצמה יושבים ב-HKCU וב-%LOCALAPPDATA% של המשתמש המחובר, ולא של החשבון
+; המורם שמריץ את המתקין. waituntilterminated (במקום nowait) מאפשר ל-Inno לדווח
+; אם powershell.exe עצמו לא ניתן להפעלה — הסקריפט מסיים מיד אחרי שיגור אוצריא.
+Filename: "powershell.exe"; Parameters: "-NoProfile -NonInteractive -ExecutionPolicy Bypass -File ""{app}\installer\Install-OtzariaPlugin.ps1"" -PluginPath ""{app}\plugin\{#PluginArchive}"""; Description: "התקן את התוסף באוצריא"; Flags: postinstall runhidden waituntilterminated skipifsilent runasoriginaluser
 
 [UninstallRun]
 Filename: "{app}\{#ServiceExecutable}"; Parameters: "stop"; Flags: runhidden waituntilterminated skipifdoesntexist
