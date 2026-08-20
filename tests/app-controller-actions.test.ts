@@ -145,9 +145,12 @@ describe('דיאלוג החיפוש של התוסף', () => {
     const harness = await bootHarness();
     await submitFromDialog(harness, 'ברכת המזון');
     await vi.waitFor(() => expect(harness.host.countOf('reader.openSearchTab')).toBe(1));
+    // המרווח שנבחר בדיאלוג (ברירת המחדל 30) עובר לטאב — בלעדיו הטאב נפתח
+    // עם מרווח 0 והמדור החיצוני מחפש בהגדרה מחמירה שהמשתמש לא ביקש.
     expect(harness.host.lastPayload('reader.openSearchTab')).toEqual({
       query: 'ברכת המזון',
       selectItems: ['include-hebrewbooks'],
+      distance: 30,
     });
     // המסך המובנה מציג את התוצאות — התוסף אינו מחפש בעצמו.
     expect(

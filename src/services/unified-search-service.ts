@@ -189,6 +189,36 @@ export function mergeUnifiedSearchResponses(
   };
 }
 
+/// מפת אפשרויות גלובלית מאירוע של המארח מגיעה כ-JSON חופשי; מוחזרת רק
+/// כשצורתה תקינה (אובייקט שטוח), עם ערכי true בלבד — אחרת undefined.
+export function sanitizedGlobalOptions(raw: unknown): Record<string, boolean> | undefined {
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+  const sanitized: Record<string, boolean> = {};
+  for (const [option, enabled] of Object.entries(raw as Record<string, unknown>)) {
+    if (enabled === true) sanitized[option] = true;
+  }
+  return sanitized;
+}
+
+/// מפת wordOptions מאירוע של המארח מגיעה כ-JSON חופשי; מוחזרת רק כשצורתה
+/// תקינה (אובייקט של אובייקטים), אחרת undefined — כאילו לא נשלחה.
+export function sanitizedWordOptions(
+  raw: unknown,
+): Record<string, Record<string, boolean>> | undefined {
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+  const entries = Object.entries(raw as Record<string, unknown>);
+  const sanitized: Record<string, Record<string, boolean>> = {};
+  for (const [word, options] of entries) {
+    if (options === null || typeof options !== 'object' || Array.isArray(options)) return undefined;
+    const wordEntry: Record<string, boolean> = {};
+    for (const [option, enabled] of Object.entries(options as Record<string, unknown>)) {
+      if (enabled === true) wordEntry[option] = true;
+    }
+    sanitized[word] = wordEntry;
+  }
+  return sanitized;
+}
+
 export function toHebrewBooksSnapshot(request: HostSearchRequest): SearchSnapshot {
   const options: SearchOptions = {
     // אוצריא משתמשת ב־0 למילים סמוכות; hbsearch דורש מספר חיובי ואינו כופה

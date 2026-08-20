@@ -135,6 +135,54 @@ describe('ספק התוצאות החיצוני — אימות הבקשה', () =>
     });
   });
 
+  it('אפשרויות מהטאב מגיעות לשירות — גם כשמקף מפצל את הטוקניזציה של אוצריא', async () => {
+    const host = await bootController({ network: singleRowNetwork });
+    host.emit(
+      'search.external.requested',
+      externalRequest({
+        query: 'ברכת-המזון בזימון',
+        distance: 30,
+        // המפה הגלובלית מכריעה; מפתחות ה-wordOptions בטוקניזציה של אוצריא
+        // ('ברכת_0','המזון_1') לא תואמים את הפירוק לפי רווחים של התוסף.
+        options: { 'קידומות דקדוקיות': true, 'כתיב מלא/חסר': true },
+        wordOptions: {
+          'ברכת_0': { 'קידומות דקדוקיות': true, 'כתיב מלא/חסר': true },
+          'המזון_1': { 'קידומות דקדוקיות': true, 'כתיב מלא/חסר': true },
+          'בזימון_2': { 'קידומות דקדוקיות': true, 'כתיב מלא/חסר': true },
+        },
+      }),
+    );
+    await finalResponse(host);
+    const searchBody = JSON.parse(
+      String(
+        host
+          .payloadsOf('network.fetchStream')
+          .find((payload) => String(payload?.url).endsWith('/search'))?.body,
+      ),
+    );
+    expect(searchBody).toMatchObject({
+      proximity: 30,
+      hybur: true,
+      spelling: true,
+      aramaic: false,
+      rashetevot: false,
+    });
+  });
+
+  it('בלי wordOptions ההרחבות כבויות — כמו מארח ותיק', async () => {
+    const host = await bootController({ network: singleRowNetwork });
+    host.emit('search.external.requested', externalRequest());
+    await finalResponse(host);
+    const searchBody = JSON.parse(
+      String(
+        host
+          .payloadsOf('network.fetchStream')
+          .find((payload) => String(payload?.url).endsWith('/search'))?.body,
+      ),
+    );
+    expect(searchBody).toMatchObject({ proximity: 2, hybur: false, spelling: false });
+  });
+
   it('כשל של שירות החיפוש מוחזר כשגיאה למדור', async () => {
     const host = await bootController({
       network: {

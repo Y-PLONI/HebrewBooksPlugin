@@ -95,6 +95,38 @@ describe('OtzariaSearchRepository', () => {
     await iterator.return?.();
   });
 
+  describe('openSearchTab', () => {
+    function bridgeRecording(payloads: Record<string, unknown>[]): HostBridge {
+      return {
+        call: (async <T>(method: string, payload?: Record<string, unknown>) => {
+          expect(method).toBe('reader.openSearchTab');
+          payloads.push(payload ?? {});
+          return { success: true, data: true as T, error: null };
+        }) as HostBridge['call'],
+        on: () => undefined,
+      };
+    }
+
+    it('מעביר את המרווח שנבחר בדיאלוג לטאב המובנה', async () => {
+      const payloads: Record<string, unknown>[] = [];
+      await new OtzariaSearchRepository(bridgeRecording(payloads)).openSearchTab('ברכת המזון', 30);
+      expect(payloads).toEqual([
+        { query: 'ברכת המזון', selectItems: ['include-hebrewbooks'], distance: 30 },
+      ]);
+    });
+
+    it('בלי מרווח (או ערך לא-מספרי) השדה מושמט — תאימות למארח ותיק', async () => {
+      const payloads: Record<string, unknown>[] = [];
+      const repository = new OtzariaSearchRepository(bridgeRecording(payloads));
+      await repository.openSearchTab('ברכת המזון');
+      await repository.openSearchTab('ברכת המזון', Number.NaN);
+      expect(payloads).toEqual([
+        { query: 'ברכת המזון', selectItems: ['include-hebrewbooks'] },
+        { query: 'ברכת המזון', selectItems: ['include-hebrewbooks'] },
+      ]);
+    });
+  });
+
   describe('resolveCategoryPaths', () => {
     it('שולח קריאה אחת ומחזיר נתיבים מיושרים לקלט', async () => {
       const payloads: Record<string, unknown>[] = [];

@@ -10,6 +10,8 @@ import type {
 import {
   mergeUnifiedSearchResponses,
   UnifiedSearchService,
+  sanitizedGlobalOptions,
+  sanitizedWordOptions,
   toHebrewBooksSnapshot,
 } from '../src/services/unified-search-service';
 import { buildCategoryTree, collectBooks, facetMatches } from '../src/screens/results-screen';
@@ -152,6 +154,68 @@ describe('UnifiedSearchService', () => {
     expect(toHebrewBooksSnapshot({ ...request, distance: 30 }).options.proximity).toBe(30);
     expect(toHebrewBooksSnapshot({ ...request, distance: 31 }).options.proximity).toBe(30);
     expect(toHebrewBooksSnapshot({ ...request, distance: 5000 }).options.proximity).toBe(30);
+  });
+
+  it('falls back to the global options when the host tokenization differs (hyphen)', () => {
+    // 'בית-דין' נטוקנן באוצריא לשתי מילים ('בית_0', 'דין_1') — המפתחות לא
+    // מתאימים לפירוק לפי רווחים; המפה הגלובלית שומרת על האפשרות פעילה.
+    const snapshot = toHebrewBooksSnapshot({
+      ...request,
+      query: 'בית-דין צדק',
+      options: { 'קידומות דקדוקיות': true },
+      wordOptions: {
+        'בית_0': { 'קידומות דקדוקיות': true },
+        'דין_1': { 'קידומות דקדוקיות': true },
+        'צדק_2': { 'קידומות דקדוקיות': true },
+      },
+    });
+
+    expect(snapshot.options.hybur).toBe(true);
+  });
+
+  it('without the global map a tokenization mismatch keeps the option off (conservative)', () => {
+    const snapshot = toHebrewBooksSnapshot({
+      ...request,
+      query: 'בית-דין צדק',
+      options: undefined,
+      wordOptions: {
+        'בית_0': { 'קידומות דקדוקיות': true },
+        'דין_1': { 'קידומות דקדוקיות': true },
+        'צדק_2': { 'קידומות דקדוקיות': true },
+      },
+    });
+
+    expect(snapshot.options.hybur).toBe(false);
+  });
+
+  it('sanitizedGlobalOptions keeps true values only and rejects malformed payloads', () => {
+    expect(
+      sanitizedGlobalOptions({ 'קידומות דקדוקיות': true, 'כתיב מלא/חסר': 'yes' }),
+    ).toEqual({ 'קידומות דקדוקיות': true });
+    expect(sanitizedGlobalOptions(undefined)).toBeUndefined();
+    expect(sanitizedGlobalOptions(null)).toBeUndefined();
+    expect(sanitizedGlobalOptions('קידומות')).toBeUndefined();
+    expect(sanitizedGlobalOptions(['קידומות'])).toBeUndefined();
+  });
+
+  it('sanitizedWordOptions keeps a well-formed map and drops non-true values', () => {
+    expect(
+      sanitizedWordOptions({
+        'ברכת_0': { 'קידומות דקדוקיות': true, 'כתיב מלא/חסר': 'yes' },
+        'המזון_1': { 'קידומות דקדוקיות': true },
+      }),
+    ).toEqual({
+      'ברכת_0': { 'קידומות דקדוקיות': true },
+      'המזון_1': { 'קידומות דקדוקיות': true },
+    });
+  });
+
+  it('sanitizedWordOptions rejects malformed payloads as if none were sent', () => {
+    expect(sanitizedWordOptions(undefined)).toBeUndefined();
+    expect(sanitizedWordOptions(null)).toBeUndefined();
+    expect(sanitizedWordOptions('קידומות')).toBeUndefined();
+    expect(sanitizedWordOptions(['ברכת_0'])).toBeUndefined();
+    expect(sanitizedWordOptions({ 'ברכת_0': 'קידומות' })).toBeUndefined();
   });
 
   it('places matched HebrewBooks results in the Otzaria category and unmatched results in their own category', async () => {

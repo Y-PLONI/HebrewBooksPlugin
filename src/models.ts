@@ -135,6 +135,11 @@ export interface ExternalSearchRequestedEvent {
   offset?: number;
   limit?: number;
   ids?: unknown;
+  /// אפשרויות גלובליות (חלות על כל מילות השאילתה) — העדיפו אותן: מפתחות
+  /// wordOptions נבנים לפי הטוקניזציה של מנוע אוצריא (מקף מפצל מילה).
+  options?: Record<string, boolean>;
+  /// אפשרויות פר-מילה של הטאב ('<מילה>_<אינדקס>'), בפורמט של search.requested.
+  wordOptions?: Record<string, Record<string, boolean>>;
   /// המארח צורך שמות ספרים באינדקס (ומציג מהם את ספרי דלי "עוד מהיברובוקס").
   indexTitles?: boolean;
 }

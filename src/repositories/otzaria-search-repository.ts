@@ -103,11 +103,13 @@ export class OtzariaSearchRepository {
   }
 
   /// פותח כרטיסיית חיפוש מובנית באוצריא עם שורת ההיברובוקס מסומנת —
-  /// התוצאות יוצגו שם דרך ספק התוצאות החיצוני.
-  async openSearchTab(query: string): Promise<void> {
+  /// התוצאות יוצגו שם דרך ספק התוצאות החיצוני. `distance` מעביר את
+  /// המרווח שנבחר בדיאלוג התוסף (מארח ותיק מתעלם ופותח עם מרווח 0).
+  async openSearchTab(query: string, distance?: number): Promise<void> {
     await requireHostData<boolean>(this.bridge, 'reader.openSearchTab', {
       query,
       selectItems: ['include-hebrewbooks'],
+      ...(Number.isFinite(distance) ? { distance } : {}),
     });
   }
 
