@@ -102,6 +102,7 @@ const singleRowNetwork: MockHostConfig['network'] = {
 
 beforeEach(() => {
   pdf.opens.length = 0;
+  pdf.text = 'פתיחה ארוכה של העמוד ואז ברכת המזון בשלוש ברכות ואחר כך המשך הטקסט';
   pdf.blocked = false;
   vi.useRealTimers();
 });
@@ -661,6 +662,35 @@ describe('ספק התוצאות החיצוני — אינדקס הקטגוריו
 });
 
 describe('ספק התוצאות החיצוני — גזירי טקסט', () => {
+  it('אינו שולח לאוצריא טקסט מעמוד שאין בו מונח חיפוש', async () => {
+    pdf.text = 'פתיחה ארוכה של העמוד על נושא אחר בלי מונחי החיפוש';
+    const host = await bootController({
+      network: {
+        '/search': () => ({
+          body: hebrewBooksNdjson([hebrewBooksRow({ fileId: '400', firstHitPage: 7 })]),
+        }),
+      },
+    });
+    host.emit('search.external.requested', externalRequest());
+    const final = await finalResponse(host);
+    expect(pdf.opens).toEqual(['http://127.0.0.1:8080/pdf/400']);
+    expect(resultsOf(final)[0]?.snippet).toBeUndefined();
+  });
+
+  it('מציג גזיר כשהשאילתה עם מקף והטקסט בעמוד מופרד ברווח', async () => {
+    pdf.text = 'לפני ברכת המזון אחרי';
+    const host = await bootController({
+      network: {
+        '/search': () => ({
+          body: hebrewBooksNdjson([hebrewBooksRow({ fileId: '406', firstHitPage: 7 })]),
+        }),
+      },
+    });
+    host.emit('search.external.requested', externalRequest({ query: 'ברכת-המזון בזימון' }));
+    const final = await finalResponse(host);
+    expect(resultsOf(final)[0]?.snippet).toContain('ברכת המזון');
+  });
+
   it('מאתר את עמוד ההתאמה בברירות המחדל של /inbook ומזרים את הגזיר', async () => {
     const host = await bootController({
       network: {

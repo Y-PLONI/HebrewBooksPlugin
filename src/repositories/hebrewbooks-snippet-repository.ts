@@ -98,19 +98,21 @@ export function extractTextSnippet(text: string, query: string): string | null {
   const normalized = text.replace(/\s+/g, ' ').trim();
   if (normalized === '') return null;
   const searchable = normalized.toLocaleLowerCase('he');
+  // A query can use a regular hyphen or Hebrew maqaf where extracted PDF text
+  // has spaces. Keep combining marks with their base letter for pointed text.
+  const terms = query.match(/[\p{L}\p{N}][\p{L}\p{N}\p{M}]*/gu) ?? [];
   const phrases = [
-    query.replace(/\s+/g, ' ').trim(),
-    ...query.split(/\s+/).map(cleanSearchTerm).filter((term) => term.length > 1),
+    ...(terms.length > 0 ? [query.replace(/\s+/g, ' ').trim()] : []),
+    ...terms.filter((term) => term.length > 1),
   ].filter(Boolean);
   const match = phrases
     .map((phrase) => searchable.indexOf(phrase.toLocaleLowerCase('he')))
-    .find((index) => index >= 0) ?? 0;
+    .find((index) => index >= 0);
+  // PDF text may exist without containing the indexed term (OCR differences,
+  // inflection, or a different page). Its opening words are not a search hit.
+  if (match === undefined) return null;
   const start = Math.max(0, match - 90);
   const end = Math.min(normalized.length, start + snippetLength);
   const body = normalized.slice(start, end).trim();
   return `${start > 0 ? '…' : ''}${body}${end < normalized.length ? '…' : ''}`;
-}
-
-function cleanSearchTerm(value: string): string {
-  return value.replace(/[^\p{L}\p{N}\u0590-\u05ff]/gu, '');
 }

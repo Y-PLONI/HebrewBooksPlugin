@@ -140,9 +140,9 @@ describe('HebrewBooksSnippetRepository.load', () => {
   it('עמוד בלי שכבת טקסט (סריקה) מחזיר null', async () => {
     pdf.documents.set(url('3'), { numPages: 5, text: '' });
     const repository = new HebrewBooksSnippetRepository();
-    // המסמך המדומה מוסיף רק את מספר העמוד, ולכן טקסט ריק אינו באמת ריק —
-    // גזיר של סריקה נבדק ישירות מול המחלץ.
+    // המסמך המדומה מוסיף רק את מספר העמוד; בלי מונח מהשאילתה גם
+    // שכבת טקסט טכנית אינה עדות לגזיר שימושי.
     const snippet = await repository.load(url('3'), '3', 1, 'ברכת');
-    expect(snippet).toBe('[1]');
+    expect(snippet).toBeNull();
   });
 });
