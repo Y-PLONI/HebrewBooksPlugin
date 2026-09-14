@@ -30,11 +30,13 @@ interface CachedSearch {
 export class HebrewBooksRepository {
   private cachedSearch: CachedSearch | null = null;
   private supportsSearchStreamV2 = false;
+  private supportsSearchCancelV2 = false;
 
   constructor(private readonly bridge: HostBridge) {}
 
   async health(): Promise<HealthStatus> {
     this.supportsSearchStreamV2 = false;
+    this.supportsSearchCancelV2 = false;
     const response = await this.fetch('/health');
     const body = parseJsonRecord(response.body, 'בדיקת השירות');
     if (!response.ok || body.ok !== true || body.service !== 'hbsearch') {
@@ -50,6 +52,8 @@ export class HebrewBooksRepository {
     }
     this.supportsSearchStreamV2 = apiVersion !== null && apiVersion >= 2
       && capabilities.includes('search-stream-v2');
+    this.supportsSearchCancelV2 = this.supportsSearchStreamV2
+      && capabilities.includes('search-cancel-v2');
 
     return {
       kind: apiVersion !== null && apiVersion >= 2 && capabilities.includes('pdf-range')
@@ -76,6 +80,7 @@ export class HebrewBooksRepository {
       return pageFromCache(cached, offset, snapshot.options.limit);
     }
     const useV2 = this.supportsSearchStreamV2;
+    const useCancelV2 = useV2 && this.supportsSearchCancelV2;
     const stream = this.fetchStream('/search', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json; charset=UTF-8' },
@@ -96,17 +101,45 @@ export class HebrewBooksRepository {
     let expectedSequence = 0;
     let finished = false;
     let completed = false;
+    let abandoned = false;
+    let streamId: string | null = null;
+    let cancelSent = false;
+    let closing: Promise<IteratorResult<NetworkFetchStreamChunk>> | undefined;
     let visibleResults = false;
     const provisionalIds = new Set<string>();
     let revision = 0;
     let publishedRevision = -1;
     let lastPublishedAt: number | null = null;
+    const requestCancel = (): void => {
+      if (!useCancelV2 || !abandoned || completed || cancelSent || streamId === null) return;
+      cancelSent = true;
+      // This request must run independently of the original iterator's return(),
+      // which may be waiting for a pending network read.
+      void this.fetch('/search/cancel', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json; charset=UTF-8' },
+        body: JSON.stringify({ streamId }),
+        timeoutMs: 10_000,
+      }).catch(() => undefined);
+    };
+    const abandon = (): void => {
+      abandoned = true;
+      requestCancel();
+    };
+    const closeIterator = (): Promise<IteratorResult<NetworkFetchStreamChunk>> | undefined => {
+      closing ??= iterator.return?.();
+      return closing;
+    };
     const keepAlive = (): boolean => {
       // start מגיע לפני נעילת מנוע החיפוש; heartbeat נשלח גם בעת המתנה בתור.
       // שניהם שומרים על בקשת אוצריא פעילה בלי לשנות את הרשימה המוצגת.
       if (!onUpdate) return true;
       visibleResults = results.length > 0;
-      return onUpdate(pageFromResults(results, offset, snapshot.options)) !== false;
+      if (onUpdate(pageFromResults(results, offset, snapshot.options)) === false) {
+        abandon();
+        return false;
+      }
+      return true;
     };
     const publish = (force = false): boolean => {
       if (useV2) {
@@ -118,12 +151,26 @@ export class HebrewBooksRepository {
         lastPublishedAt = Date.now();
       }
       visibleResults = results.length > 0;
-      return onUpdate?.(pageFromResults(results, offset, snapshot.options)) !== false;
+      if (onUpdate?.(pageFromResults(results, offset, snapshot.options)) === false) {
+        abandon();
+        return false;
+      }
+      return true;
     };
     const processV2 = (events: SearchStreamV2Event[]): boolean => {
       for (const event of events) {
         switch (event.type) {
           case 'start':
+            if (useCancelV2 && event.streamId === null) {
+              throw new Error('אירוע start מפר את פרוטוקול זרם החיפוש v2');
+            }
+            streamId = event.streamId;
+            if (signal?.aborted) {
+              abandon();
+              return false;
+            }
+            if (!keepAlive()) return false;
+            break;
           case 'heartbeat':
             if (!keepAlive()) return false;
             break;
@@ -156,7 +203,8 @@ export class HebrewBooksRepository {
       return true;
     };
     const cancel = (): void => {
-      const cancellation = iterator.return?.();
+      abandon();
+      const cancellation = closeIterator();
       if (cancellation) void cancellation.catch(() => undefined);
     };
     signal?.addEventListener('abort', cancel, { once: true });
@@ -181,7 +229,12 @@ export class HebrewBooksRepository {
           continue;
         }
         if (v2Decoder) {
-          if (!processV2(v2Decoder.push(chunk.body))) return pageFromResults(results, offset, snapshot.options);
+          let shouldContinue = true;
+          v2Decoder.push(chunk.body, (event) => {
+            shouldContinue = processV2([event]);
+            return shouldContinue;
+          });
+          if (!shouldContinue) return pageFromResults(results, offset, snapshot.options);
         } else {
           const batch = legacyDecoder!.push(chunk.body);
           if (batch.length === 0) continue;
@@ -193,7 +246,12 @@ export class HebrewBooksRepository {
       if (response === null) throw new Error('השרת לא החזיר פרטי תגובה');
       ensureSuccessful({ ...response, body: errorBody }, 'החיפוש נכשל');
       if (v2Decoder) {
-        if (!processV2(v2Decoder.finish())) return pageFromResults(results, offset, snapshot.options);
+        let shouldContinue = true;
+        v2Decoder.finish((event) => {
+          shouldContinue = processV2([event]);
+          return shouldContinue;
+        });
+        if (!shouldContinue) return pageFromResults(results, offset, snapshot.options);
         if (!completed) throw new Error('זרם החיפוש הסתיים ללא אישור תוצאות סופיות');
       } else {
         const tail = legacyDecoder!.finish();
@@ -211,12 +269,20 @@ export class HebrewBooksRepository {
       };
       return pageFromCache(this.cachedSearch, offset, snapshot.options.limit);
     } catch (error) {
+      if (useV2 && !completed) abandon();
       if (signal?.aborted) return useV2 ? emptySearchPage() : pageFromResults(results, offset, snapshot.options);
       if (useV2 && visibleResults) onUpdate?.(emptySearchPage());
       throw error;
     } finally {
       signal?.removeEventListener('abort', cancel);
-      if (!finished) await iterator.return?.();
+      if (!finished) {
+        const closing = closeIterator();
+        if (abandoned || signal?.aborted) {
+          if (closing) void closing.catch(() => undefined);
+        } else {
+          await closing;
+        }
+      }
     }
   }
 

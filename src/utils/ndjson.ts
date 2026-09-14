@@ -45,7 +45,8 @@ export class SearchNdjsonDecoder {
 }
 
 export type SearchStreamV2Event =
-  | { type: 'start' | 'heartbeat' }
+  | { type: 'start'; streamId: string | null }
+  | { type: 'heartbeat' }
   | { type: 'provisional' | 'result'; result: HebrewBooksResult }
   | { type: 'reset' | 'complete' }
   | { type: 'error'; message: string };
@@ -60,27 +61,34 @@ export class SearchStreamV2Decoder {
   private expectedCount = 0;
   private nextRank = 0;
 
-  push(chunk: string): SearchStreamV2Event[] {
+  push(chunk: string, onEvent?: (event: SearchStreamV2Event) => boolean): SearchStreamV2Event[] {
     this.responseLength += chunk.length;
     if (this.responseLength > maximumResponseLength) {
       throw new Error('תשובת החיפוש גדולה מהמגבלה המותרת');
     }
     const lines = `${this.pending}${chunk}`.split('\n');
     this.pending = lines.pop() ?? '';
-    return this.parseLines(lines);
+    return this.parseLines(lines, onEvent);
   }
 
-  finish(): SearchStreamV2Event[] {
+  finish(onEvent?: (event: SearchStreamV2Event) => boolean): SearchStreamV2Event[] {
     const tail = this.pending;
     this.pending = '';
-    const events = this.parseLines(tail === '' ? [] : [tail]);
-    if (this.phase !== 'complete' && this.phase !== 'error') {
+    let stopped = false;
+    const events = this.parseLines(tail === '' ? [] : [tail], (event) => {
+      if (onEvent?.(event) === false) {
+        stopped = true;
+        return false;
+      }
+      return true;
+    });
+    if (!stopped && this.phase !== 'complete' && this.phase !== 'error') {
       throw new Error('זרם החיפוש הסתיים ללא אישור תוצאות סופיות');
     }
     return events;
   }
 
-  private parseLines(lines: string[]): SearchStreamV2Event[] {
+  private parseLines(lines: string[], onEvent?: (event: SearchStreamV2Event) => boolean): SearchStreamV2Event[] {
     const events: SearchStreamV2Event[] = [];
     for (const line of lines) {
       if (line.trim() === '') continue;
@@ -93,45 +101,51 @@ export class SearchStreamV2Decoder {
       }
       if (!isRecord(value) || typeof value.type !== 'string') this.invalid(lineNumber);
       if (this.phase === 'complete' || this.phase === 'error') this.invalid(lineNumber);
+      let event: SearchStreamV2Event;
       switch (value.type) {
         case 'start':
           if (this.phase !== 'beforeStart' || value.streamVersion !== 2) this.invalid(lineNumber);
+          if (value.streamId !== undefined && (typeof value.streamId !== 'string' || !/^[0-9a-f]{64}$/.test(value.streamId))) {
+            this.invalid(lineNumber);
+          }
           this.phase = 'provisional';
-          events.push({ type: 'start' });
+          event = { type: 'start', streamId: typeof value.streamId === 'string' ? value.streamId : null };
           break;
         case 'heartbeat':
           if (this.phase !== 'provisional' && this.phase !== 'ranked') this.invalid(lineNumber);
-          events.push({ type: 'heartbeat' });
+          event = { type: 'heartbeat' };
           break;
         case 'provisional':
           if (this.phase !== 'provisional') this.invalid(lineNumber);
-          events.push({ type: 'provisional', result: parseResult(value.result, lineNumber) });
+          event = { type: 'provisional', result: parseResult(value.result, lineNumber) };
           break;
         case 'reset':
           if (this.phase !== 'provisional' || !isNonnegativeInteger(value.count)) this.invalid(lineNumber);
           this.expectedCount = value.count;
           this.nextRank = 0;
           this.phase = 'ranked';
-          events.push({ type: 'reset' });
+          event = { type: 'reset' };
           break;
         case 'result':
           if (this.phase !== 'ranked' || value.rank !== this.nextRank || this.nextRank >= this.expectedCount) this.invalid(lineNumber);
           this.nextRank += 1;
-          events.push({ type: 'result', result: parseResult(value.result, lineNumber) });
+          event = { type: 'result', result: parseResult(value.result, lineNumber) };
           break;
         case 'complete':
           if (this.phase !== 'ranked' || value.count !== this.expectedCount || this.nextRank !== this.expectedCount) this.invalid(lineNumber);
           this.phase = 'complete';
-          events.push({ type: 'complete' });
+          event = { type: 'complete' };
           break;
         case 'error':
           if (this.phase === 'beforeStart' || typeof value.message !== 'string' || value.message.trim() === '') this.invalid(lineNumber);
           this.phase = 'error';
-          events.push({ type: 'error', message: value.message });
+          event = { type: 'error', message: value.message };
           break;
         default:
           this.invalid(lineNumber);
       }
+      events.push(event);
+      if (onEvent?.(event) === false) break;
     }
     return events;
   }
