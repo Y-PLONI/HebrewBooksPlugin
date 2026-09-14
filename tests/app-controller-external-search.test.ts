@@ -795,4 +795,122 @@ describe('ספק התוצאות החיצוני — גזירי טקסט', () => {
       vi.useRealTimers();
     }
   });
+
+  it('אחרי תקרת הזמן אינו מתחיל איתור עמוד או חילוץ PDF לפריטים נוספים בתור', async () => {
+    let releaseInBook!: () => void;
+    const inBookGate = new Promise<void>((resolve) => { releaseInBook = resolve; });
+    const host = await bootController({
+      network: {
+        '/search': () => ({
+          body: hebrewBooksNdjson(
+            Array.from({ length: 6 }, (_, index) =>
+              hebrewBooksRow({ fileId: String(500 + index), firstHitPage: undefined }),
+            ),
+          ),
+        }),
+        '/inbook': async () => {
+          await inBookGate;
+          return { body: JSON.stringify({ hitCount: 1, pages: [7] }) };
+        },
+      },
+    });
+    vi.useFakeTimers();
+    try {
+      host.emit('search.external.requested', externalRequest());
+      await flushMicrotasks();
+      const inBookCalls = () => host.payloadsOf('network.fetchStream')
+        .filter((payload) => String(payload?.url).endsWith('/inbook')).length;
+      expect(inBookCalls()).toBe(2);
+
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(responsesFor(host, 'xs-1').some((payload) => payload.done === undefined)).toBe(true);
+      releaseInBook();
+      await flushMicrotasks();
+      expect(inBookCalls()).toBe(2);
+      expect(pdf.opens).toEqual([]);
+    } finally {
+      releaseInBook();
+      vi.useRealTimers();
+    }
+  });
+
+  it('בקשה שהוחלפה מתבטלת מיד בלי תגובה סופית ישנה או חילוץ PDF כשה-/inbook חוזר', async () => {
+    let releaseInBook!: () => void;
+    const inBookGate = new Promise<void>((resolve) => { releaseInBook = resolve; });
+    const host = await bootController({
+      network: {
+        '/search': (payload) => ({
+          body: hebrewBooksNdjson(
+            String(payload.body).includes('שאילתה חדשה')
+              ? []
+              : Array.from({ length: 5 }, (_, index) =>
+                hebrewBooksRow({ fileId: String(600 + index), firstHitPage: undefined }),
+              ),
+          ),
+        }),
+        '/inbook': async () => {
+          await inBookGate;
+          return { body: JSON.stringify({ hitCount: 1, pages: [7] }) };
+        },
+      },
+    });
+    vi.useFakeTimers();
+    try {
+      host.emit('search.external.requested', externalRequest());
+      await flushMicrotasks();
+      expect(host.payloadsOf('network.fetchStream').filter(
+        (payload) => String(payload?.url).endsWith('/inbook'),
+      )).toHaveLength(2);
+
+      host.emit('search.external.requested', externalRequest({ requestId: 'xs-2', query: 'שאילתה חדשה' }));
+      await flushMicrotasks();
+      expect(responsesFor(host, 'xs-1').some((payload) => payload.done === undefined)).toBe(false);
+      expect(responsesFor(host, 'xs-2').some((payload) => payload.done === undefined)).toBe(true);
+      releaseInBook();
+      await flushMicrotasks();
+      expect(pdf.opens).toEqual([]);
+      expect(host.payloadsOf('network.fetchStream').filter(
+        (payload) => String(payload?.url).endsWith('/inbook'),
+      )).toHaveLength(2);
+    } finally {
+      releaseInBook();
+      vi.useRealTimers();
+    }
+  });
+
+  it('גזיר שהושלם נשלח כעדכון חלקי לפני התשובה הסופית בזמן שגזיר אחר ממתין', async () => {
+    let releaseInBook!: () => void;
+    const inBookGate = new Promise<void>((resolve) => { releaseInBook = resolve; });
+    const host = await bootController({
+      network: {
+        '/search': () => ({
+          body: hebrewBooksNdjson([
+            hebrewBooksRow({ fileId: '700', firstHitPage: 7 }),
+            hebrewBooksRow({ fileId: '701', firstHitPage: undefined }),
+          ]),
+        }),
+        '/inbook': async () => {
+          await inBookGate;
+          return { body: JSON.stringify({ hitCount: 1, pages: [7] }) };
+        },
+      },
+    });
+    vi.useFakeTimers();
+    try {
+      host.emit('search.external.requested', externalRequest());
+      await flushMicrotasks();
+      await vi.advanceTimersByTimeAsync(500);
+      const responses = responsesFor(host, 'xs-1');
+      expect(responses.some((payload) =>
+        payload.done === false && resultsOf(payload)[0]?.snippet !== undefined,
+      )).toBe(true);
+      expect(responses.some((payload) => payload.done === undefined)).toBe(false);
+      releaseInBook();
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(responsesFor(host, 'xs-1').at(-1)?.done).toBeUndefined();
+    } finally {
+      releaseInBook();
+      vi.useRealTimers();
+    }
+  });
 });

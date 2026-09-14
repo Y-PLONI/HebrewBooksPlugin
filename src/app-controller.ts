@@ -58,12 +58,13 @@ async function mapWithConcurrency<T>(
   items: readonly T[],
   concurrency: number,
   task: (item: T, index: number) => Promise<void>,
+  shouldContinue: () => boolean = () => true,
 ): Promise<void> {
   let next = 0;
   const workers = Array.from(
     { length: Math.min(concurrency, items.length) },
     async () => {
-      while (next < items.length) {
+      while (next < items.length && shouldContinue()) {
         const index = next++;
         const item = items[index];
         if (item === undefined) continue;
@@ -513,6 +514,7 @@ export class AppController {
     // עדכוני הקטעים נשלחים ברצף אחד (flushChain) ובקצב מרוסן, כדי שעדכון
     // מאחר לא יעקוף את הסופי ולא נציף את הגשר בעדכון לכל קטע בנפרד.
     let finished = false;
+    let stopNewWork = false;
     let flushScheduled = false;
     let flushChain: Promise<void> = Promise.resolve();
     const scheduleFlush = (): void => {
@@ -521,24 +523,44 @@ export class AppController {
       flushChain = flushChain.then(async () => {
         await delay(snippetFlushIntervalMs);
         flushScheduled = false;
-        if (!finished) await respondPartial(false);
+        if (!finished && !signal?.aborted) await respondPartial(false);
       });
     };
-    await Promise.race([
-      mapWithConcurrency(pageResults, snippetConcurrency, async (result, position) => {
-        // בקשה שבוטלה (חיפוש חדש החליף אותה) — אין טעם להמשיך לחלץ קטעים.
-        if (signal?.aborted) return;
-        const snippet = await this.loadResultSnippet(result, query);
-        const current = results[position];
-        if (snippet && current && !finished) {
-          results[position] = { ...current, snippet };
-          scheduleFlush();
-        }
-      }),
-      delay(snippetsDeadlineMs),
-    ]);
+    let stopDeadline: () => void = () => undefined;
+    const deadlineOrAbort = new Promise<void>((resolve) => {
+      const timer = window.setTimeout(resolve, snippetsDeadlineMs);
+      const onAbort = (): void => resolve();
+      signal?.addEventListener('abort', onAbort, { once: true });
+      stopDeadline = () => {
+        window.clearTimeout(timer);
+        signal?.removeEventListener('abort', onAbort);
+      };
+      if (signal?.aborted) resolve();
+    });
+    try {
+      await Promise.race([
+        mapWithConcurrency(pageResults, snippetConcurrency, async (result, position) => {
+          // בקשה שבוטלה (חיפוש חדש החליף אותה) — אין טעם להמשיך לחלץ קטעים.
+          if (stopNewWork || signal?.aborted) return;
+          const snippet = await this.loadResultSnippet(result, query, () => !stopNewWork && !signal?.aborted);
+          const current = results[position];
+          if (snippet && current && !stopNewWork) {
+            results[position] = { ...current, snippet };
+            scheduleFlush();
+          }
+        }, () => !stopNewWork && !signal?.aborted),
+        deadlineOrAbort,
+      ]);
+    } finally {
+      // קובע מצב סופי לפני שחרור קריאת /inbook ממתינה, כדי שלא תתחיל
+      // בעקבותיה משימת PDF או פריט נוסף בתור.
+      stopNewWork = true;
+      stopDeadline();
+    }
     await flushChain;
     finished = true;
+    // אוצריא כבר עברה ל-requestId חדש; תשובה ישנה כעת רק תופסת את הגשר.
+    if (signal?.aborted) return;
     console.info(
       `external ${requestId}: ${results.filter((r) => r.snippet).length}/${results.length} snippets loaded`,
     );
@@ -555,6 +577,7 @@ export class AppController {
   private async loadResultSnippet(
     result: HebrewBooksResult,
     query: string,
+    shouldContinue: () => boolean = () => true,
   ): Promise<string | null> {
     let page = result.firstHitPage;
     if (page === null) {
@@ -574,7 +597,7 @@ export class AppController {
         page = null;
       }
     }
-    if (page === null) return null;
+    if (page === null || !shouldContinue()) return null;
     // סריקות בלי שכבת טקסט מחזירות עמוד ריק — קטע יופיע רק לספרים עם
     // טקסט משובץ (OCR); הטקסט של הסריקות קיים רק באינדקס שבצד השרת.
     return this.snippets
