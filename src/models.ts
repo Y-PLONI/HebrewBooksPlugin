@@ -68,6 +68,12 @@ export interface InBookLocations {
   matchedTerms: string[];
 }
 
+export interface ResultSnippet {
+  page: number | null;
+  text: string | null;
+  lookupFailed?: boolean;
+}
+
 export interface HealthStatus {
   kind: 'onlineLegacy' | 'onlineFull';
   serverVersion: string | null;

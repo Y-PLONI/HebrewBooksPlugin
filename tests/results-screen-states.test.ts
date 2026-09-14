@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type {
   HebrewBooksResult,
   HostSearchRequest,
+  ResultSnippet,
   UnifiedSearchResponse,
   UnifiedSearchResult,
 } from '../src/models';
@@ -72,7 +73,7 @@ interface Handlers {
 }
 
 function createScreen(
-  onLoadSnippet: (result: HebrewBooksResult) => Promise<string | null> = async () => null,
+  onLoadSnippet: (result: HebrewBooksResult) => Promise<ResultSnippet> = async (result) => ({ page: result.firstHitPage, text: null }),
 ): { screen: ResultsScreen; handlers: Handlers } {
   const handlers: Handlers = {
     onBack: vi.fn(),
@@ -293,12 +294,37 @@ describe('ResultsScreen — כרטיס היברובוקס', () => {
     expect(screen.root.querySelector('.result-reference')?.textContent).toBe('מחבר · ורשה · תרל"ה');
   });
 
-  it('ספר בלי עמוד התאמה אינו מנסה לחלץ גזיר', () => {
-    const { screen, handlers } = createScreen();
+  it('ספר בלי עמוד התאמה מאתר עמוד רק כשהכרטיס נראה', async () => {
+    const observed: { callback?: IntersectionObserverCallback } = {};
+    class DeferredIntersectionObserver {
+      constructor(callback: IntersectionObserverCallback) { observed.callback = callback; }
+      observe(): void {}
+      disconnect(): void {}
+      unobserve(): void {}
+      takeRecords(): IntersectionObserverEntry[] { return []; }
+    }
+    vi.stubGlobal('IntersectionObserver', DeferredIntersectionObserver);
+    const { screen, handlers } = createScreen(async () => ({ page: 12, text: 'ברכת המזון' }));
+    document.body.append(screen.root);
     screen.showResults(response({ results: [hebrewBooksResult({ firstHitPage: null })] }));
-    expect(screen.root.querySelector('.hebrewbooks-snippet')?.textContent).toBe(
-      'לא התקבל מיקום לגזיר הטקסט',
+    const snippet = screen.root.querySelector<HTMLElement>('.hebrewbooks-snippet')!;
+    expect(handlers.onLoadSnippet).not.toHaveBeenCalled();
+    expect(snippet.textContent).toContain('מאתר עמוד');
+    observed.callback?.([{ isIntersecting: true, target: snippet } as unknown as IntersectionObserverEntry], {} as IntersectionObserver);
+    await vi.waitFor(() => expect(snippet.textContent).toBe('עמוד 12 · ברכת המזון'));
+    expect(handlers.onLoadSnippet).toHaveBeenCalledTimes(1);
+    screen.root.remove();
+  });
+
+  it('ללא IntersectionObserver מציג חיווי סופי ואינו מפעיל איתור המוני', () => {
+    vi.stubGlobal('IntersectionObserver', undefined);
+    const { screen, handlers } = createScreen();
+    const results = Array.from({ length: 100 }, (_, index) =>
+      hebrewBooksResult({ fileId: String(index + 1), firstHitPage: null }),
     );
+    screen.showResults(response({ results }));
+    expect(screen.root.querySelectorAll('.hebrewbooks-snippet')).toHaveLength(100);
+    expect(screen.root.querySelector('.hebrewbooks-snippet')?.textContent).toBe('גזיר טקסט אינו זמין בתצוגה זו');
     expect(handlers.onLoadSnippet).not.toHaveBeenCalled();
   });
 
@@ -318,14 +344,38 @@ describe('ResultsScreen — כרטיס היברובוקס', () => {
       }
     }
     vi.stubGlobal('IntersectionObserver', ImmediateIntersectionObserver);
-    const { screen } = createScreen(async () => null);
+    const { screen } = createScreen(async () => ({ page: 2, text: null }));
     document.body.append(screen.root);
     screen.showResults(response({ results: [hebrewBooksResult()] }));
     await vi.waitFor(() =>
       expect(screen.root.querySelector('.hebrewbooks-snippet')?.textContent).toBe(
-        'לא ניתן היה לחלץ גזיר טקסט מעמוד 2',
+        'עמוד 2 · אין גזיר טקסט זמין',
       ),
     );
+    screen.root.remove();
+  });
+
+  it('גזיר שנשלם אחרי החלפת התוצאות אינו כותב לכרטיס החדש', async () => {
+    const callbacks: IntersectionObserverCallback[] = [];
+    class DeferredIntersectionObserver {
+      constructor(callback: IntersectionObserverCallback) { callbacks.push(callback); }
+      observe(): void {}
+      disconnect(): void {}
+      unobserve(): void {}
+      takeRecords(): IntersectionObserverEntry[] { return []; }
+    }
+    vi.stubGlobal('IntersectionObserver', DeferredIntersectionObserver);
+    let complete: ((preview: ResultSnippet) => void) | undefined;
+    const { screen } = createScreen(() => new Promise((resolve) => { complete = resolve; }));
+    document.body.append(screen.root);
+    screen.showResults(response({ results: [hebrewBooksResult({ fileId: '1' })] }));
+    const oldTarget = screen.root.querySelector<HTMLElement>('.hebrewbooks-snippet')!;
+    callbacks[0]?.([{ target: oldTarget, isIntersecting: true } as unknown as IntersectionObserverEntry], {} as IntersectionObserver);
+    screen.showResults(response({ results: [hebrewBooksResult({ fileId: '2' })] }));
+    complete?.({ page: 12, text: 'תוכן ישן' });
+    await Promise.resolve();
+    expect(screen.root.querySelector('.hebrewbooks-snippet')?.textContent).toBe('טוען גזיר טקסט מעמוד 2…');
+    expect(screen.root.textContent).not.toContain('תוכן ישן');
     screen.root.remove();
   });
 });

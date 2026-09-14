@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { HebrewBooksResult, HostSearchRequest, UnifiedSearchResponse } from '../src/models';
+import type { HebrewBooksResult, HostSearchRequest, ResultSnippet, UnifiedSearchResponse } from '../src/models';
 import { ResultsScreen } from '../src/screens/results-screen';
 
 function otzariaResult(book: string, categoryPath: string) {
@@ -63,7 +63,7 @@ const mixedResponse: UnifiedSearchResponse = {
 };
 
 function createScreen(
-  onLoadSnippet: (result: HebrewBooksResult) => Promise<string | null> = async () => null,
+  onLoadSnippet: (result: HebrewBooksResult) => Promise<ResultSnippet> = async (result) => ({ page: result.firstHitPage, text: null }),
 ): ResultsScreen {
   return new ResultsScreen({
     onBack: () => undefined,
@@ -140,7 +140,7 @@ describe('ResultsScreen partial unified search', () => {
       takeRecords(): IntersectionObserverEntry[] { return []; }
     }
     vi.stubGlobal('IntersectionObserver', ImmediateIntersectionObserver);
-    const load = vi.fn(async () => 'בראשית ברא אלהים');
+    const load = vi.fn(async () => ({ page: 2, text: 'בראשית ברא אלהים' }));
     const screen = createScreen(load);
     document.body.append(screen.root);
 

@@ -12,6 +12,7 @@ import type {
   HostSearchRequestedEvent,
   InBookLocations,
   InBookSearchRequestedEvent,
+  ResultSnippet,
   SearchOptions,
   SearchSnapshot,
   UnifiedSearchResponse,
@@ -862,15 +863,28 @@ export class AppController {
     }
   }
 
-  private loadSnippet(result: HebrewBooksResult): Promise<string | null> {
-    const query = this.snapshot?.query;
-    if (!query) return Promise.resolve(null);
-    return this.snippets.load(
+  private async loadSnippet(result: HebrewBooksResult): Promise<ResultSnippet> {
+    const snapshot = this.snapshot;
+    if (!snapshot) return { page: null, text: null };
+    let page = result.firstHitPage;
+    if (page === null) {
+      try {
+        // מסך התוצאות מפעיל זאת רק כשהכרטיס נכנס לאזור התצוגה. נשמרת
+        // חתימת החיפוש המקורית כדי שהעמוד שייך לאפשרויות שהפיקו את התוצאה.
+        page = (await this.locateInBook(snapshot, result.fileId)).pages[0] ?? null;
+      } catch (error) {
+        console.warn(`snippet ${result.fileId}: inbook failed — ${messageOf(error)}`);
+        return { page: null, text: null, lookupFailed: true };
+      }
+    }
+    if (this.snapshot !== snapshot || page === null) return { page: null, text: null };
+    const text = await this.snippets.load(
       this.repository.pdfUrl(result.fileId),
       result.fileId,
-      result.firstHitPage,
-      query,
+      page,
+      snapshot.query,
     );
+    return this.snapshot === snapshot ? { page, text } : { page: null, text: null };
   }
 
   private async openBook(result: HebrewBooksResult): Promise<void> {

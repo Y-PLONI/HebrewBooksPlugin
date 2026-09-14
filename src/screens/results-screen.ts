@@ -5,6 +5,7 @@ import type { IconName } from '../icons.generated';
 import type {
   HebrewBooksResult,
   HostSearchRequest,
+  ResultSnippet,
   SearchOptions,
   UnifiedSearchResponse,
   UnifiedSearchResult,
@@ -30,7 +31,7 @@ interface ResultsHandlers {
   readonly onOpenResult: (result: UnifiedSearchResult) => void;
   readonly onOpenWebsite: (result: HebrewBooksResult) => void;
   readonly onCopyDetails: (result: HebrewBooksResult) => void;
-  readonly onLoadSnippet: (result: HebrewBooksResult) => Promise<string | null>;
+  readonly onLoadSnippet: (result: HebrewBooksResult) => Promise<ResultSnippet>;
 }
 
 type ResultSource = UnifiedSearchResult['source'];
@@ -527,11 +528,17 @@ export class ResultsScreen {
 
   private buildHebrewBooksSnippet(hit: HebrewBooksResult): HTMLElement {
     const snippet = element('p', 'result-snippet hebrewbooks-snippet');
-    if (hit.firstHitPage === null) {
-      snippet.textContent = 'לא התקבל מיקום לגזיר הטקסט';
+    if (!this.snippetObserver) {
+      // בלי IntersectionObserver אין דרך להגביל טעינות לכרטיסים שנראים;
+      // הימנעות מטעינת כל הרשימה עדיפה על אלפי פניות /inbook מיותרות.
+      snippet.textContent = hit.firstHitPage === null
+        ? 'גזיר טקסט אינו זמין בתצוגה זו'
+        : `עמוד ${hit.firstHitPage} · גזיר טקסט אינו זמין בתצוגה זו`;
       return snippet;
     }
-    snippet.textContent = `טוען גזיר טקסט מעמוד ${hit.firstHitPage}…`;
+    snippet.textContent = hit.firstHitPage === null
+      ? 'מאתר עמוד לגזיר הטקסט…'
+      : `טוען גזיר טקסט מעמוד ${hit.firstHitPage}…`;
     this.snippetTargets.set(snippet, hit);
     this.snippetObserver?.observe(snippet);
     return snippet;
@@ -554,11 +561,19 @@ export class ResultsScreen {
         if (!hit) continue;
         this.snippetObserver?.unobserve(target);
         this.snippetTargets.delete(target);
-        void this.handlers.onLoadSnippet(hit).then((text) => {
+        void this.handlers.onLoadSnippet(hit).then((preview) => {
           if (generation !== this.snippetGeneration || !target.isConnected) return;
-          target.textContent = text
-            ? `עמוד ${hit.firstHitPage} · ${text}`
-            : `לא ניתן היה לחלץ גזיר טקסט מעמוד ${hit.firstHitPage}`;
+          target.textContent = preview.page === null
+            ? preview.lookupFailed
+              ? 'לא ניתן היה לאתר את עמוד ההתאמה כרגע'
+              : 'לא ניתן לאתר עמוד לגזיר הטקסט'
+            : preview.text
+              ? `עמוד ${preview.page} · ${preview.text}`
+              : `עמוד ${preview.page} · אין גזיר טקסט זמין`;
+        }).catch(() => {
+          if (generation === this.snippetGeneration && target.isConnected) {
+            target.textContent = 'לא ניתן היה לטעון גזיר טקסט כרגע';
+          }
         });
       }
     }, { rootMargin: '300px 0px' });
