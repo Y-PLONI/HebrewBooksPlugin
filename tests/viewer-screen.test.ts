@@ -15,6 +15,7 @@ const view = vi.hoisted(() => ({
   opened: [] as Array<{ url: string; page: number }>,
   openError: null as Error | null,
   outline: [] as OutlineEntry[],
+  outlineDelay: null as Promise<void> | null,
   goTo: [] as number[],
   zooms: [] as number[],
   thumbnails: [] as number[],
@@ -62,8 +63,9 @@ vi.mock('../src/viewer/pdf-document-view', () => ({
       return view.outline;
     }
 
-    outline(): Promise<OutlineEntry[]> {
-      return Promise.resolve(view.outline);
+    async outline(): Promise<OutlineEntry[]> {
+      await view.outlineDelay;
+      return view.outline;
     }
 
     renderThumbnail(page: number): Promise<void> {
@@ -168,6 +170,7 @@ beforeEach(() => {
   view.opened.length = 0;
   view.openError = null;
   view.outline = [];
+  view.outlineDelay = null;
   view.goTo.length = 0;
   view.zooms.length = 0;
   view.thumbnails.length = 0;
@@ -247,6 +250,17 @@ describe('ViewerScreen — פתיחת ספר', () => {
     await screen.openBook('ספר', 'http://127.0.0.1:8080/pdf/1', [], 1);
     await screen.close();
     expect(view.closes).toBeGreaterThan(0);
+  });
+
+  it('מסתיר את שכבת הטעינה לפני שתוכן עניינים איטי מסתיים', async () => {
+    const { screen } = createScreen();
+    let release!: () => void;
+    view.outlineDelay = new Promise<void>((resolve) => { release = resolve; });
+    const opened = screen.openBook('ספר', 'http://127.0.0.1:8080/pdf/1', [], 1);
+    await Promise.resolve();
+    expect(screen.root.querySelector('.pdf-loading-overlay')?.classList.contains('hidden')).toBe(true);
+    release();
+    await opened;
   });
 });
 

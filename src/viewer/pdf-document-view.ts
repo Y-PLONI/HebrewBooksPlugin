@@ -24,8 +24,8 @@ export interface OutlineEntry {
 
 interface PageSlot {
   readonly element: HTMLElement;
-  readonly widthPt: number;
-  readonly heightPt: number;
+  widthPt: number;
+  heightPt: number;
   canvas: HTMLCanvasElement | null;
   renderedScale: number;
   task: RenderTask | null;
@@ -39,6 +39,7 @@ export class PdfDocumentView {
   private currentPageNumber = 1;
   private generation = 0;
   private scrollFrame = 0;
+  private hydrationTimer = 0;
 
   onChanged: ((page: number, pageCount: number, zoom: number) => void) | null = null;
   onScrolled: (() => void) | null = null;
@@ -67,7 +68,8 @@ export class PdfDocumentView {
 
   async open(url: string, initialPage: number): Promise<void> {
     const generation = ++this.generation;
-    await this.close();
+    await this.clearDocument();
+    if (generation !== this.generation) return;
 
     const document = await getDocument({
       url,
@@ -84,32 +86,56 @@ export class PdfDocumentView {
 
     this.document = document;
     this.slots = [];
-    const firstPage = await document.getPage(1);
+    const page = Math.min(Math.max(initialPage, 1), document.numPages);
+    let firstPage: PDFPageProxy;
+    let targetPage: PDFPageProxy | null;
+    try {
+      [firstPage, targetPage] = await Promise.all([
+        document.getPage(1),
+        page === 1 ? Promise.resolve(null) : document.getPage(page),
+      ]);
+    } catch (error) {
+      if (generation !== this.generation) return;
+      await this.clearDocument();
+      if (generation !== this.generation) return;
+      throw error;
+    }
+    if (generation !== this.generation) return;
     const firstViewport = firstPage.getViewport({ scale: 1 });
-    // גדלי שאר הדפים נקראים ישירות מהמפרט, בלי לטעון כל דף — כמו
-    // ש-pdfrx בונה את ה-layout מהמטא-דאטה לפני הרינדור.
+    const targetViewport = targetPage?.getViewport({ scale: 1 }) ?? firstViewport;
+    const initialSize = { width: targetViewport.width, height: targetViewport.height };
+    // PDF.js חושף גדלי דפים רק דרך getPage. בונים תחילה פריסה משוערת
+    // במידות הדף הראשון, כדי שהעמוד המבוקש יופיע בלי לחכות לכל הספר.
     for (let number = 1; number <= document.numPages; number += 1) {
-      const size = number === 1
-        ? { width: firstViewport.width, height: firstViewport.height }
-        : await this.pageSize(document, number);
+      const size = number === page ? initialSize : firstViewport;
       const element = window.document.createElement('div');
       element.className = 'pdf-page';
       element.dataset.page = String(number);
       this.slots.push({ element, widthPt: size.width, heightPt: size.height, canvas: null, renderedScale: 0, task: null });
     }
-    if (generation !== this.generation) return;
-
     this.pages.replaceChildren(...this.slots.map((slot) => slot.element));
     this.zoomFactor = 1;
     this.recomputeBaseScale();
     this.applyLayout();
-    this.currentPageNumber = Math.min(Math.max(initialPage, 1), document.numPages);
+    this.currentPageNumber = page;
     this.scrollToPage(this.currentPageNumber, 'instant');
     this.renderVisiblePages();
     this.notifyChanged();
+    // עבודה מדורגת אחרי שהדפדפן קיבל הזדמנות לצייר את העמוד הראשון.
+    this.hydrationTimer = window.setTimeout(() => {
+      this.hydrationTimer = 0;
+      void this.hydratePageSizes(document, generation, page);
+    }, 0);
   }
 
   async close(): Promise<void> {
+    ++this.generation;
+    await this.clearDocument();
+  }
+
+  private async clearDocument(): Promise<void> {
+    window.clearTimeout(this.hydrationTimer);
+    this.hydrationTimer = 0;
     for (const slot of this.slots) {
       slot.task?.cancel();
       slot.task = null;
@@ -121,6 +147,40 @@ export class PdfDocumentView {
       const document = this.document;
       this.document = null;
       await document.destroy();
+    }
+  }
+
+  private async hydratePageSizes(document: PDFDocumentProxy, generation: number, initialPage: number): Promise<void> {
+    const batchSize = 8;
+    for (let start = 2; start <= document.numPages && generation === this.generation; start += batchSize) {
+      const numbers = Array.from({ length: Math.min(batchSize, document.numPages - start + 1) }, (_, index) => start + index)
+        .filter((number) => number !== initialPage);
+      const sizes = await Promise.all(numbers.map((number) => this.pageSize(document, number).catch(() => null)));
+      if (generation !== this.generation) return;
+      const anchor = this.slots[this.currentPageNumber - 1]?.element;
+      const oldTop = anchor?.offsetTop ?? 0;
+      const oldOffset = this.viewport.scrollTop - oldTop;
+      const oldScale = this.scale;
+      let changed = false;
+      for (let index = 0; index < numbers.length; index += 1) {
+        const size = sizes[index];
+        const slot = this.slots[numbers[index]! - 1];
+        if (!size || !slot) continue;
+        if (slot.widthPt !== size.width || slot.heightPt !== size.height) changed = true;
+        slot.widthPt = size.width;
+        slot.heightPt = size.height;
+      }
+      if (changed) {
+        this.recomputeBaseScale();
+        this.applyLayout();
+        if (anchor) this.viewport.scrollTop = anchor.offsetTop + oldOffset * (this.scale / oldScale);
+        this.renderVisiblePages();
+        this.onScrolled?.();
+      }
+      // מגביל עבודה על ספרים ארוכים ומאפשר אינטראקציה וביטול בין אצוות.
+      if (start + batchSize <= document.numPages) {
+        await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
+      }
     }
   }
 
@@ -375,7 +435,12 @@ export class PdfDocumentView {
     } catch (error) {
       ignoreCancellation(error);
     } finally {
-      if (slot.task === task) slot.task = null;
+      if (slot.task === task) {
+        slot.task = null;
+        if (generation === this.generation && slot.renderedScale > 0 && slot.renderedScale !== this.scale) {
+          this.renderVisiblePages();
+        }
+      }
     }
   }
 
