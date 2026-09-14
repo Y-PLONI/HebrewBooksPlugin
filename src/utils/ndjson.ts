@@ -44,6 +44,107 @@ export class SearchNdjsonDecoder {
   }
 }
 
+export type SearchStreamV2Event =
+  | { type: 'start' | 'heartbeat' }
+  | { type: 'provisional' | 'result'; result: HebrewBooksResult }
+  | { type: 'reset' | 'complete' }
+  | { type: 'error'; message: string };
+
+/// הפרוטוקול מכיל שתי תקופות: תוצאות זמניות לפני reset, ותמונת דירוג סופית אחריו.
+/// כל שורה מאומתת לפני שהמאגר מציג אותה; EOF ללא complete אינו תוצאה סופית.
+export class SearchStreamV2Decoder {
+  private pending = '';
+  private responseLength = 0;
+  private lineNumber = 0;
+  private phase: 'beforeStart' | 'provisional' | 'ranked' | 'complete' | 'error' = 'beforeStart';
+  private expectedCount = 0;
+  private nextRank = 0;
+
+  push(chunk: string): SearchStreamV2Event[] {
+    this.responseLength += chunk.length;
+    if (this.responseLength > maximumResponseLength) {
+      throw new Error('תשובת החיפוש גדולה מהמגבלה המותרת');
+    }
+    const lines = `${this.pending}${chunk}`.split('\n');
+    this.pending = lines.pop() ?? '';
+    return this.parseLines(lines);
+  }
+
+  finish(): SearchStreamV2Event[] {
+    const tail = this.pending;
+    this.pending = '';
+    const events = this.parseLines(tail === '' ? [] : [tail]);
+    if (this.phase !== 'complete' && this.phase !== 'error') {
+      throw new Error('זרם החיפוש הסתיים ללא אישור תוצאות סופיות');
+    }
+    return events;
+  }
+
+  private parseLines(lines: string[]): SearchStreamV2Event[] {
+    const events: SearchStreamV2Event[] = [];
+    for (const line of lines) {
+      if (line.trim() === '') continue;
+      const lineNumber = ++this.lineNumber;
+      let value: unknown;
+      try {
+        value = JSON.parse(line);
+      } catch {
+        throw new Error(`שורה ${lineNumber} בתשובת החיפוש אינה JSON תקין`);
+      }
+      if (!isRecord(value) || typeof value.type !== 'string') this.invalid(lineNumber);
+      if (this.phase === 'complete' || this.phase === 'error') this.invalid(lineNumber);
+      switch (value.type) {
+        case 'start':
+          if (this.phase !== 'beforeStart' || value.streamVersion !== 2) this.invalid(lineNumber);
+          this.phase = 'provisional';
+          events.push({ type: 'start' });
+          break;
+        case 'heartbeat':
+          if (this.phase !== 'provisional' && this.phase !== 'ranked') this.invalid(lineNumber);
+          events.push({ type: 'heartbeat' });
+          break;
+        case 'provisional':
+          if (this.phase !== 'provisional') this.invalid(lineNumber);
+          events.push({ type: 'provisional', result: parseResult(value.result, lineNumber) });
+          break;
+        case 'reset':
+          if (this.phase !== 'provisional' || !isNonnegativeInteger(value.count)) this.invalid(lineNumber);
+          this.expectedCount = value.count;
+          this.nextRank = 0;
+          this.phase = 'ranked';
+          events.push({ type: 'reset' });
+          break;
+        case 'result':
+          if (this.phase !== 'ranked' || value.rank !== this.nextRank || this.nextRank >= this.expectedCount) this.invalid(lineNumber);
+          this.nextRank += 1;
+          events.push({ type: 'result', result: parseResult(value.result, lineNumber) });
+          break;
+        case 'complete':
+          if (this.phase !== 'ranked' || value.count !== this.expectedCount || this.nextRank !== this.expectedCount) this.invalid(lineNumber);
+          this.phase = 'complete';
+          events.push({ type: 'complete' });
+          break;
+        case 'error':
+          if (this.phase === 'beforeStart' || typeof value.message !== 'string' || value.message.trim() === '') this.invalid(lineNumber);
+          this.phase = 'error';
+          events.push({ type: 'error', message: value.message });
+          break;
+        default:
+          this.invalid(lineNumber);
+      }
+    }
+    return events;
+  }
+
+  private invalid(lineNumber: number): never {
+    throw new Error(`שורה ${lineNumber} מפרה את פרוטוקול זרם החיפוש v2`);
+  }
+}
+
+function isNonnegativeInteger(value: unknown): value is number {
+  return Number.isSafeInteger(value) && Number(value) >= 0;
+}
+
 function parseResult(value: unknown, lineNumber: number): HebrewBooksResult {
   if (!isRecord(value)) throw new Error(`שורה ${lineNumber} אינה תוצאת חיפוש תקינה`);
   if (value.ok === false) throw new Error(typeof value.error === 'string' ? value.error : 'שרת החיפוש החזיר שגיאה');

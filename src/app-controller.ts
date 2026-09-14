@@ -280,6 +280,7 @@ export class AppController {
     requestId: string,
     signal: AbortSignal,
   ): Promise<void> {
+    let partialChain: Promise<void> = Promise.resolve();
     try {
       const query = String(request.query ?? '').trim();
       if (query.length === 0 || query.length > 500) {
@@ -350,11 +351,14 @@ export class AppController {
       // הזרמה: כל מקטע NDJSON שמגיע מהשרת נשלח למדור כעדכון חלקי (ללא
       // קטעי טקסט, עם ספירות רף-תחתון), בקצב מרוסן וברצף — כמו במסך התוסף.
       let lastPartialAt = 0;
-      let partialChain: Promise<void> = Promise.resolve();
+      let lastPartialHadResults = false;
       const sendPartial = (partial: HebrewBooksSearchPage): void => {
         const now = Date.now();
-        if (now - lastPartialAt < 250) return;
+        // reset או שגיאה ב-v2 חייבים למחוק מיד ספרים זמניים שכבר נשלחו.
+        // גם תוצאה ראשונה אחרי keepalive ריק חייבת להישלח מיד.
+        if (partial.results.length > 0 && lastPartialHadResults && now - lastPartialAt < 250) return;
         lastPartialAt = now;
+        lastPartialHadResults = partial.results.length > 0;
         const payload = {
           results: partial.results.map((result) => this.toExternalResult(result)),
           totalBooks: partial.totalBooks,
@@ -412,6 +416,9 @@ export class AppController {
         signal,
       );
     } catch (error) {
+      // הודעת השגיאה חייבת להגיע לאחר עדכון הניקוי, אחרת המדור עלול
+      // להציג שוב תוצאות זמניות שנשלחו באיחור מעל הגשר.
+      await partialChain;
       await this.otzariaRepository
         .respondExternalSearch(requestId, { error: messageOf(error) })
         .catch(() => undefined);

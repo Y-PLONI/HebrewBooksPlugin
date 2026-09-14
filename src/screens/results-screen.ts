@@ -178,10 +178,11 @@ export class ResultsScreen {
   }
 
   showPartialResults(response: UnifiedSearchResponse, pendingMessage: string): void {
+    const scrollTop = this.currentScrollTop();
     this.response = response;
     this.loadingMore = false;
     this.pendingMessage = pendingMessage;
-    this.renderResults();
+    this.renderResults(scrollTop);
   }
 
   setLoadingMore(loading: boolean): void {

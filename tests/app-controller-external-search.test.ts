@@ -203,6 +203,139 @@ describe('ספק התוצאות החיצוני — אימות הבקשה', () =>
 });
 
 describe('ספק התוצאות החיצוני — עמודים וספירות', () => {
+  it('מציג גילוי זמני במדור ואז מחליף אותו בתוצאות הסופיות המדורגות של v2', async () => {
+    const event = (value: Record<string, unknown>): string => `${JSON.stringify(value)}\n`;
+    const host = await bootController({
+      network: {
+        '/health': () => ({ body: JSON.stringify({
+          ok: true, service: 'hbsearch', apiVersion: 2,
+          capabilities: ['pdf-range', 'search-stream-v2'],
+        }) }),
+        '/search': () => ({
+          bodies: [
+            event({ type: 'start', streamVersion: 2, streamId: 'a'.repeat(64) })
+              + event({ type: 'provisional', result: JSON.parse(hebrewBooksRow({ fileId: '901', firstHitPage: 7 })) }),
+            event({ type: 'reset', count: 2 })
+              + event({ type: 'result', rank: 0, result: JSON.parse(hebrewBooksRow({ fileId: '903', hitCount: 9, firstHitPage: 7 })) })
+              + event({ type: 'result', rank: 1, result: JSON.parse(hebrewBooksRow({ fileId: '902', hitCount: 3, firstHitPage: 7 })) })
+              + event({ type: 'complete', count: 2 }),
+          ],
+          bodyDelaysMs: [0, 350],
+        }),
+      },
+    });
+    host.emit('search.external.requested', externalRequest());
+    await vi.waitFor(() => expect(responsesFor(host, 'xs-1').some((payload) =>
+      payload.done === false && resultsOf(payload)[0]?.externalId === 901,
+    )).toBe(true));
+    const final = await finalResponse(host);
+    expect(resultsOf(final).map((result) => result.externalId)).toEqual([903, 902]);
+    expect(resultsOf(final).some((result) => result.externalId === 901)).toBe(false);
+    const searchBody = host.payloadsOf('network.fetchStream').find((payload) =>
+      String(payload?.url).endsWith('/search'))?.body;
+    expect(JSON.parse(String(searchBody))).toMatchObject({ streamVersion: 2 });
+  });
+
+  it('מנקה תוצאה זמנית במדור גם כאשר שגיאת v2 מגיעה מיד אחרי הגילוי', async () => {
+    const event = (value: Record<string, unknown>): string => `${JSON.stringify(value)}\n`;
+    const host = await bootController({
+      methods: { 'reader.respondExternalSearch': async () => {
+        await new Promise((resolve) => setTimeout(resolve, 30));
+        return true;
+      } },
+      network: {
+        '/health': () => ({ body: JSON.stringify({
+          ok: true, service: 'hbsearch', apiVersion: 2,
+          capabilities: ['pdf-range', 'search-stream-v2'],
+        }) }),
+        '/search': () => ({
+          bodies: [
+            event({ type: 'start', streamVersion: 2, streamId: 'a'.repeat(64) })
+              + event({ type: 'provisional', result: JSON.parse(hebrewBooksRow({ fileId: '901' })) }),
+            event({ type: 'error', message: 'dtSearch failed' }),
+          ],
+          bodyDelaysMs: [0, 20],
+        }),
+      },
+    });
+    host.emit('search.external.requested', externalRequest());
+    await vi.waitFor(() => expect(responsesFor(host, 'xs-1').some((payload) =>
+      payload.error === 'dtSearch failed')).toBe(true));
+    const replies = responsesFor(host, 'xs-1');
+    expect(replies.some((payload) => payload.done === false
+      && resultsOf(payload)[0]?.externalId === 901)).toBe(true);
+    const clearedAt = replies.findIndex((payload) => payload.done === false
+      && resultsOf(payload).length === 0);
+    expect(clearedAt).toBeGreaterThan(-1);
+    expect(clearedAt).toBeLessThan(replies.findIndex((payload) => payload.error === 'dtSearch failed'));
+  });
+
+  it('שומר על בקשת המדור פעילה גם בהמתנה של עשר שניות בלי אף תוצאה', async () => {
+    const event = (value: Record<string, unknown>): string => `${JSON.stringify(value)}\n`;
+    const host = await bootController({ network: {
+      '/health': () => ({ body: JSON.stringify({
+        ok: true, service: 'hbsearch', apiVersion: 2,
+        capabilities: ['pdf-range', 'search-stream-v2'],
+      }) }),
+      '/search': () => ({
+        bodies: [
+          event({ type: 'start', streamVersion: 2, streamId: 'a'.repeat(64) }),
+          event({ type: 'heartbeat' }),
+          event({ type: 'reset', count: 0 }) + event({ type: 'complete', count: 0 }),
+        ],
+        bodyDelaysMs: [0, 10_000, 10],
+      }),
+    } });
+    vi.useFakeTimers();
+    try {
+      host.emit('search.external.requested', externalRequest());
+      await vi.advanceTimersByTimeAsync(0);
+      expect(responsesFor(host, 'xs-1').filter((reply) => reply.done === false)).toHaveLength(1);
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(responsesFor(host, 'xs-1').filter((reply) => reply.done === false)).toHaveLength(2);
+      await vi.advanceTimersByTimeAsync(10);
+      expect(responsesFor(host, 'xs-1').some((reply) => reply.done === undefined)).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('משמר ספר זמני בחמש פעימות keepalive לאורך חמישים שניות', async () => {
+    const event = (value: Record<string, unknown>): string => `${JSON.stringify(value)}\n`;
+    const host = await bootController({ network: {
+      '/health': () => ({ body: JSON.stringify({
+        ok: true, service: 'hbsearch', apiVersion: 2,
+        capabilities: ['pdf-range', 'search-stream-v2'],
+      }) }),
+      '/search': () => ({
+        bodies: [
+          event({ type: 'start', streamVersion: 2, streamId: 'a'.repeat(64) }),
+          event({ type: 'provisional', result: JSON.parse(hebrewBooksRow({ fileId: '901' })) }),
+          ...Array.from({ length: 5 }, () => event({ type: 'heartbeat' })),
+          event({ type: 'reset', count: 0 }) + event({ type: 'complete', count: 0 }),
+        ],
+        bodyDelaysMs: [0, 0, 10_000, 10_000, 10_000, 10_000, 10_000, 10],
+      }),
+    } });
+    vi.useFakeTimers();
+    try {
+      host.emit('search.external.requested', externalRequest());
+      await vi.advanceTimersByTimeAsync(0);
+      const provisionalReplies = () => responsesFor(host, 'xs-1').filter((reply) =>
+        reply.done === false && resultsOf(reply)[0]?.externalId === 901);
+      expect(provisionalReplies()).toHaveLength(1);
+      for (let heartbeat = 1; heartbeat <= 5; heartbeat += 1) {
+        await vi.advanceTimersByTimeAsync(10_000);
+        expect(provisionalReplies()).toHaveLength(heartbeat + 1);
+        expect(responsesFor(host, 'xs-1').some((reply) => reply.done === undefined)).toBe(false);
+      }
+      await vi.advanceTimersByTimeAsync(10);
+      expect(responsesFor(host, 'xs-1').some((reply) => reply.done === undefined)).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('מגביל את גודל העמוד ל-50 ומנרמל offset שלילי', async () => {
     const rows = Array.from({ length: 60 }, (_, index) =>
       hebrewBooksRow({ fileId: String(index + 1), hitCount: 1, firstHitPage: undefined }),

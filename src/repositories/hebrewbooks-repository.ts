@@ -6,7 +6,7 @@ import type {
   InBookLocations,
   SearchSnapshot,
 } from '../models';
-import { SearchNdjsonDecoder } from '../utils/ndjson';
+import { SearchNdjsonDecoder, SearchStreamV2Decoder, type SearchStreamV2Event } from '../utils/ndjson';
 
 interface NetworkResponse {
   status: number;
@@ -29,10 +29,12 @@ interface CachedSearch {
 
 export class HebrewBooksRepository {
   private cachedSearch: CachedSearch | null = null;
+  private supportsSearchStreamV2 = false;
 
   constructor(private readonly bridge: HostBridge) {}
 
   async health(): Promise<HealthStatus> {
+    this.supportsSearchStreamV2 = false;
     const response = await this.fetch('/health');
     const body = parseJsonRecord(response.body, 'בדיקת השירות');
     if (!response.ok || body.ok !== true || body.service !== 'hbsearch') {
@@ -46,6 +48,8 @@ export class HebrewBooksRepository {
     if (apiVersion !== null && apiVersion >= 2 && !capabilities.includes('pdf-range')) {
       throw new Error('גרסת השירות אינה מצהירה על תמיכה בקובצי PDF');
     }
+    this.supportsSearchStreamV2 = apiVersion !== null && apiVersion >= 2
+      && capabilities.includes('search-stream-v2');
 
     return {
       kind: apiVersion !== null && apiVersion >= 2 && capabilities.includes('pdf-range')
@@ -71,6 +75,7 @@ export class HebrewBooksRepository {
     if (cached?.fingerprint === snapshot.fingerprint) {
       return pageFromCache(cached, offset, snapshot.options.limit);
     }
+    const useV2 = this.supportsSearchStreamV2;
     const stream = this.fetchStream('/search', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json; charset=UTF-8' },
@@ -78,16 +83,78 @@ export class HebrewBooksRepository {
         q: snapshot.query,
         ...snapshot.options,
         limit: snapshot.options.max,
+        ...(useV2 ? { streamVersion: 2 } : {}),
       }),
       timeoutMs: searchTimeoutMs,
     });
     const iterator = stream[Symbol.asyncIterator]();
-    const decoder = new SearchNdjsonDecoder();
-    const results: HebrewBooksResult[] = [];
+    const legacyDecoder = useV2 ? null : new SearchNdjsonDecoder();
+    const v2Decoder = useV2 ? new SearchStreamV2Decoder() : null;
+    let results: HebrewBooksResult[] = [];
     let response: Omit<NetworkResponse, 'body'> | null = null;
     let errorBody = '';
     let expectedSequence = 0;
     let finished = false;
+    let completed = false;
+    let visibleResults = false;
+    const provisionalIds = new Set<string>();
+    let revision = 0;
+    let publishedRevision = -1;
+    let lastPublishedAt: number | null = null;
+    const keepAlive = (): boolean => {
+      // start מגיע לפני נעילת מנוע החיפוש; heartbeat נשלח גם בעת המתנה בתור.
+      // שניהם שומרים על בקשת אוצריא פעילה בלי לשנות את הרשימה המוצגת.
+      if (!onUpdate) return true;
+      visibleResults = results.length > 0;
+      return onUpdate(pageFromResults(results, offset, snapshot.options)) !== false;
+    };
+    const publish = (force = false): boolean => {
+      if (useV2) {
+        if (revision === publishedRevision) return true;
+        // אל תרנדר מחדש את כל תוצאות ה-DOM עבור כל אחת מ-10,000 שורות דירוג.
+        // גילוי ראשון ו-reset נשלחים מיד; complete מכריח פרסום של סוף התמונה.
+        if (!force && lastPublishedAt !== null && Date.now() - lastPublishedAt < 100) return true;
+        publishedRevision = revision;
+        lastPublishedAt = Date.now();
+      }
+      visibleResults = results.length > 0;
+      return onUpdate?.(pageFromResults(results, offset, snapshot.options)) !== false;
+    };
+    const processV2 = (events: SearchStreamV2Event[]): boolean => {
+      for (const event of events) {
+        switch (event.type) {
+          case 'start':
+          case 'heartbeat':
+            if (!keepAlive()) return false;
+            break;
+          case 'provisional':
+            if (provisionalIds.has(event.result.fileId)) break;
+            provisionalIds.add(event.result.fileId);
+            results.push(event.result);
+            revision += 1;
+            if (!publish()) return false;
+            break;
+          case 'reset':
+            results = [];
+            provisionalIds.clear();
+            revision += 1;
+            if (!publish(true)) return false;
+            break;
+          case 'result':
+            results.push(event.result);
+            revision += 1;
+            if (!publish()) return false;
+            break;
+          case 'complete':
+            completed = true;
+            if (!publish(true)) return false;
+            break;
+          case 'error':
+            throw new Error(event.message);
+        }
+      }
+      return true;
+    };
     const cancel = (): void => {
       const cancellation = iterator.return?.();
       if (cancellation) void cancellation.catch(() => undefined);
@@ -113,20 +180,27 @@ export class HebrewBooksRepository {
           errorBody = appendBody(errorBody, chunk.body);
           continue;
         }
-        const batch = decoder.push(chunk.body);
-        if (batch.length === 0) continue;
-        results.push(...batch);
-        if (onUpdate?.(pageFromResults(results, offset, snapshot.options)) === false) {
-          return pageFromResults(results, offset, snapshot.options);
+        if (v2Decoder) {
+          if (!processV2(v2Decoder.push(chunk.body))) return pageFromResults(results, offset, snapshot.options);
+        } else {
+          const batch = legacyDecoder!.push(chunk.body);
+          if (batch.length === 0) continue;
+          results.push(...batch);
+          if (!publish()) return pageFromResults(results, offset, snapshot.options);
         }
       }
-      if (signal?.aborted) return pageFromResults(results, offset, snapshot.options);
+      if (signal?.aborted) return useV2 ? emptySearchPage() : pageFromResults(results, offset, snapshot.options);
       if (response === null) throw new Error('השרת לא החזיר פרטי תגובה');
       ensureSuccessful({ ...response, body: errorBody }, 'החיפוש נכשל');
-      const tail = decoder.finish();
-      if (tail.length > 0) {
-        results.push(...tail);
-        onUpdate?.(pageFromResults(results, offset, snapshot.options));
+      if (v2Decoder) {
+        if (!processV2(v2Decoder.finish())) return pageFromResults(results, offset, snapshot.options);
+        if (!completed) throw new Error('זרם החיפוש הסתיים ללא אישור תוצאות סופיות');
+      } else {
+        const tail = legacyDecoder!.finish();
+        if (tail.length > 0) {
+          results.push(...tail);
+          publish();
+        }
       }
       const totalHits = countHits(results);
       this.cachedSearch = {
@@ -137,7 +211,8 @@ export class HebrewBooksRepository {
       };
       return pageFromCache(this.cachedSearch, offset, snapshot.options.limit);
     } catch (error) {
-      if (signal?.aborted) return pageFromResults(results, offset, snapshot.options);
+      if (signal?.aborted) return useV2 ? emptySearchPage() : pageFromResults(results, offset, snapshot.options);
+      if (useV2 && visibleResults) onUpdate?.(emptySearchPage());
       throw error;
     } finally {
       signal?.removeEventListener('abort', cancel);

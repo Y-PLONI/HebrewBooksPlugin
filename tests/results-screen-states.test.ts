@@ -153,6 +153,15 @@ describe('ResultsScreen — מצבים', () => {
     expect(screen.root.querySelector('.source-progress-banner')).toBeNull();
   });
 
+  it('עדכון חלקי חוזר משמר את מיקום הגלילה ברשימת התוצאות', () => {
+    const { screen } = createScreen();
+    screen.showPartialResults(response(), 'החיפוש ממשיך…');
+    const list = screen.root.querySelector<HTMLElement>('.results-list')!;
+    list.scrollTop = 123;
+    screen.showPartialResults(response(), 'החיפוש ממשיך…');
+    expect(screen.root.querySelector<HTMLElement>('.results-list')?.scrollTop).toBe(123);
+  });
+
   it('כותרת התוצאות מונה את הפריטים המוצגים בקטגוריה הנבחרת', () => {
     const { screen } = createScreen();
     screen.showResults(response());

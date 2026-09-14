@@ -17,6 +17,8 @@ export interface NetworkReply {
   readonly ok?: boolean;
   readonly body?: string;
   readonly bodies?: readonly string[];
+  /// השהיה לפני כל מקטע; מאפשרת לבדוק תוצאות שמגיעות כשהזרם עוד פתוח.
+  readonly bodyDelaysMs?: readonly number[];
 }
 
 export type NetworkHandler = (
@@ -91,7 +93,11 @@ export function createMockHost(config: MockHostConfig = {}): MockHost {
       headers: { 'content-type': 'application/x-ndjson' },
     };
     const bodies = reply.bodies ?? (reply.body === undefined ? [] : [reply.body]);
-    for (const body of bodies) yield { sequence: sequence++, type: 'data', body };
+    for (const [index, body] of bodies.entries()) {
+      const delay = reply.bodyDelaysMs?.[index] ?? 0;
+      if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay));
+      yield { sequence: sequence++, type: 'data', body };
+    }
   }
 
   async function* otzariaStream(
