@@ -12,7 +12,7 @@ const snapshot: SearchSnapshot = {
 const row = (fileId: string, hitCount = 1): Record<string, unknown> =>
   JSON.parse(hebrewBooksRow({ fileId, hitCount })) as Record<string, unknown>;
 const line = (event: Record<string, unknown>): string => `${JSON.stringify(event)}\n`;
-const start = { type: 'start', streamVersion: 2, streamId: 'a'.repeat(64) };
+const start = { type: 'start', streamVersion: 2, streamId: 'A'.repeat(64) };
 const reset = (count: number) => ({ type: 'reset', count });
 const result = (rank: number, fileId: string, hitCount = 1) =>
   ({ type: 'result', rank, result: row(fileId, hitCount) });

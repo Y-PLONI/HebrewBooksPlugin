@@ -4,7 +4,9 @@ import { defaultSearchOptions, type SearchSnapshot } from '../src/models';
 import { HebrewBooksRepository } from '../src/repositories/hebrewbooks-repository';
 import { createMockHost, hebrewBooksRow } from './helpers/mock-host';
 
-const tokenA = 'a'.repeat(64);
+// The service spells its tokens in upper-case hex; tokenB stays lower-case so
+// the suite covers both spellings a client can legitimately be handed.
+const tokenA = 'A'.repeat(64);
 const tokenB = 'b'.repeat(64);
 const snapshot: SearchSnapshot = {
   query: 'בדיקה', fingerprint: 'cancel-v2',

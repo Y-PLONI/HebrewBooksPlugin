@@ -105,7 +105,10 @@ export class SearchStreamV2Decoder {
       switch (value.type) {
         case 'start':
           if (this.phase !== 'beforeStart' || value.streamVersion !== 2) this.invalid(lineNumber);
-          if (value.streamId !== undefined && (typeof value.streamId !== 'string' || !/^[0-9a-f]{64}$/.test(value.streamId))) {
+          // The token is opaque: the client only echoes it back to /search/cancel,
+          // so the check exists to reject anything unsafe to echo, not to pin a
+          // spelling. The service hands it over in upper-case hex.
+          if (value.streamId !== undefined && (typeof value.streamId !== 'string' || !/^[0-9a-fA-F]{64}$/.test(value.streamId))) {
             this.invalid(lineNumber);
           }
           this.phase = 'provisional';
