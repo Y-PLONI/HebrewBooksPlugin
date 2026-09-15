@@ -67,6 +67,7 @@ export class LibraryScreen {
         formatHebrewBooksPathStatus(this.currentHebrewBooksPath),
       ),
     );
+    view.append(pathGuidance());
     this.body.replaceChildren(view);
   }
 
@@ -87,8 +88,28 @@ export class LibraryScreen {
         formatHebrewBooksPathStatus(this.currentHebrewBooksPath),
       ),
     );
+    infoState.append(pathGuidance());
     this.body.replaceChildren(infoState);
   }
+}
+
+function pathGuidance(): HTMLElement {
+  const guidance = element('aside', 'library-path-guidance');
+  guidance.setAttribute('aria-label', 'שינוי מיקומי HebrewBooks');
+  guidance.append(
+    element(
+      'p',
+      undefined,
+      'את מיקום קובצי ה־PDF משנים באוצריא: הגדרות > ספרייה > מיקום ספרי היברובוקס.',
+    ),
+    element(
+      'p',
+      undefined,
+      'את תיקיית שירות החיפוש משנים בהרצה חוזרת של מתקין HebrewBooks לאוצריא; ' +
+        'יש לבחור את שורש המאגר שמכיל App\\Katalog.db. התקנה מחדש של התוסף בלבד אינה משנה את הגדרת השירות.',
+    ),
+  );
+  return guidance;
 }
 
 export function formatHebrewBooksPathStatus(path: string | null | undefined): string {

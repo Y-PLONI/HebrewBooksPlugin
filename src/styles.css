@@ -651,6 +651,27 @@ ul {
   word-break: break-word;
 }
 
+.library-path-guidance {
+  width: 100%;
+  max-width: 460px;
+  margin-top: 16px;
+  padding: 12px 16px;
+  border: 1px solid var(--color-outline-variant);
+  border-radius: var(--radius);
+  text-align: start;
+}
+
+.library-setup-view .library-path-guidance p,
+.informative-state .library-path-guidance p {
+  margin-top: 0;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.library-path-guidance p + p {
+  margin-top: 8px;
+}
+
 .checkbox-row.disabled {
   color: var(--color-on-surface-variant);
   opacity: 0.55;

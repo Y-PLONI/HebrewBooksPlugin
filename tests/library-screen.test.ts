@@ -43,6 +43,24 @@ describe('LibraryScreen', () => {
     expect(statusEl?.textContent).toBe('מיקום ספרי היברובוקס באוצריא: הוגדר (/my/hebrewbooks/path)');
   });
 
+  it('explains how to change the separate Otzaria books path and search-service data root when ready', () => {
+    const screen = new LibraryScreen({
+      onSearch: vi.fn(),
+      onRetry: vi.fn(),
+    });
+
+    screen.showReady('מחובר', '/my/hebrewbooks/path');
+
+    const guidance = screen.root.querySelector('.library-path-guidance');
+    expect(guidance?.textContent).toContain(
+      'הגדרות > ספרייה > מיקום ספרי היברובוקס',
+    );
+    expect(guidance?.textContent).toContain('קובצי ה־PDF');
+    expect(guidance?.textContent).toContain('מתקין HebrewBooks לאוצריא');
+    expect(guidance?.textContent).toContain('App\\Katalog.db');
+    expect(guidance?.textContent).toContain('התקנה מחדש של התוסף בלבד אינה משנה');
+  });
+
   it('renders path status in showOffline state', () => {
     const screen = new LibraryScreen({
       onSearch: vi.fn(),
@@ -53,6 +71,22 @@ describe('LibraryScreen', () => {
 
     const statusEl = screen.root.querySelector('.library-hebrewbooks-path-status');
     expect(statusEl?.textContent).toBe('מיקום ספרי היברובוקס באוצריא: הוגדר (/my/hebrewbooks/path)');
+  });
+
+  it('keeps search-service data-root recovery instructions visible while offline', () => {
+    const screen = new LibraryScreen({
+      onSearch: vi.fn(),
+      onRetry: vi.fn(),
+    });
+
+    screen.showOffline('לא נמצא הקטלוג', '/my/hebrewbooks/path');
+
+    const guidance = screen.root.querySelector('.library-path-guidance');
+    expect(guidance?.textContent).toContain('מתקין HebrewBooks לאוצריא');
+    expect(guidance?.textContent).toContain('App\\Katalog.db');
+    expect(guidance?.textContent).toContain(
+      'הגדרות > ספרייה > מיקום ספרי היברובוקס',
+    );
   });
 
   it('dynamically updates path status via setHebrewBooksPath', () => {
