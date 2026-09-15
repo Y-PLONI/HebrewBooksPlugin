@@ -11,6 +11,7 @@ vi.mock('pdfjs-dist/legacy/build/pdf.mjs', () => ({
 }));
 
 const { AppController } = await import('../src/app-controller');
+const { ViewerScreen } = await import('../src/screens/viewer-screen');
 const { bootPayload, createMockHost, hebrewBooksNdjson, hebrewBooksRow } = await import(
   './helpers/mock-host'
 );
@@ -21,6 +22,7 @@ type MockHostConfig = import('./helpers/mock-host').MockHostConfig;
 interface Harness {
   readonly host: MockHost;
   readonly shell: HTMLElement;
+  readonly controller: InstanceType<typeof AppController>;
 }
 
 async function bootHarness(config: MockHostConfig = {}): Promise<Harness> {
@@ -30,7 +32,7 @@ async function bootHarness(config: MockHostConfig = {}): Promise<Harness> {
   const controller = new AppController(host.bridge, shell);
   await controller.boot(bootPayload());
   await Promise.resolve();
-  return { host, shell };
+  return { host, shell, controller };
 }
 
 function buttonByText(root: ParentNode, text: string): HTMLButtonElement {
@@ -122,6 +124,13 @@ async function runUnifiedSearch(
 
 function cardTitles(shell: HTMLElement): string[] {
   return [...shell.querySelectorAll('.result-title')].map((node) => node.textContent ?? '');
+}
+
+function inBookBodies(harness: Harness): Array<Record<string, unknown>> {
+  return harness.host
+    .payloadsOf('network.fetchStream')
+    .filter((payload) => String(payload?.url).endsWith('/inbook'))
+    .map((payload) => JSON.parse(String(payload?.body)) as Record<string, unknown>);
 }
 
 beforeAll(() => {
@@ -243,6 +252,55 @@ describe('דיאלוג החיפוש של התוסף', () => {
       'ברכת המזון',
     );
   });
+
+  it('הקורא הישן משתמש במיקום ברירת המחדל כשחיפוש הדוק אינו מחזיר עמודים', async () => {
+    const openBook = vi.spyOn(ViewerScreen.prototype, 'openBook').mockResolvedValue(undefined);
+    try {
+      const harness = await bootHarness({
+        methods: {
+          'reader.openSearchTab': () => {
+            throw new Error('unknown method');
+          },
+        },
+        network: {
+          '/search': () => ({ body: hebrewBooksNdjson([hebrewBooksRow()]) }),
+          '/inbook': (payload) => {
+            const body = JSON.parse(String(payload.body)) as Record<string, unknown>;
+            return {
+              body: JSON.stringify(
+                body.proximity === 1
+                  ? { hitCount: 0, pages: [], matchedTerms: [] }
+                  : { hitCount: 2, pages: [8, 12], matchedTerms: ['ברכת', 'המזון'] },
+              ),
+            };
+          },
+        },
+      });
+      await submitFromDialog(harness, 'ברכת המזון', () => {
+        const proximity = dialogRoot().querySelector<HTMLInputElement>('[aria-label="מרחק בין מילים"]')!;
+        proximity.value = '1';
+        proximity.dispatchEvent(new Event('change'));
+      });
+      await vi.waitFor(() => expect(harness.shell.querySelectorAll('.result-card')).toHaveLength(1));
+      await (harness.controller as unknown as {
+        openBook(result: { fileId: string; bookName: string }): Promise<void>;
+      }).openBook({ fileId: '43558', bookName: 'קובץ שיטות קמאי' });
+
+      expect(openBook).toHaveBeenCalledTimes(1);
+      expect(inBookBodies(harness)).toEqual([
+        expect.objectContaining({ proximity: 1, requireWordOrder: true }),
+        expect.objectContaining({ proximity: 30, requireWordOrder: false }),
+      ]);
+      expect(openBook).toHaveBeenCalledWith(
+        'קובץ שיטות קמאי',
+        expect.stringMatching(/\/pdf\/43558$/),
+        [8, 12],
+        8,
+      );
+    } finally {
+      openBook.mockRestore();
+    }
+  });
 });
 
 describe('חיפוש מאוחד מאוצריא', () => {
@@ -340,6 +398,42 @@ describe('חיפוש מאוחד מאוצריא', () => {
 });
 
 describe('פתיחת תוצאה', () => {
+  it('פתיחת תוצאת היברובוקס בחיפוש הדוק חוזרת לברירת המחדל כשהאיתור ההדוק ריק', async () => {
+    const harness = await bootHarness(
+      unifiedConfig({
+        network: {
+          '/inbook': (payload) => {
+            const body = JSON.parse(String(payload.body)) as Record<string, unknown>;
+            return {
+              body: JSON.stringify(
+                body.proximity === 1
+                  ? { hitCount: 0, pages: [], matchedTerms: [] }
+                  : { hitCount: 2, pages: [8, 12], matchedTerms: ['ברכת', 'המזון'] },
+              ),
+            };
+          },
+        },
+      }),
+    );
+    await runUnifiedSearch(harness, { query: 'ברכת המזון', mode: 'exact', distance: 1 });
+    [...harness.shell.querySelectorAll<HTMLElement>('.result-card-body')].at(-1)?.click();
+
+    await vi.waitFor(() => expect(harness.host.countOf('reader.openBook')).toBe(1));
+    expect(inBookBodies(harness)).toEqual([
+      expect.objectContaining({ proximity: 1, requireWordOrder: true }),
+      expect.objectContaining({ proximity: 30, requireWordOrder: false }),
+    ]);
+    expect(harness.host.lastPayload('reader.openBook')).toMatchObject({
+      index: 7,
+      matchPages: [8, 12],
+      matchedTerms: ['ברכת', 'המזון'],
+    });
+    // הפתיחה החוזרת משתמשת בשתי תוצאות האיתור שכבר הגיעו, בלי שתי בקשות נוספות.
+    [...harness.shell.querySelectorAll<HTMLElement>('.result-card-body')].at(-1)?.click();
+    await vi.waitFor(() => expect(harness.host.countOf('reader.openBook')).toBe(2));
+    expect(inBookBodies(harness)).toHaveLength(2);
+  });
+
   it('ספר היברובוקס נפתח בקורא של אוצריא בעמוד ההתאמה הראשון', async () => {
     const harness = await bootHarness(unifiedConfig());
     await runUnifiedSearch(harness);
@@ -354,6 +448,7 @@ describe('פתיחת תוצאה', () => {
       matchPages: [3, 5],
       matchedTerms: ['ברכת'],
     });
+    expect(inBookBodies(harness)).toHaveLength(1);
   });
 
   it('תוצאת אוצריא נפתחת לפי זהות הספר והמיקום שבאינדקס', async () => {
@@ -410,6 +505,7 @@ describe('פתיחת תוצאה', () => {
     await vi.waitFor(() => expect(harness.host.countOf('ui.showError')).toBe(1));
     expect(harness.host.lastPayload('ui.showError')).toEqual({ message: 'האינדקס נעול' });
     expect(harness.host.countOf('reader.openBook')).toBe(0);
+    expect(inBookBodies(harness)).toHaveLength(1);
   });
 
   it('מקש Enter על כרטיס פותח את התוצאה', async () => {

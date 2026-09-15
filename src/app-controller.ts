@@ -610,6 +610,23 @@ export class AppController {
 
   private readonly inBookLocationsCache = new Map<string, Promise<InBookLocations>>();
 
+  /// חיפוש מאוחד יכול להישלח במרחק הדוק או עם סדר מילים. השרת מוצא את
+  /// הספר בחיפוש הכללי, אך /inbook באותן הגבלות עשוי להחזיר רשימת עמודים
+  /// ריקה. לפני פתיחה מנסים פעם אחת את ההגדרות הרגילות, ומקבלים מהמטמון
+  /// את אותו איתור שכבר שימש לקטע התצוגה אם הוא קיים.
+  private async locateOpeningInBook(snapshot: SearchSnapshot, fileId: string): Promise<InBookLocations> {
+    const strict = await this.locateInBook(snapshot, fileId);
+    if (strict.pages.length > 0) return strict;
+    const fallback: SearchSnapshot = {
+      query: snapshot.query,
+      options: defaultSearchOptions,
+      fingerprint: createFingerprint(snapshot.query, defaultSearchOptions),
+    };
+    return fallback.fingerprint === snapshot.fingerprint
+      ? strict
+      : this.locateInBook(fallback, fileId);
+  }
+
   private locateInBook(snapshot: SearchSnapshot, fileId: string): Promise<InBookLocations> {
     const key = `${snapshot.fingerprint}\u0000${fileId}`;
     const existing = this.inBookLocationsCache.get(key);
@@ -865,7 +882,7 @@ export class AppController {
 
       const snapshot = this.snapshot;
       if (!snapshot) return;
-      const locations = await this.repository.inBook(snapshot, result.hit.fileId);
+      const locations = await this.locateOpeningInBook(snapshot, result.hit.fileId);
       // בעיגון מילה ראשונה/אחרונה מספרי העמודים אינם מיקומי התאמה אמינים —
       // פותחים מעמוד 1 ולא מעבירים אותם לקורא.
       const anchored = snapshot.options.firstWord || snapshot.options.lastWord;
@@ -917,7 +934,7 @@ export class AppController {
     this.showScreen('viewer');
     this.viewer.setSearchQuery(snapshot.query);
     try {
-      const locations = await this.repository.inBook(snapshot, result.fileId);
+      const locations = await this.locateOpeningInBook(snapshot, result.fileId);
       // כשהחיפוש מוגבל למילה ראשונה/אחרונה בעמוד, מספרי העמודים אינם מיקומי
       // התאמה ולכן נפתחים מתחילת הספר — כמו במסך התוצאות של אוצריא.
       const anchored = snapshot.options.firstWord || snapshot.options.lastWord;
