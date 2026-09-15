@@ -398,6 +398,145 @@ describe('חיפוש מאוחד מאוצריא', () => {
 });
 
 describe('פתיחת תוצאה', () => {
+  it('פתיחה מאוחדת שהתעכבה באיתור עמוד אינה פותחת ספר מהחיפוש הקודם', async () => {
+    let releaseInBook!: (reply: { body: string }) => void;
+    const harness = await bootHarness(
+      unifiedConfig({
+        network: {
+          '/inbook': () => new Promise((resolve) => { releaseInBook = resolve; }),
+        },
+      }),
+    );
+    await runUnifiedSearch(harness);
+    [...harness.shell.querySelectorAll<HTMLElement>('.result-card-body')].at(-1)?.click();
+    await vi.waitFor(() => expect(inBookBodies(harness)).toHaveLength(1));
+
+    // אוצריא שולחת חיפוש חדש עוד לפני שתשובת /inbook של הכרטיס הקודם הגיעה.
+    harness.host.emit('search.requested', {
+      itemId: 'tab-2',
+      request: { query: 'תפילה', mode: 'exact' },
+    });
+    await vi.waitFor(() =>
+      expect(harness.shell.querySelector('.search-terms')?.textContent).toContain('תפילה'),
+    );
+    releaseInBook({
+      body: JSON.stringify({ hitCount: 1, pages: [3], matchedTerms: ['ברכת'] }),
+    });
+    await new Promise((resolve) => setTimeout(resolve, 25));
+
+    expect(harness.host.countOf('reader.openBook')).toBe(0);
+    expect(harness.shell.querySelector('.results-screen')?.classList.contains('hidden')).toBe(false);
+    expect(harness.shell.querySelector('.search-terms')?.textContent).toContain('תפילה');
+    expect(harness.host.countOf('ui.showError')).toBe(0);
+  });
+
+  it('פתיחה בקורא הישן שהתעכבה אינה מחזירה את הקורא לאחר חזרה לתוצאות', async () => {
+    let releaseInBook!: (reply: { body: string }) => void;
+    const openBook = vi.spyOn(ViewerScreen.prototype, 'openBook').mockResolvedValue(undefined);
+    try {
+      const harness = await bootHarness({
+        methods: {
+          'reader.openSearchTab': () => {
+            throw new Error('unknown method');
+          },
+        },
+        network: {
+          '/search': () => ({ body: hebrewBooksNdjson([hebrewBooksRow()]) }),
+          '/inbook': () => new Promise((resolve) => { releaseInBook = resolve; }),
+        },
+      });
+      await submitFromDialog(harness, 'ברכת המזון');
+      await vi.waitFor(() => expect(harness.shell.querySelectorAll('.result-card')).toHaveLength(1));
+      void (harness.controller as unknown as {
+        openBook(result: { fileId: string; bookName: string }): Promise<void>;
+      }).openBook({ fileId: '43558', bookName: 'קובץ שיטות קמאי' });
+      await vi.waitFor(() => expect(inBookBodies(harness)).toHaveLength(1));
+
+      harness.shell.querySelector<HTMLButtonElement>('[aria-label="חזרה לתוצאות החיפוש"]')?.click();
+      expect(harness.shell.querySelector('.results-screen')?.classList.contains('hidden')).toBe(false);
+      releaseInBook({
+        body: JSON.stringify({ hitCount: 1, pages: [3], matchedTerms: ['ברכת'] }),
+      });
+      await new Promise((resolve) => setTimeout(resolve, 25));
+
+      expect(openBook).not.toHaveBeenCalled();
+      expect(harness.shell.querySelector('.results-screen')?.classList.contains('hidden')).toBe(false);
+      expect(harness.shell.querySelector('.viewer-screen')?.classList.contains('hidden')).toBe(true);
+      expect(harness.host.countOf('ui.showError')).toBe(0);
+    } finally {
+      openBook.mockRestore();
+    }
+  });
+
+  it('לחיצה שנייה על תוצאה מחליפה פתיחה ראשונה שעדיין ממתינה ל-/inbook', async () => {
+    const releases = new Map<string, (reply: { body: string }) => void>();
+    const harness = await bootHarness(
+      unifiedConfig({
+        network: {
+          '/search': () => ({
+            body: hebrewBooksNdjson([
+              hebrewBooksRow({ fileId: '43558', bookName: 'ספר ראשון' }),
+              hebrewBooksRow({ fileId: '43559', bookName: 'ספר שני' }),
+            ]),
+          }),
+          '/inbook': (payload) => new Promise((resolve) => {
+            const body = JSON.parse(String(payload.body)) as { fileName: string };
+            releases.set(body.fileName, resolve);
+          }),
+        },
+      }),
+    );
+    await runUnifiedSearch(harness, { query: 'ברכת המזון', mode: 'exact', limit: 2 });
+    await vi.waitFor(() => expect(harness.shell.querySelectorAll('.result-card')).toHaveLength(3));
+    const cards = [...harness.shell.querySelectorAll<HTMLElement>('.result-card-body')];
+    expect(cards.at(-2)?.textContent).toContain('ספר ראשון');
+    expect(cards.at(-1)?.textContent).toContain('ספר שני');
+    cards.at(-2)?.click();
+    await vi.waitFor(() => expect(releases.has('43558')).toBe(true));
+    cards.at(-1)?.click();
+    await vi.waitFor(() => expect(releases.has('43559')).toBe(true));
+
+    releases.get('43558')?.({
+      body: JSON.stringify({ hitCount: 1, pages: [3], matchedTerms: ['ברכת'] }),
+    });
+    releases.get('43559')?.({
+      body: JSON.stringify({ hitCount: 1, pages: [7], matchedTerms: ['המזון'] }),
+    });
+    await vi.waitFor(() => expect(harness.host.countOf('reader.openBook')).toBe(1));
+
+    expect(harness.host.lastPayload('reader.openBook')).toMatchObject({
+      external: { provider: 'hebrewbooks', id: 43559 },
+      index: 6,
+    });
+  });
+
+  it('כשל פתיחה ישן של תוצאת אוצריא אינו מוצג אחרי חיפוש חדש', async () => {
+    let resolveOpen!: (opened: boolean) => void;
+    const harness = await bootHarness(
+      unifiedConfig({
+        methods: {
+          'reader.openBook': () => new Promise((resolve) => { resolveOpen = resolve; }),
+        },
+      }),
+    );
+    await runUnifiedSearch(harness);
+    harness.shell.querySelector<HTMLElement>('.result-card-body')?.click();
+    await vi.waitFor(() => expect(harness.host.countOf('reader.openBook')).toBe(1));
+
+    harness.host.emit('search.requested', {
+      itemId: 'tab-2',
+      request: { query: 'תפילה', mode: 'exact' },
+    });
+    await vi.waitFor(() =>
+      expect(harness.shell.querySelector('.search-terms')?.textContent).toContain('תפילה'),
+    );
+    resolveOpen(false);
+    await new Promise((resolve) => setTimeout(resolve, 25));
+
+    expect(harness.host.countOf('ui.showError')).toBe(0);
+    expect(harness.shell.querySelector('.search-terms')?.textContent).toContain('תפילה');
+  });
+
   it('פתיחת תוצאת היברובוקס בחיפוש הדוק חוזרת לברירת המחדל כשהאיתור ההדוק ריק', async () => {
     const harness = await bootHarness(
       unifiedConfig({

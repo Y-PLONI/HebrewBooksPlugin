@@ -118,6 +118,9 @@ export class AppController {
   private resultList: HebrewBooksResult[] = [];
   private selectedResult: HebrewBooksResult | null = null;
   private readonly latestSearch = new LatestRequest();
+  // פתיחת ספר תלויה לעיתים ב-/inbook. אסור שתשובה מאוחרת תפתח ספר שכבר
+  // נזנח, או תחזיר את הקורא אחרי שהמשתמש חזר למסך התוצאות.
+  private readonly latestResultOpen = new LatestRequest();
   private unifiedRequest: HostSearchRequest | null = null;
   private unifiedResponse: UnifiedSearchResponse | null = null;
   private unifiedRequestId: number | null = null;
@@ -140,7 +143,10 @@ export class AppController {
     });
 
     this.results = new ResultsScreen({
-      onBack: () => this.showScreen('library'),
+      onBack: () => {
+        this.invalidateResultOpen();
+        this.showScreen('library');
+      },
       onEditSearch: () => {
         if (this.snapshot) this.dialog.setOptions(this.snapshot.options);
         this.dialog.open(this.snapshot?.query ?? '');
@@ -154,7 +160,10 @@ export class AppController {
 
     this.viewer = new ViewerScreen(
       {
-        onBack: () => this.showScreen('results'),
+        onBack: () => {
+          this.invalidateResultOpen();
+          this.showScreen('results');
+        },
         onOpenTextEdition: () => {
           if (this.selectedResult) void this.openTextEdition(this.selectedResult);
         },
@@ -691,6 +700,7 @@ export class AppController {
       return;
     }
 
+    this.invalidateResultOpen();
     const cancellation = this.replaceSearchCancellation();
     const requestId = this.latestSearch.begin();
     this.clearUnifiedSearch();
@@ -762,6 +772,7 @@ export class AppController {
       await this.showHostError('בקשת החיפוש מאוצריא אינה תקינה');
       return;
     }
+    this.invalidateResultOpen();
     const cancellation = this.replaceSearchCancellation();
     const requestId = this.latestSearch.begin();
     this.unifiedRequest = request;
@@ -868,6 +879,7 @@ export class AppController {
   }
 
   private async openResult(result: UnifiedSearchResult): Promise<void> {
+    const openRequestId = this.latestResultOpen.begin();
     try {
       if (result.source === 'otzaria') {
         const { id, bookId, type, source } = result.hit;
@@ -876,6 +888,7 @@ export class AppController {
           result.hit.index,
           this.snapshot?.query ?? '',
         );
+        if (!this.isCurrentResultOpen(openRequestId)) return;
         if (!opened) throw new Error('לא ניתן היה לפתוח את הספר באוצריא');
         return;
       }
@@ -883,6 +896,7 @@ export class AppController {
       const snapshot = this.snapshot;
       if (!snapshot) return;
       const locations = await this.locateOpeningInBook(snapshot, result.hit.fileId);
+      if (!this.isCurrentResultOpen(openRequestId) || this.snapshot !== snapshot) return;
       // בעיגון מילה ראשונה/אחרונה מספרי העמודים אינם מיקומי התאמה אמינים —
       // פותחים מעמוד 1 ולא מעבירים אותם לקורא.
       const anchored = snapshot.options.firstWord || snapshot.options.lastWord;
@@ -897,8 +911,10 @@ export class AppController {
           ? undefined
           : { pages: locations.pages, matchedTerms: locations.matchedTerms },
       );
+      if (!this.isCurrentResultOpen(openRequestId)) return;
       if (!opened) throw new Error('הספר לא נמצא בקטלוג היברובוקס של אוצריא');
     } catch (error) {
+      if (!this.isCurrentResultOpen(openRequestId)) return;
       await this.showHostError(messageOf(error));
     }
   }
@@ -928,6 +944,7 @@ export class AppController {
   }
 
   private async openBook(result: HebrewBooksResult): Promise<void> {
+    const openRequestId = this.latestResultOpen.begin();
     const snapshot = this.snapshot;
     if (!snapshot) return;
     this.selectedResult = result;
@@ -935,12 +952,14 @@ export class AppController {
     this.viewer.setSearchQuery(snapshot.query);
     try {
       const locations = await this.locateOpeningInBook(snapshot, result.fileId);
+      if (!this.isCurrentResultOpen(openRequestId) || this.snapshot !== snapshot) return;
       // כשהחיפוש מוגבל למילה ראשונה/אחרונה בעמוד, מספרי העמודים אינם מיקומי
       // התאמה ולכן נפתחים מתחילת הספר — כמו במסך התוצאות של אוצריא.
       const anchored = snapshot.options.firstWord || snapshot.options.lastWord;
       const initialPage = anchored ? 1 : locations.pages[0] ?? 1;
       await this.viewer.openBook(result.bookName, this.repository.pdfUrl(result.fileId), locations.pages, initialPage);
     } catch (error) {
+      if (!this.isCurrentResultOpen(openRequestId)) return;
       this.showScreen('results');
       await this.showHostError(messageOf(error));
     }
@@ -1006,6 +1025,14 @@ export class AppController {
     this.results.root.classList.toggle('hidden', screen !== 'results');
     this.viewer.root.classList.toggle('hidden', screen !== 'viewer');
     if (screen !== 'viewer') void this.viewer.close();
+  }
+
+  private invalidateResultOpen(): void {
+    this.latestResultOpen.begin();
+  }
+
+  private isCurrentResultOpen(requestId: number): boolean {
+    return this.latestResultOpen.isCurrent(requestId);
   }
 
   private async showHostError(message: string): Promise<void> {
