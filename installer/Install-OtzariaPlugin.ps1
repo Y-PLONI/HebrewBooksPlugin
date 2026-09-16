@@ -1,4 +1,4 @@
-#requires -Version 5.1
+﻿#requires -Version 5.1
 <#
   מבקש מאוצריא להתקין את קובץ ה-.otzplugin שהמתקין פרס.
 
