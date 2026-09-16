@@ -11,6 +11,19 @@ import type {
   ResolvedBook,
 } from '../models';
 
+/// הקוד שאוצריא מחזירה כשתשובה מתייחסת לבקשה שכבר אינה פתוחה אצלה.
+const hostRequestGoneCode = 'error.not_found';
+
+/// אוצריא דחתה עדכון כי הבקשה כבר אינה פתוחה אצלה — טאב החיפוש שביקש
+/// אותה נסגר, החליף אותה בבקשה חדשה, או פג. אין אירוע ביטול במקומה, ולכן
+/// זו האינדיקציה היחידה שהעבודה שרצה בשרת כבר אינה מעניינת איש.
+export class HostRequestGoneError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'HostRequestGoneError';
+  }
+}
+
 export class OtzariaSearchRepository {
   constructor(private readonly bridge: HostBridge) {}
 
@@ -137,10 +150,17 @@ export class OtzariaSearchRepository {
         }
       | { error: string },
   ): Promise<void> {
-    await requireHostData<boolean>(this.bridge, 'reader.respondExternalSearch', {
+    // לא דרך requireHostData: הקוד `error.not_found` הוא ההודעה היחידה
+    // שאוצריא מוסרת על בקשה שאינה פתוחה אצלה עוד, והוא נבלע כשהשגיאה
+    // מצטמצמת לטקסט. הקורא צריך להבדיל בינו לבין תקלה חולפת.
+    const response = await this.bridge.call<boolean>('reader.respondExternalSearch', {
       requestId,
       ...result,
     });
+    if (response.success && response.data !== null) return;
+    const message = response.error?.message ?? 'הפעולה reader.respondExternalSearch נכשלה';
+    if (response.error?.code === hostRequestGoneCode) throw new HostRequestGoneError(message);
+    throw new Error(message);
   }
 }
 

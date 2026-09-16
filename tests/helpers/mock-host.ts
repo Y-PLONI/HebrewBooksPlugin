@@ -25,6 +25,16 @@ export type NetworkHandler = (
   payload: Record<string, unknown>,
 ) => NetworkReply | Promise<NetworkReply>;
 
+/// שגיאת מארח שנושאת קוד מפורש, כפי שאוצריא מחזירה אותו במעטפת ה-RPC
+/// (למשל error.not_found לתשובה על בקשה שאינה פתוחה אצלה עוד). handler
+/// שזורק Error רגיל נשאר plugin_error, כמו תקלה חולפת.
+export class MockHostError extends Error {
+  constructor(readonly code: string, message: string) {
+    super(message);
+    this.name = 'MockHostError';
+  }
+}
+
 export type MethodHandler = (
   payload: Record<string, unknown> | undefined,
 ) => unknown | Promise<unknown>;
@@ -124,7 +134,7 @@ export function createMockHost(config: MockHostConfig = {}): MockHost {
         success: false,
         data: null,
         error: {
-          code: 'plugin_error',
+          code: error instanceof MockHostError ? error.code : 'plugin_error',
           message: error instanceof Error ? error.message : 'שגיאה במארח',
         },
       }));

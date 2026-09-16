@@ -22,7 +22,7 @@ import { defaultSearchOptions } from './models';
 import { CatalogMappingRepository } from './repositories/catalog-mapping-repository';
 import { HebrewBooksRepository } from './repositories/hebrewbooks-repository';
 import { HebrewBooksSnippetRepository } from './repositories/hebrewbooks-snippet-repository';
-import { OtzariaSearchRepository } from './repositories/otzaria-search-repository';
+import { HostRequestGoneError, OtzariaSearchRepository } from './repositories/otzaria-search-repository';
 import { LibraryScreen } from './screens/library-screen';
 import { ResultsScreen, type SearchTerms } from './screens/results-screen';
 import { SearchDialog } from './screens/search-dialog';
@@ -286,6 +286,17 @@ export class AppController {
     }
   }
 
+  /// אוצריא אינה שולחת אירוע ביטול כשטאב החיפוש נסגר: הבקשה נשארת "פתוחה"
+  /// אצלה והתוסף ממשיך להזרים לתוך מדור שכבר אינו קיים. הסימן היחיד שהיא
+  /// בכל זאת מוסרת הוא דחיית עדכון חלקי ב-error.not_found — וכל עוד הוא
+  /// נבלע, החיפוש ממשיך לרוץ בשירות עד סופו והכונן ממשיך לעבוד. לכן דחייה
+  /// כזו מבטלת כאן את הבקשה, והביטול שולח POST /search/cancel לשירות.
+  /// שגיאה אחרת (תקלה חולפת בגשר) אינה מבטלת דבר.
+  private abandonIfHostDropped(requestId: string, error: unknown): void {
+    if (!(error instanceof HostRequestGoneError)) return;
+    this.inFlightExternalRequests.get(requestId)?.abort();
+  }
+
   private async serveExternalSearchRequest(
     request: ExternalSearchRequestedEvent,
     requestId: string,
@@ -336,7 +347,7 @@ export class AppController {
                 hasMore: false,
                 done: false,
               })
-              .catch(() => undefined);
+              .catch((error) => this.abandonIfHostDropped(requestId, error));
           }, signal);
           all = this.repository.cachedResultsFor(snapshot.fingerprint) ?? [];
         }
@@ -380,7 +391,7 @@ export class AppController {
         partialChain = partialChain.then(() =>
           this.otzariaRepository
             .respondExternalSearch(requestId, payload)
-            .catch(() => undefined),
+            .catch((error) => this.abandonIfHostDropped(requestId, error)),
         );
       };
       const page = await this.repository.search(snapshot, sendPartial, signal, offset);
@@ -405,7 +416,7 @@ export class AppController {
             hasMore: offset + page.results.length < page.totalBooks,
             done: false,
           })
-          .catch(() => undefined);
+          .catch((error) => this.abandonIfHostDropped(requestId, error));
         // שם הספר נשלח רק כשהמארח הצהיר שהוא צורך אותו: מארח ותיק זורק
         // רשומה בת ארבעה איברים בסניטציה, ואיתה את הסיווג כולו.
         index = await this.refineIndex(
@@ -517,7 +528,7 @@ export class AppController {
           ...(withIndex && index ? { index } : {}),
           done: false,
         })
-        .catch(() => undefined);
+        .catch((error) => this.abandonIfHostDropped(requestId, error));
     await respondPartial(true);
 
     // עדכוני הקטעים נשלחים ברצף אחד (flushChain) ובקצב מרוסן, כדי שעדכון
