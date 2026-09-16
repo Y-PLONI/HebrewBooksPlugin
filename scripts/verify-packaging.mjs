@@ -3,20 +3,59 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const [dependenciesText, installer, workflow, launcher] = await Promise.all([
+const [dependenciesText, installer, workflow, launcher, prepare, manifestText, packageText] = await Promise.all([
   readFile(resolve(root, 'installer/dependencies.json'), 'utf8'),
   readFile(resolve(root, 'installer/HebrewBooksPlugin.iss'), 'utf8'),
   readFile(resolve(root, '.github/workflows/release.yml'), 'utf8'),
   readFile(resolve(root, 'installer/Install-OtzariaPlugin.ps1'), 'utf8'),
+  readFile(resolve(root, 'installer/Prepare-Installer.ps1'), 'utf8'),
+  readFile(resolve(root, 'manifest.json'), 'utf8'),
+  readFile(resolve(root, 'package.json'), 'utf8'),
 ]);
 const dependencies = JSON.parse(dependenciesText);
 
+// Otzaria refuses to install a plugin whose version already sits in its plugin
+// folder — "התוסף כבר מותקן בגרסה זו". Shipping a fix under the version it
+// fixes leaves the broken copy installed and looks like the fix did nothing.
+const manifestVersion = JSON.parse(manifestText).version;
 assert(
-  dependencies.runtime.url ===
-    'https://github.com/HebrewBooks-2026/Hebrewbooks-Releases/releases/download/prerequisites/hbsearch-min.zip',
-  'The installer must use the official HebrewBooks runtime asset.',
+  /^[0-9]+\.[0-9]+\.[0-9]+$/.test(manifestVersion),
+  'manifest.json must carry an X.Y.Z version — the release takes its tag from it.',
 );
-assertSha256(dependencies.runtime.sha256, 'runtime');
+assert(
+  JSON.parse(packageText).version === manifestVersion,
+  'package.json and manifest.json must agree on the version.',
+);
+
+assert(
+  dependencies.runtime.release?.repo === 'Y-PLONI/hbsearch' &&
+    dependencies.runtime.release.asset === 'hbsearch-win-x86.zip',
+  'The installer must take the search runtime from the official service repository.',
+);
+assert(
+  dependencies.runtime.url === undefined,
+  'A hardcoded runtime URL would bypass the release the installer is pinned to.',
+);
+// That release is rebuilt on every push to the service, so a checksum pinned here
+// would go stale within a day and either fail every build or be ignored. The
+// integrity check belongs against the digest GitHub recorded for the asset.
+assert(
+  dependencies.runtime.sha256 === undefined &&
+    prepare.includes('gh release view') &&
+    prepare.includes('Runtime checksum mismatch'),
+  'The runtime archive must be verified against the digest GitHub recorded for it.',
+);
+assert(
+  workflow.includes('secrets.ANGINE_PRIVATE'),
+  'The installer build must authenticate to the private service repository.',
+);
+// dtSearch is loaded by filename at run time, so a runtime missing any of these
+// produces a service that starts and then fails every search.
+assert(
+  ['hbsearch.exe', 'dtSearchNetApi4.dll', 'dten600.dll', 'lbvProt.dll', 'Alphabet.abc',
+    'msvcp140.dll', 'vcruntime140.dll'].every((name) => prepare.includes(`'${name}'`)),
+  'The installer must reject a runtime archive that is missing any dtSearch component.',
+);
 assertSha256(dependencies.serviceWrapper.sha256, 'service wrapper');
 assert(
   installer.includes('ConfigPath := ExpandConstant(\'{app}\\{#ServiceBaseName}.xml\')'),
