@@ -237,7 +237,10 @@ describe('ספק התוצאות החיצוני — עמודים וספירות',
     expect(JSON.parse(String(searchBody))).toMatchObject({ streamVersion: 2 });
   });
 
-  it('מנקה תוצאה זמנית במדור גם כאשר שגיאת v2 מגיעה מיד אחרי הגילוי', async () => {
+  /// המשתמש דיווח: "בהתחלה היו תוצאות, ואז התוצאות נעלמו והיה כתוב שאין
+  /// תוצאות". זה היה עמוד ריק שנדחף למדור לפני הודעת השגיאה. ספרים שכבר
+  /// נמצאו נשארים על המסך, והשגיאה מצטרפת אליהם.
+  it('שגיאת v2 אחרי הגילוי אינה מוחקת מהמדור תוצאות שכבר נשלחו', async () => {
     const event = (value: Record<string, unknown>): string => `${JSON.stringify(value)}\n`;
     const host = await bootController({
       methods: { 'reader.respondExternalSearch': async () => {
@@ -263,12 +266,12 @@ describe('ספק התוצאות החיצוני — עמודים וספירות',
     await vi.waitFor(() => expect(responsesFor(host, 'xs-1').some((payload) =>
       payload.error === 'dtSearch failed')).toBe(true));
     const replies = responsesFor(host, 'xs-1');
-    expect(replies.some((payload) => payload.done === false
-      && resultsOf(payload)[0]?.externalId === 901)).toBe(true);
-    const clearedAt = replies.findIndex((payload) => payload.done === false
-      && resultsOf(payload).length === 0);
-    expect(clearedAt).toBeGreaterThan(-1);
-    expect(clearedAt).toBeLessThan(replies.findIndex((payload) => payload.error === 'dtSearch failed'));
+    const discoveredAt = replies.findIndex((payload) => payload.done === false
+      && resultsOf(payload)[0]?.externalId === 901);
+    expect(discoveredAt).toBeGreaterThan(-1);
+    // אחרי הגילוי לא נשלח שום עדכון ריק — רק הודעת השגיאה עצמה.
+    expect(replies.slice(discoveredAt + 1).filter((payload) => payload.error === undefined)).toEqual([]);
+    expect(replies.at(-1)).toEqual({ requestId: 'xs-1', error: 'dtSearch failed' });
   });
 
   it('שומר על בקשת המדור פעילה גם בהמתנה של עשר שניות בלי אף תוצאה', async () => {

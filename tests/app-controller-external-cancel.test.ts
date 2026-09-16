@@ -23,6 +23,7 @@ const line = (value: Record<string, unknown>): string => `${JSON.stringify(value
 /// כשהמדור שביקש אותו כבר אינו שם.
 function slowStreamHost(
   respond: (payload: Record<string, unknown> | undefined) => unknown,
+  tailDelayMs = 5_000,
 ): MockHostConfig {
   return {
     methods: { 'reader.respondExternalSearch': respond },
@@ -44,7 +45,7 @@ function slowStreamHost(
             + line({ type: 'complete', count: 1 }),
         ],
         // הזרם נשאר פתוח מספיק זמן כדי שהדחייה תגיע באמצע החיפוש.
-        bodyDelaysMs: [0, 5_000],
+        bodyDelaysMs: [0, tailDelayMs],
       }),
       '/search/cancel': () => ({ body: '{"cancelled":true}' }),
     },
@@ -83,6 +84,38 @@ describe('ספק התוצאות החיצוני — נטישת המארח', () =>
       limit: 20,
     });
     await vi.waitFor(() => expect(cancelledStreamIds(host)).toEqual([streamId]), { timeout: 4_000 });
+  });
+
+  /// ביטול אינו "אין תוצאות": חיפוש v2 שננטש החזיר עמוד ריק, והתוסף הזרים
+  /// אותו הלאה כעמוד תוצאות של הבקשה — מחיקה מיותרת של המדור ממש כשבקשה
+  /// חדשה מתחילה למלא אותו.
+  it('בקשה שננטשה אינה שולחת עוד עמוד ריק למדור', async () => {
+    const host = await bootController(
+      // הזנב קצר כאן: הזרם חייב להיסגר בתוך הטסט, כי רק כשהחיפוש חוזר
+      // נשלחה בעבר תשובת העמוד הריק.
+      slowStreamHost(() => {
+        throw new MockHostError('error.not_found', 'request does not belong to this plugin');
+      }, 200),
+    );
+    host.emit('search.external.requested', {
+      requestId: 'xs-3',
+      provider: 'hebrewbooks',
+      query: 'ברכת המזון',
+      mode: 'exact',
+      distance: 2,
+      offset: 0,
+      limit: 20,
+    });
+    await vi.waitFor(() => expect(cancelledStreamIds(host)).toEqual([streamId]), { timeout: 4_000 });
+    await new Promise((resolve) => setTimeout(resolve, 800));
+    // עדכוני "עוד חי" נושאים hasMore: true; עמוד תוצאות ריק של בקשה שנזנחה
+    // הוא היחיד שמגיע בלי תוצאות ובלי המשך.
+    const wipes = host
+      .payloadsOf('reader.respondExternalSearch')
+      .filter((payload) => Array.isArray(payload?.results)
+        && payload.results.length === 0
+        && payload.hasMore === false);
+    expect(wipes).toEqual([]);
   });
 
   it('תקלה חולפת בגשר אינה מבטלת חיפוש שעדיין מבוקש', async () => {

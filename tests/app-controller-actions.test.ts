@@ -98,6 +98,36 @@ const emptyMapping: MockHostConfig['methods'] = {
   'database.batchQuery': () => ({ results: [{ rows: [] }] }),
 };
 
+const v2Event = (value: Record<string, unknown>): string => `${JSON.stringify(value)}\n`;
+
+/// שירות v2 שמגלה ספר אחד ואז נופל באמצע — בדיוק המצב שעליו דיווח המשתמש:
+/// "בהתחלה היו תוצאות, ואז לאחר מכן — התוצאות נעלמו והיה כתוב שאין תוצאות".
+const discoveryThenStreamFailure: MockHostConfig['network'] = {
+  '/health': () => ({ body: JSON.stringify({
+    ok: true,
+    service: 'hbsearch',
+    apiVersion: 2,
+    capabilities: ['pdf-range', 'search-stream-v2'],
+  }) }),
+  '/search': () => ({
+    bodies: [
+      v2Event({ type: 'start', streamVersion: 2, streamId: 'a'.repeat(64) })
+        + v2Event({ type: 'provisional', result: JSON.parse(hebrewBooksRow({ firstHitPage: undefined })) }),
+      v2Event({ type: 'error', message: 'dtSearch failed' }),
+    ],
+    bodyDelaysMs: [0, 20],
+  }),
+};
+
+/// מחכה לרגע שבו מסך התוצאות הגיע למצב סופי — רשימה, אזהרה או הודעה.
+async function settledResults(harness: Harness): Promise<void> {
+  await vi.waitFor(() =>
+    expect(
+      harness.shell.querySelector('.informative-state, .source-warning-banner'),
+    ).not.toBeNull(),
+  );
+}
+
 function unifiedConfig(overrides: MockHostConfig = {}): MockHostConfig {
   return {
     methods: { ...emptyMapping, ...overrides.methods },
@@ -185,6 +215,26 @@ describe('דיאלוג החיפוש של התוסף', () => {
     expect(cardTitles(harness.shell)).toEqual(['קובץ שיטות קמאי']);
     expect(harness.shell.querySelector('.results-screen')?.classList.contains('hidden')).toBe(false);
     expect(harness.shell.querySelector('.library-screen')?.classList.contains('hidden')).toBe(true);
+  });
+
+  /// זרם שנפל אחרי שכבר הציג ספרים אינו מאפס את המסך: מחיקת התוצאות הותירה
+  /// את המשתמש בלי כלום, ואילו שורת אזהרה מעליהן אומרת מה קרה ומשאירה לו את
+  /// מה שכן נמצא.
+  it('כשל בזרם אחרי גילוי משאיר את התוצאות במסך התוסף עם אזהרה', async () => {
+    const harness = await bootHarness({
+      methods: {
+        'reader.openSearchTab': () => {
+          throw new Error('unknown method');
+        },
+      },
+      network: discoveryThenStreamFailure,
+    });
+    await submitFromDialog(harness, 'ברכת המזון');
+    await settledResults(harness);
+    expect(cardTitles(harness.shell)).toEqual(['קובץ שיטות קמאי']);
+    expect(harness.shell.querySelector('.source-warning-banner')?.textContent).toContain(
+      'dtSearch failed',
+    );
   });
 
   it('שאילתה ריקה מוצגת כשגיאה למשתמש', async () => {
@@ -345,6 +395,38 @@ describe('חיפוש מאוחד מאוצריא', () => {
     const message = harness.shell.querySelector('.informative-state p')?.textContent ?? '';
     expect(message).toContain('האינדקס אינו בנוי');
     expect(message).toContain('השרת נפל');
+  });
+
+  /// דיווח המשתמש: "בהתחלה היו תוצאות, ואז לאחר מכן — התוצאות נעלמו והיה
+  /// כתוב שאין תוצאות". זרם ההיברובוקס שנפל מחק את הספרים שכבר נמצאו,
+  /// והתשובה הריקה שנותרה הוצגה כחיפוש שלא מצא דבר.
+  it('כשל בזרם ההיברובוקס אינו מוצג כחיפוש בלי תוצאות', async () => {
+    const harness = await bootHarness(
+      unifiedConfig({ network: discoveryThenStreamFailure, searchQuery: () => [] }),
+    );
+    harness.host.emit('search.requested', {
+      itemId: 'tab-1',
+      request: { query: 'ברכת המזון', mode: 'exact' },
+    });
+    await settledResults(harness);
+    expect(harness.shell.querySelector('.informative-state h3')?.textContent).not.toBe('אין תוצאות');
+    expect(cardTitles(harness.shell)).toEqual(['קובץ שיטות קמאי']);
+    expect(harness.shell.querySelector('.source-warning-banner')?.textContent).toContain(
+      'החיפוש בהיברובוקס נכשל: dtSearch failed',
+    );
+  });
+
+  it('חיפוש שהושלם בלי אף התאמה עדיין מוצג כ"אין תוצאות"', async () => {
+    const harness = await bootHarness(
+      unifiedConfig({ network: { '/search': () => ({ body: '' }) }, searchQuery: () => [] }),
+    );
+    harness.host.emit('search.requested', {
+      itemId: 'tab-1',
+      request: { query: 'ברכת המזון', mode: 'exact' },
+    });
+    await vi.waitFor(() =>
+      expect(harness.shell.querySelector('.informative-state h3')?.textContent).toBe('אין תוצאות'),
+    );
   });
 
   it('כשל בשיוך הקטגוריות מוצג כאזהרה בלי לבטל את התוצאות', async () => {

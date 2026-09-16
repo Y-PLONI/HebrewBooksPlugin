@@ -105,11 +105,15 @@ export class HebrewBooksRepository {
     let streamId: string | null = null;
     let cancelSent = false;
     let closing: Promise<IteratorResult<NetworkFetchStreamChunk>> | undefined;
-    let visibleResults = false;
     const provisionalIds = new Set<string>();
     let revision = 0;
     let publishedRevision = -1;
     let lastPublishedAt: number | null = null;
+    /// חיפוש שבוטל מחזיר את מה שהספיק להצטבר, כמו המסלול הישן: עמוד ריק
+    /// נקרא אצל הקורא כחיפוש שהסתיים בלי תוצאות, ומוחק מהמסך ספרים שכבר
+    /// הוצגו. מי שביטל הוא זה שיחליט אם התשובה עוד מעניינת אותו.
+    const abortedPage = (): HebrewBooksSearchPage =>
+      pageFromResults(results, offset, snapshot.options);
     const requestCancel = (): void => {
       if (!useCancelV2 || !abandoned || completed || cancelSent || streamId === null) return;
       cancelSent = true;
@@ -134,7 +138,6 @@ export class HebrewBooksRepository {
       // start מגיע לפני נעילת מנוע החיפוש; heartbeat נשלח גם בעת המתנה בתור.
       // שניהם שומרים על בקשת אוצריא פעילה בלי לשנות את הרשימה המוצגת.
       if (!onUpdate) return true;
-      visibleResults = results.length > 0;
       if (onUpdate(pageFromResults(results, offset, snapshot.options)) === false) {
         abandon();
         return false;
@@ -150,7 +153,6 @@ export class HebrewBooksRepository {
         publishedRevision = revision;
         lastPublishedAt = Date.now();
       }
-      visibleResults = results.length > 0;
       if (onUpdate?.(pageFromResults(results, offset, snapshot.options)) === false) {
         abandon();
         return false;
@@ -242,7 +244,7 @@ export class HebrewBooksRepository {
           if (!publish()) return pageFromResults(results, offset, snapshot.options);
         }
       }
-      if (signal?.aborted) return useV2 ? emptySearchPage() : pageFromResults(results, offset, snapshot.options);
+      if (signal?.aborted) return abortedPage();
       if (response === null) throw new Error('השרת לא החזיר פרטי תגובה');
       ensureSuccessful({ ...response, body: errorBody }, 'החיפוש נכשל');
       if (v2Decoder) {
@@ -270,8 +272,11 @@ export class HebrewBooksRepository {
       return pageFromCache(this.cachedSearch, offset, snapshot.options.limit);
     } catch (error) {
       if (useV2 && !completed) abandon();
-      if (signal?.aborted) return useV2 ? emptySearchPage() : pageFromResults(results, offset, snapshot.options);
-      if (useV2 && visibleResults) onUpdate?.(emptySearchPage());
+      if (signal?.aborted) return abortedPage();
+      // שגיאה אינה "אין תוצאות". כאן נדחף בעבר עמוד ריק כדי למחוק ספרים
+      // זמניים שכבר הוצגו — והמשתמש נשאר מול מדור ריק במקום מול הודעת
+      // התקלה. הספרים שכבר נמצאו נשארים במקומם, והשגיאה עולה לקורא כדי
+      // שיציג אותה לצידם; רק reset (שמקדים תוצאות מדורגות) מנקה רשימה.
       throw error;
     } finally {
       signal?.removeEventListener('abort', cancel);

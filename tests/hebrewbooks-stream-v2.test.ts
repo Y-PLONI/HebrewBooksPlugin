@@ -131,7 +131,10 @@ describe('HebrewBooksRepository search-stream-v2', () => {
     expect(page.results.map((r) => r.fileId)).toEqual(Array.from({ length: 10 }, (_, i) => String(i + 1)));
   });
 
-  it('discards provisional results on a server error and does not cache them', async () => {
+  // A stream error used to push an empty page before rethrowing, so the books
+  // already on screen vanished and the caller reported "no results" instead of
+  // the failure. Only reset — which precedes the ranked list — clears results.
+  it('reports a server error without wiping the results already published', async () => {
     const host = v2Host([
       line(start), line({ type: 'provisional', result: row('41') }),
       line({ type: 'error', message: 'dtSearch failed' }),
@@ -141,7 +144,26 @@ describe('HebrewBooksRepository search-stream-v2', () => {
     const updates: string[][] = [];
     await expect(repository.search(snapshot, (page) => { updates.push(page.results.map((r) => r.fileId)); }))
       .rejects.toThrow('dtSearch failed');
-    expect(updates).toEqual([[], ['41'], []]);
+    expect(updates).toEqual([[], ['41']]);
+    expect(repository.cachedResultsFor(snapshot.fingerprint)).toBeNull();
+  });
+
+  // Cancellation is not an empty result set either: the v2 path used to resolve
+  // with an empty page where the legacy path handed back what it had collected.
+  it('resolves with the results collected so far when the caller cancels mid-stream', async () => {
+    const host = v2Host([
+      line(start),
+      line({ type: 'provisional', result: row('41', 5) }),
+      line(reset(1)) + line(result(0, '42')) + line(complete(1)),
+    ]);
+    const repository = new HebrewBooksRepository(host.bridge);
+    await repository.health();
+    const cancellation = new AbortController();
+    const page = await repository.search(snapshot, (partial) => {
+      if (partial.results.length > 0) cancellation.abort();
+    }, cancellation.signal);
+    expect(page.results.map((r) => r.fileId)).toEqual(['41']);
+    expect(page).toMatchObject({ totalBooks: 1, totalHits: 5 });
     expect(repository.cachedResultsFor(snapshot.fingerprint)).toBeNull();
   });
 

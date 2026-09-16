@@ -98,9 +98,13 @@ export class UnifiedSearchService {
     const native = otzariaResult.status === 'fulfilled'
       ? otzariaResult.value ?? emptyOtzariaResponse()
       : emptyOtzariaResponse();
+    // זרם היברובוקס שנפל באמצע משאיר מאחוריו ספרים שכבר נמצאו והוצגו.
+    // החלפתם בעמוד ריק הפכה כישלון חלקי לתשובה חסרת תוצאות — ולמשתמש זה
+    // נראה כאילו התוצאות נעלמו מאליהן. הן נשארות, והאזהרה שלמטה אומרת
+    // שהחיפוש נכשל.
     const externalPage = hebrewBooksResult.status === 'fulfilled'
       ? hebrewBooksResult.value ?? emptyHebrewBooksPage()
-      : emptyHebrewBooksPage();
+      : partialHebrewBooks;
     const external = externalPage.results;
     if (otzariaResult.status === 'rejected') warnings.push(`החיפוש באוצריא נכשל: ${messageOf(otzariaResult.reason)}`);
     if (hebrewBooksResult.status === 'rejected') {

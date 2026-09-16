@@ -376,8 +376,9 @@ export class AppController {
       let lastPartialHadResults = false;
       const sendPartial = (partial: HebrewBooksSearchPage): void => {
         const now = Date.now();
-        // reset או שגיאה ב-v2 חייבים למחוק מיד ספרים זמניים שכבר נשלחו.
-        // גם תוצאה ראשונה אחרי keepalive ריק חייבת להישלח מיד.
+        // reset של v2 חייב למחוק מיד ספרים זמניים שכבר נשלחו, כי התוצאות
+        // המדורגות שמחליפות אותם כבר בדרך. גם תוצאה ראשונה אחרי keepalive
+        // ריק חייבת להישלח מיד.
         if (partial.results.length > 0 && lastPartialHadResults && now - lastPartialAt < 250) return;
         lastPartialAt = now;
         lastPartialHadResults = partial.results.length > 0;
@@ -397,6 +398,10 @@ export class AppController {
       const page = await this.repository.search(snapshot, sendPartial, signal, offset);
       // כל העדכונים החלקיים נשלחו לפני הסופי — אחרת עדכון מאחר היה נבלע.
       await partialChain;
+      // חיפוש שנזנח (בקשה חדשה החליפה אותו, או שאוצריא כבר אינה מחזיקה
+      // את הבקשה) מחזיר תמונה חלקית ולא סופית. תשובה סופית עליה הייתה
+      // מוסרת למדור "אלה כל התוצאות" — ועל תמונה ריקה, "אין תוצאות".
+      if (signal.aborted) return;
       // אינדקס הקטגוריות (עמוד ראשון בלבד): כלל התוצאות בתמצות, עם קטגוריית
       // אוצריא לכל ספר. הסיווג כולו כאן, בצד התוסף: מיפוי ההשוואות
       // (hb→otzaria, דרך ה-DB של המארח במסלול bulk) קובע נתיב מדויק, ותגיות
@@ -438,9 +443,13 @@ export class AppController {
         signal,
       );
     } catch (error) {
-      // הודעת השגיאה חייבת להגיע לאחר עדכון הניקוי, אחרת המדור עלול
-      // להציג שוב תוצאות זמניות שנשלחו באיחור מעל הגשר.
+      // השגיאה נשלחת אחרי כל העדכונים החלקיים, כדי שלא תוצג לפני התוצאות
+      // שכבר נשלחו ותיבלע על ידן. התוצאות עצמן נשארות במדור: המשתמש רואה
+      // את מה שכן נמצא, ולצידו את הסיבה שהחיפוש לא הושלם.
       await partialChain;
+      // בקשה שנזנחה אינה זקוקה להודעת שגיאה: אין מדור שיציג אותה, ובקשה
+      // חדשה שהחליפה אותה כבר מציגה את התוצאות שלה.
+      if (signal.aborted) return;
       await this.otzariaRepository
         .respondExternalSearch(requestId, { error: messageOf(error) })
         .catch(() => undefined);
@@ -514,6 +523,9 @@ export class AppController {
     index?: ExternalSearchIndexEntry[],
     signal?: AbortSignal,
   ): Promise<void> {
+    // בקשה שנזנחה בדרך לכאן תשלח עמוד שאינו שלה — ולרוב עמוד ריק, שהיה
+    // מוחק מהמדור את התוצאות של הבקשה שהחליפה אותה.
+    if (signal?.aborted) return;
     const results: ExternalSearchResultPayload[] = pageResults.map((result) =>
       this.toExternalResult(result),
     );
@@ -743,6 +755,9 @@ export class AppController {
         cancellation.signal,
       );
       if (!this.latestSearch.isCurrent(requestId)) return;
+      // חיפוש שבוטל מחזיר תמונה חלקית ולא סופית — "אין תוצאות" על בסיסה
+      // הוא שקר למשתמש שכבר ראה תוצאות על המסך.
+      if (cancellation.signal.aborted) return;
       this.resultList = searchPage.results;
       this.results.setSearch(
         query,
@@ -769,9 +784,26 @@ export class AppController {
       }
     } catch (error) {
       if (!this.latestSearch.isCurrent(requestId)) return;
-      this.resultList = [];
-      this.results.setSearch(query, 0, true, undefined, false, hebrewBooksSearchTerms(options));
-      this.results.showError(messageOf(error));
+      // ספרים שכבר נמצאו לפני שהזרם נפל שווים יותר ממסך ריק: הם נשארים,
+      // ושורת האזהרה שמעליהם אומרת שהחיפוש לא הושלם. רק כשאין מה להציג
+      // המסך כולו הופך להודעת שגיאה.
+      const found = this.resultList;
+      this.results.setSearch(query, found.length, true, undefined, false, hebrewBooksSearchTerms(options));
+      if (found.length === 0) this.results.showError(messageOf(error));
+      else {
+        this.results.showResults({
+          results: found.map((hit) => ({
+            source: 'hebrewbooks',
+            categoryPath: 'ספרי היברובוקס',
+            hit,
+          })),
+          otzariaTotal: 0,
+          hebrewBooksTotal: sumHitCounts(found),
+          truncated: false,
+          warnings: [`החיפוש בהיברובוקס נכשל: ${messageOf(error)}`],
+          nextCursor: null,
+        });
+      }
     } finally {
       this.releaseSearchCancellation(cancellation);
     }
@@ -807,6 +839,8 @@ export class AppController {
         cancellation.signal,
       );
       if (!this.latestSearch.isCurrent(requestId)) return;
+      // כמו בחיפוש מהתוסף: תשובה של חיפוש שבוטל אינה תמונה סופית.
+      if (cancellation.signal.aborted) return;
       this.unifiedResponse = response;
       this.resultList = response.results
         .filter((result): result is Extract<UnifiedSearchResult, { source: 'hebrewbooks' }> => result.source === 'hebrewbooks')
@@ -819,8 +853,13 @@ export class AppController {
         response.totalIsLowerBound,
         otzariaSearchTerms(request),
       );
-      if (response.results.length === 0) this.results.showNoResults();
-      else this.results.showResults(response);
+      // רשימה ריקה שנושאת אזהרות אינה "אין תוצאות": מנוע נפל באמצע, ואין
+      // לדעת מה היה מוצא. "לא ניתן להשלים את החיפוש" נאמן למה שקרה, ומשאיר
+      // למשתמש סיבה לנסות שוב.
+      if (response.results.length === 0) {
+        if (response.warnings.length > 0) this.results.showError(response.warnings.join('\n'));
+        else this.results.showNoResults();
+      } else this.results.showResults(response);
     } catch (error) {
       if (!this.latestSearch.isCurrent(requestId)) return;
       this.resultList = [];
