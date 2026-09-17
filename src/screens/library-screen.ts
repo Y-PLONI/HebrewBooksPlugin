@@ -34,7 +34,7 @@ export class LibraryScreen {
     }
   }
 
-  showReady(statusText: string, hebrewBooksPath?: string | null): void {
+  showReady(statusText: string, hebrewBooksPath?: string | null, warning?: string | null): void {
     if (hebrewBooksPath !== undefined) {
       this.currentHebrewBooksPath = hebrewBooksPath;
     }
@@ -60,6 +60,7 @@ export class LibraryScreen {
       }),
     );
     view.append(element('p', 'library-status', statusText));
+    if (warning) view.append(element('p', 'library-version-warning', warning));
     view.append(
       element(
         'p',

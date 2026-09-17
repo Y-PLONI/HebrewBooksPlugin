@@ -644,6 +644,19 @@ ul {
   color: var(--color-on-surface-variant);
 }
 
+.library-setup-view .library-version-warning {
+  width: 100%;
+  max-width: 460px;
+  margin-top: 12px;
+  padding: 10px 16px;
+  border-radius: var(--radius);
+  background: var(--color-tertiary-container);
+  color: var(--color-on-tertiary-container);
+  font-size: 13px;
+  line-height: 1.5;
+  text-align: start;
+}
+
 .library-hebrewbooks-path-status {
   margin-top: 8px;
   font-size: 12px;

@@ -37,6 +37,7 @@ import {
   toHebrewBooksSnapshot,
 } from './services/unified-search-service';
 import { applyTheme } from './theme';
+import { outdatedServiceMessage } from './utils/service-version';
 
 type Screen = 'library' | 'results' | 'viewer';
 
@@ -703,7 +704,11 @@ export class AppController {
       this.healthStatus = await this.repository.health();
       const capability = this.healthStatus.kind === 'onlineFull' ? 'חיפוש ועיון' : 'חיפוש בלבד';
       const version = this.healthStatus.serverVersion ? ` · גרסה ${this.healthStatus.serverVersion}` : '';
-      this.library.showReady(`שירות החיפוש מחובר (${capability})${version}`, this.hebrewBooksPath);
+      this.library.showReady(
+        `שירות החיפוש מחובר (${capability})${version}`,
+        this.hebrewBooksPath,
+        outdatedServiceMessage(this.healthStatus.serverVersion),
+      );
     } catch (error) {
       this.healthStatus = null;
       this.library.showOffline(

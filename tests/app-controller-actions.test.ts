@@ -15,6 +15,7 @@ const { ViewerScreen } = await import('../src/screens/viewer-screen');
 const { bootPayload, createMockHost, hebrewBooksNdjson, hebrewBooksRow } = await import(
   './helpers/mock-host'
 );
+const { requiredServiceVersion } = await import('../src/utils/service-version');
 
 type MockHost = ReturnType<typeof createMockHost>;
 type MockHostConfig = import('./helpers/mock-host').MockHostConfig;
@@ -851,5 +852,61 @@ describe('מסך הפתיחה ומצב השירות', () => {
     expect(harness.shell.querySelector('.library-screen')?.classList.contains('hidden')).toBe(false);
     expect(harness.shell.querySelector('.results-screen')?.classList.contains('hidden')).toBe(true);
     expect(harness.shell.querySelector('.viewer-screen')?.classList.contains('hidden')).toBe(true);
+  });
+
+  it('שירות ישן מהנדרש מודיע ואינו חוסם, ונוקב בגרסאות ובדרך לתקן', async () => {
+    const harness = await bootHarness(
+      unifiedConfig({
+        network: {
+          '/health': () => ({
+            body: JSON.stringify({
+              ok: true,
+              service: 'hbsearch',
+              apiVersion: 2,
+              capabilities: ['pdf-range'],
+              serverVersion: '3.0.100',
+            }),
+          }),
+        },
+      }),
+    );
+    const warning = harness.shell.querySelector('.library-version-warning')?.textContent ?? '';
+    expect(warning).toContain('3.0.100');
+    expect(warning).toContain(requiredServiceVersion);
+    expect(warning).toContain('מתקין HebrewBooks לאוצריא');
+    // מודיע ואינו חוסם: המסך נשאר "מחובר", והחיפוש עצמו ממשיך להחזיר תוצאות.
+    expect(harness.shell.querySelector('.library-status')?.textContent).toContain(
+      'שירות החיפוש מחובר',
+    );
+    expect(harness.shell.querySelector('.informative-state')).toBeNull();
+    await runUnifiedSearch(harness);
+    expect(harness.shell.querySelectorAll('.result-card').length).toBeGreaterThan(0);
+  });
+
+  it('שירות חדש מהנדרש אינו מתריע', async () => {
+    const harness = await bootHarness({
+      network: {
+        '/health': () => ({
+          body: JSON.stringify({
+            ok: true,
+            service: 'hbsearch',
+            apiVersion: 2,
+            capabilities: ['pdf-range'],
+            serverVersion: '99.0.0',
+          }),
+        }),
+      },
+    });
+    expect(harness.shell.querySelector('.library-version-warning')).toBeNull();
+  });
+
+  it('שירות שאינו מדווח גרסה כלל עולה תקין ובלי אזהרה', async () => {
+    const harness = await bootHarness({
+      network: { '/health': () => ({ body: JSON.stringify({ ok: true, service: 'hbsearch' }) }) },
+    });
+    expect(harness.shell.querySelector('.library-status')?.textContent).toBe(
+      'שירות החיפוש מחובר (חיפוש בלבד)',
+    );
+    expect(harness.shell.querySelector('.library-version-warning')).toBeNull();
   });
 });
