@@ -16,7 +16,12 @@ interface NetworkResponse {
 
 const baseUrl = 'http://127.0.0.1:8080';
 const searchTimeoutMs = 120_000;
+const healthTimeoutMs = 10_000;
 const maximumResponseLength = 16 * 1024 * 1024;
+/// כמה חיפוש ממתין לגילוי; מעבר לזה הבדיקה נמשכת ברקע לטובת החיפוש הבא.
+const discoveryGraceMs = 2_000;
+/// ורדיקט "ישן" נבדק מחדש, כדי שהתקנת שירות חדש תיתפס באותו סשן.
+const capabilityRecheckMs = 120_000;
 
 type SearchUpdate = (page: HebrewBooksSearchPage) => boolean | void;
 
@@ -27,17 +32,100 @@ interface CachedSearch {
   truncated: boolean;
 }
 
+/// יכולות פרוטוקול החיפוש כפי שהשירות הצהיר עליהן ב-/health.
+interface SearchCapabilities {
+  readonly streamV2: boolean;
+  readonly cancelV2: boolean;
+}
+
+interface HealthProbe {
+  readonly status: HealthStatus;
+  readonly capabilities: SearchCapabilities;
+  /// נוגע רק במצב התצוגה — אינו מבטל את זרם v2 ואת הביטול בשרת.
+  readonly pdfRangeMissing: boolean;
+}
+
+interface CapabilityProbe {
+  readonly result: Promise<HealthProbe>;
+  readonly stop: AbortController;
+  waiters: number;
+}
+
+/// המסלול הישן: בלי streamVersion, בלי heartbeat ובלי /search/cancel.
+const legacyCapabilities: SearchCapabilities = { streamV2: false, cancelV2: false };
+
 export class HebrewBooksRepository {
   private cachedSearch: CachedSearch | null = null;
-  private supportsSearchStreamV2 = false;
-  private supportsSearchCancelV2 = false;
+  /// ננעל רק אחרי גילוי שהצליח; כישלון לעולם אינו ננעל.
+  private capabilities: SearchCapabilities | null = null;
+  /// גילוי אחד משותף — מצטרפים אליו במקום לפתוח שני.
+  private capabilityProbe: CapabilityProbe | null = null;
+  private capabilitiesAt = 0;
 
   constructor(private readonly bridge: HostBridge) {}
 
   async health(): Promise<HealthStatus> {
-    this.supportsSearchStreamV2 = false;
-    this.supportsSearchCancelV2 = false;
-    const response = await this.fetch('/health');
+    const probe = this.beginCapabilityProbe();
+    probe.waiters += 1;
+    try {
+      const result = await probe.result;
+      if (result.pdfRangeMissing) throw new Error('גרסת השירות אינה מצהירה על תמיכה בקובצי PDF');
+      return result.status;
+    } finally {
+      probe.waiters -= 1;
+    }
+  }
+
+  /// פותחת בדיקה חדשה ומפרסמת אותה כגילוי הפעיל.
+  private beginCapabilityProbe(): CapabilityProbe {
+    const stop = new AbortController();
+    const probe: CapabilityProbe = { result: this.requestHealth(stop.signal), stop, waiters: 0 };
+    this.capabilityProbe = probe;
+    const done = (): void => {
+      if (this.capabilityProbe === probe) this.capabilityProbe = null;
+    };
+    void probe.result.then(
+      (result) => {
+        this.capabilities = result.capabilities;
+        this.capabilitiesAt = Date.now();
+        done();
+      },
+      done,
+    );
+    return probe;
+  }
+
+  /// היכולות לחיפוש הנוכחי; חיפוש מוקדם ממתין לגילוי במקום להתחרות בו.
+  private async searchCapabilities(signal?: AbortSignal): Promise<SearchCapabilities | null> {
+    const latched = this.freshCapabilities();
+    if (latched) return latched;
+    // בלי ורדיקט אין לנו מידע לנחש לפיו — תמיד מנהלים משא ומתן מחדש.
+    const probe = this.capabilityProbe ?? this.beginCapabilityProbe();
+    probe.waiters += 1;
+    try {
+      const result = await untilAborted(withinGrace(probe.result, discoveryGraceMs), signal);
+      if (signal?.aborted) return null;
+      return result === null ? legacyCapabilities : result.capabilities;
+    } catch {
+      // החיפוש עצמו ייכשל מיד אחריו ויציג את השגיאה האמיתית.
+      return legacyCapabilities;
+    } finally {
+      probe.waiters -= 1;
+      // אין מי שממתין לבדיקה — אין טעם להחזיק את הבקשה פתוחה.
+      if (probe.waiters === 0 && signal?.aborted) probe.stop.abort();
+    }
+  }
+
+  /// ורדיקט v2 נשמר; ורדיקט "ישן" מתיישן, כדי שגרסה חדשה שהותקנה תיתפס.
+  private freshCapabilities(): SearchCapabilities | null {
+    const latched = this.capabilities;
+    if (!latched || latched.streamV2) return latched;
+    return Date.now() - this.capabilitiesAt < capabilityRecheckMs ? latched : null;
+  }
+
+
+  private async requestHealth(signal?: AbortSignal): Promise<HealthProbe> {
+    const response = await this.fetch('/health', { timeoutMs: healthTimeoutMs }, signal);
     const body = parseJsonRecord(response.body, 'בדיקת השירות');
     if (!response.ok || body.ok !== true || body.service !== 'hbsearch') {
       throw new Error('שירות החיפוש המקומי אינו זמין או אינו תואם');
@@ -47,19 +135,20 @@ export class HebrewBooksRepository {
       ? body.capabilities.filter((item): item is string => typeof item === 'string')
       : [];
     const apiVersion = typeof body.apiVersion === 'number' ? body.apiVersion : null;
-    if (apiVersion !== null && apiVersion >= 2 && !capabilities.includes('pdf-range')) {
-      throw new Error('גרסת השירות אינה מצהירה על תמיכה בקובצי PDF');
-    }
-    this.supportsSearchStreamV2 = apiVersion !== null && apiVersion >= 2
-      && capabilities.includes('search-stream-v2');
-    this.supportsSearchCancelV2 = this.supportsSearchStreamV2
-      && capabilities.includes('search-cancel-v2');
+    const modern = apiVersion !== null && apiVersion >= 2;
+    const pdfRange = capabilities.includes('pdf-range');
+    const streamV2 = modern && capabilities.includes('search-stream-v2');
 
     return {
-      kind: apiVersion !== null && apiVersion >= 2 && capabilities.includes('pdf-range')
-        ? 'onlineFull'
-        : 'onlineLegacy',
-      serverVersion: typeof body.serverVersion === 'string' ? body.serverVersion : null,
+      pdfRangeMissing: modern && !pdfRange,
+      status: {
+        kind: modern && pdfRange ? 'onlineFull' : 'onlineLegacy',
+        serverVersion: typeof body.serverVersion === 'string' ? body.serverVersion : null,
+      },
+      capabilities: {
+        streamV2,
+        cancelV2: streamV2 && capabilities.includes('search-cancel-v2'),
+      },
     };
   }
 
@@ -79,8 +168,12 @@ export class HebrewBooksRepository {
     if (cached?.fingerprint === snapshot.fingerprint) {
       return pageFromCache(cached, offset, snapshot.options.limit);
     }
-    const useV2 = this.supportsSearchStreamV2;
-    const useCancelV2 = useV2 && this.supportsSearchCancelV2;
+    if (signal?.aborted) return emptySearchPage();
+    // הגילוי מוכרע לפני שהבקשה יוצאת, ולא במרוץ מולה; ביטול קוטע אותו מיד.
+    const negotiated = await this.searchCapabilities(signal);
+    if (negotiated === null || signal?.aborted) return emptySearchPage();
+    const { streamV2: useV2, cancelV2 } = negotiated;
+    const useCancelV2 = useV2 && cancelV2;
     const stream = this.fetchStream('/search', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json; charset=UTF-8' },
@@ -338,20 +431,36 @@ export class HebrewBooksRepository {
   private async fetch(
     path: string,
     init: Omit<NetworkFetchParams, 'url'> = {},
+    signal?: AbortSignal,
   ): Promise<NetworkResponse> {
     let response: Omit<NetworkResponse, 'body'> | null = null;
     let body = '';
     let expectedSequence = 0;
-    for await (const value of this.fetchStream(path, init)) {
-      const chunk = parseNetworkChunk(value, expectedSequence++);
-      if (chunk.type === 'response') {
-        if (response !== null) throw new Error('השרת החזיר כותרות תגובה כפולות');
-        response = { status: chunk.status, ok: chunk.ok };
-      } else {
-        if (response === null) throw new Error('השרת החזיר גוף לפני כותרות התגובה');
-        body = appendBody(body, chunk.body);
+    const iterator = this.fetchStream(path, init)[Symbol.asyncIterator]();
+    const stop = (): void => {
+      void iterator.return?.()?.catch(() => undefined);
+    };
+    signal?.addEventListener('abort', stop, { once: true });
+    try {
+      for (;;) {
+        const next = await iterator.next();
+        if (next.done) break;
+        const chunk = parseNetworkChunk(next.value, expectedSequence++);
+        if (chunk.type === 'response') {
+          if (response !== null) throw new Error('השרת החזיר כותרות תגובה כפולות');
+          response = { status: chunk.status, ok: chunk.ok };
+        } else {
+          if (response === null) throw new Error('השרת החזיר גוף לפני כותרות התגובה');
+          body = appendBody(body, chunk.body);
+        }
       }
+    } catch (error) {
+      stop();
+      throw error;
+    } finally {
+      signal?.removeEventListener('abort', stop);
     }
+    if (signal?.aborted) throw new Error('בדיקת השירות בוטלה');
     if (response === null) throw new Error('השרת לא החזיר פרטי תגובה');
     return { ...response, body };
   }
@@ -362,6 +471,43 @@ export class HebrewBooksRepository {
   ): AsyncIterable<NetworkFetchStreamChunk> {
     return this.bridge.call('network.fetchStream', { url: `${baseUrl}${path}`, ...init });
   }
+}
+
+/// מחזיר null כשחלף [ms]; ההבטחה עצמה ממשיכה לרוץ ברקע.
+function withinGrace<T>(promise: Promise<T>, ms: number): Promise<T | null> {
+  return new Promise<T | null>((resolve, reject) => {
+    const timer = setTimeout(() => resolve(null), ms);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error: unknown) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+}
+
+/// מחזיר null ברגע הביטול, בלי להמתין ל-[promise] שאולי לעולם לא ייענה.
+function untilAborted<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T | null> {
+  if (!signal) return promise;
+  if (signal.aborted) return Promise.resolve(null);
+  return new Promise<T | null>((resolve, reject) => {
+    const onAbort = (): void => resolve(null);
+    signal.addEventListener('abort', onAbort, { once: true });
+    promise.then(
+      (value) => {
+        signal.removeEventListener('abort', onAbort);
+        resolve(value);
+      },
+      (error: unknown) => {
+        signal.removeEventListener('abort', onAbort);
+        reject(error);
+      },
+    );
+  });
 }
 
 function pageFromResults(

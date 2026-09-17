@@ -58,7 +58,8 @@ describe('HebrewBooksRepository', () => {
 
   it('keeps compact metadata for paging without repeating the server search', async () => {
     let calls = 0;
-    const bridge = bridgeWith(() => {
+    const bridge = bridgeWith((request) => {
+      if (request.url.endsWith('/health')) return networkChunks([legacyHealth]);
       calls += 1;
       return networkChunks([
         `${resultLine('41', 'ספר ראשון', 2)}\n`,
@@ -106,7 +107,8 @@ describe('HebrewBooksRepository', () => {
         };
       },
     };
-    const bridge = bridgeWith(() => stream);
+    const bridge = bridgeWith((request) =>
+      request.url.endsWith('/health') ? networkChunks([legacyHealth]) : stream);
 
     await new HebrewBooksRepository(bridge).search(snapshot, () => false);
 
@@ -145,7 +147,8 @@ describe('HebrewBooksRepository', () => {
       },
     };
     const controller = new AbortController();
-    const search = new HebrewBooksRepository(bridgeWith(() => stream)).search(
+    const search = new HebrewBooksRepository(bridgeWith((request) =>
+      request.url.endsWith('/health') ? networkChunks([legacyHealth]) : stream)).search(
       snapshot,
       undefined,
       controller.signal,
@@ -215,6 +218,9 @@ function bridgeWith(
     on: () => undefined,
   };
 }
+
+/// שירות ישן: הגילוי ננעל על המסלול הישן ואינו נוגע בזרם החיפוש.
+const legacyHealth = '{"ok":true,"service":"hbsearch","apiVersion":1}';
 
 async function* networkChunks(body: string[]): AsyncIterable<NetworkFetchStreamChunk> {
   yield { sequence: 0, type: 'response', status: 200, ok: true, headers: {} };
