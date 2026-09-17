@@ -184,6 +184,67 @@ describe('HebrewBooksRepository', () => {
     ]);
   });
 
+  it('closes the /inbook connection once the snippet batch abandons it', async () => {
+    let cancelled = false;
+    let resolveNext: ((result: IteratorResult<NetworkFetchStreamChunk>) => void) | undefined;
+    let resolveWaiting: () => void = () => undefined;
+    const waiting = new Promise<void>((resolve) => {
+      resolveWaiting = resolve;
+    });
+    const stream: AsyncIterable<NetworkFetchStreamChunk> = {
+      [Symbol.asyncIterator]() {
+        let index = 0;
+        return {
+          next: async () => {
+            if (index++ === 0) {
+              return {
+                value: { sequence: 0, type: 'response', status: 200, ok: true, headers: {} } as const,
+                done: false as const,
+              };
+            }
+            resolveWaiting();
+            return new Promise<IteratorResult<NetworkFetchStreamChunk>>((resolve) => {
+              resolveNext = resolve;
+            });
+          },
+          return: async () => {
+            cancelled = true;
+            resolveNext?.({ value: undefined, done: true });
+            return { value: undefined, done: true as const };
+          },
+        };
+      },
+    };
+    const controller = new AbortController();
+    const located = new HebrewBooksRepository(bridgeWith((request) =>
+      request.url.endsWith('/health') ? networkChunks([legacyHealth]) : stream))
+      .inBook(snapshot, '41', controller.signal);
+    await waiting;
+
+    controller.abort();
+
+    /// בלי אות ביטול הבקשה פשוט נשארת פתוחה, ולכן המבחן בודק את שתי האפשרויות
+    /// ולא רק "נדחתה" — אחרת הוא היה נתקע במקום להיכשל.
+    const outcome = await Promise.race([
+      located.then(() => 'resolved', () => 'rejected'),
+      new Promise<string>((resolve) => setTimeout(() => resolve('still open'), 250)),
+    ]);
+    expect(outcome).toBe('rejected');
+    expect(cancelled).toBe(true);
+  });
+
+  it('reports a failure the server could only put in the body', async () => {
+    /// אחרי שהשרת כבר שלח 200 הוא מרפד ברווחים וכותב את השגיאה בגוף בלבד.
+    const bridge = bridgeWith((request) =>
+      request.url.endsWith('/health')
+        ? networkChunks([legacyHealth])
+        : networkChunks(['   ', '{"ok":false,"error":"האינדקס אינו זמין"}']));
+
+    await expect(new HebrewBooksRepository(bridge).inBook(snapshot, '41')).rejects.toThrow(
+      'האינדקס אינו זמין',
+    );
+  });
+
   it('rejects data that arrives before response metadata', async () => {
     const bridge = bridgeWith(() => (async function* () {
       yield { sequence: 0, type: 'data', body: `${resultLine('41', 'ספר')}\n` } as const;

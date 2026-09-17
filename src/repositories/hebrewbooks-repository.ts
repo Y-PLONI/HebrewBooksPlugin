@@ -394,7 +394,7 @@ export class HebrewBooksRepository {
     }
   }
 
-  async inBook(snapshot: SearchSnapshot, fileId: string): Promise<InBookLocations> {
+  async inBook(snapshot: SearchSnapshot, fileId: string, signal?: AbortSignal): Promise<InBookLocations> {
     const { options } = snapshot;
     const response = await this.fetch('/inbook', {
       method: 'POST',
@@ -417,9 +417,14 @@ export class HebrewBooksRepository {
         compactCharClass: options.compactCharClass,
       }),
       timeoutMs: searchTimeoutMs,
-    });
+    }, signal);
     ensureSuccessful(response, 'לא ניתן היה לאתר עמודים בספר');
     const body = parseJsonRecord(response.body, 'תוצאות בתוך הספר');
+    /// תקלה שאירעה אחרי שהשרת כבר שלח 200 מדווחת בגוף בלבד — בלי הבדיקה הזו
+    /// היא נקראת כ"הספר בלי מופעים" במקום כשגיאה.
+    if (body.ok === false) {
+      throw new Error(typeof body.error === 'string' && body.error !== '' ? body.error : 'לא ניתן היה לאתר עמודים בספר');
+    }
     const pages = Array.isArray(body.pages)
       ? [...new Set(body.pages.filter((page): page is number => Number.isInteger(page) && Number(page) > 0))].sort((a, b) => a - b)
       : [];

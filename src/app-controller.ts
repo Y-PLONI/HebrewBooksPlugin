@@ -558,6 +558,9 @@ export class AppController {
         if (!finished && !signal?.aborted) await respondPartial(false);
       });
     };
+    /// המועד האחרון רק הפסיק לתזמן עבודה חדשה; בלי ביטול ממשי בקשת /inbook שכבר
+    /// רצה נשארה פתוחה עד 120 שניות, והכונן המשיך לעבוד בשביל קטע שלא ייקרא.
+    const abandonSnippets = new AbortController();
     let stopDeadline: () => void = () => undefined;
     const deadlineOrAbort = new Promise<void>((resolve) => {
       const timer = window.setTimeout(resolve, snippetsDeadlineMs);
@@ -574,7 +577,7 @@ export class AppController {
         mapWithConcurrency(pageResults, snippetConcurrency, async (result, position) => {
           // בקשה שבוטלה (חיפוש חדש החליף אותה) — אין טעם להמשיך לחלץ קטעים.
           if (stopNewWork || signal?.aborted) return;
-          const snippet = await this.loadResultSnippet(result, query, () => !stopNewWork && !signal?.aborted);
+          const snippet = await this.loadResultSnippet(result, query, () => !stopNewWork && !signal?.aborted, abandonSnippets.signal);
           const current = results[position];
           if (snippet && current && !stopNewWork) {
             results[position] = { ...current, snippet };
@@ -588,6 +591,7 @@ export class AppController {
       // בעקבותיה משימת PDF או פריט נוסף בתור.
       stopNewWork = true;
       stopDeadline();
+      abandonSnippets.abort();
     }
     await flushChain;
     finished = true;
@@ -610,6 +614,7 @@ export class AppController {
     result: HebrewBooksResult,
     query: string,
     shouldContinue: () => boolean = () => true,
+    signal?: AbortSignal,
   ): Promise<string | null> {
     let page = result.firstHitPage;
     if (page === null) {
@@ -623,7 +628,7 @@ export class AppController {
       };
       try {
         page =
-          (await this.locateInBook(inBookSnapshot, result.fileId)).pages[0] ?? null;
+          (await this.locateInBook(inBookSnapshot, result.fileId, signal)).pages[0] ?? null;
       } catch (error) {
         console.warn(`snippet ${result.fileId}: inbook failed — ${messageOf(error)}`);
         page = null;
@@ -659,11 +664,11 @@ export class AppController {
       : this.locateInBook(fallback, fileId);
   }
 
-  private locateInBook(snapshot: SearchSnapshot, fileId: string): Promise<InBookLocations> {
+  private locateInBook(snapshot: SearchSnapshot, fileId: string, signal?: AbortSignal): Promise<InBookLocations> {
     const key = `${snapshot.fingerprint}\u0000${fileId}`;
     const existing = this.inBookLocationsCache.get(key);
     if (existing) return existing;
-    const request = this.repository.inBook(snapshot, fileId);
+    const request = this.repository.inBook(snapshot, fileId, signal);
     if (this.inBookLocationsCache.size >= 300) {
       const oldest = this.inBookLocationsCache.keys().next().value;
       if (oldest !== undefined) this.inBookLocationsCache.delete(oldest);
