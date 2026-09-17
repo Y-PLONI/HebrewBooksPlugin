@@ -114,6 +114,127 @@ describe('HebrewBooksRepository.pdfUrl', () => {
   });
 });
 
+/// /health הוא המקור היחיד לאסימון, והוא מתחלף בכל הפעלה של השירות.
+function healthHost(tokens: readonly (string | null)[], slowFromCall = Number.MAX_SAFE_INTEGER) {
+  let call = 0;
+  return createMockHost({
+    network: {
+      '/health': () => {
+        const index = call++;
+        const token = tokens[Math.min(index, tokens.length - 1)];
+        const body = JSON.stringify({
+          ok: true,
+          service: 'hbsearch',
+          apiVersion: 2,
+          capabilities: ['pdf-range'],
+          ...(token === null ? {} : { pdfToken: token }),
+        });
+        // מאיטים קריאה מסוימת כדי שהריענון יהיה באוויר בזמן שבודקים אותו.
+        return index + 1 >= slowFromCall ? { bodies: [body], bodyDelaysMs: [40] } : { body };
+      },
+    },
+  });
+}
+
+describe('אסימון הגישה ל-/pdf', () => {
+  it('מצורף לכתובת אחרי שנקרא מ-/health', async () => {
+    const repository = new HebrewBooksRepository(healthHost(['ABC123']).bridge);
+    await repository.health();
+    expect(repository.pdfUrl('43558')).toBe('http://127.0.0.1:8080/pdf/43558?pdfToken=ABC123');
+  });
+
+  it('שרת בלי אסימון מקבל כתובת נקייה, בלי pdfToken=undefined', async () => {
+    const repository = new HebrewBooksRepository(healthHost([null]).bridge);
+    await repository.health();
+    const url = repository.pdfUrl('43558');
+    expect(url).toBe('http://127.0.0.1:8080/pdf/43558');
+    expect(url).not.toContain('pdfToken');
+  });
+
+  it('הפעלה מחדש של השירות מחליפה אסימון — נעשה ניסיון שני עם החדש', async () => {
+    const repository = new HebrewBooksRepository(healthHost(['OLD', 'NEW']).bridge);
+    await repository.health();
+    const seen: string[] = [];
+    const text = await repository.withPdfAccess('7', async (url) => {
+      seen.push(url);
+      if (url.includes('OLD')) throw new Error('rejected');
+      return 'גזיר';
+    });
+    expect(text).toBe('גזיר');
+    expect(seen).toEqual([
+      'http://127.0.0.1:8080/pdf/7?pdfToken=OLD',
+      'http://127.0.0.1:8080/pdf/7?pdfToken=NEW',
+    ]);
+  });
+
+  it('כל הגזירים המקבילים מתאוששים מהחלפת אסימון, לא רק הראשון', async () => {
+    const host = healthHost(['OLD', 'NEW']);
+    const repository = new HebrewBooksRepository(host.bridge);
+    await repository.health();
+    const outcomes = await Promise.all(
+      Array.from({ length: 8 }, (_, i) =>
+        repository.withPdfAccess(String(i + 1), async (url) => {
+          if (url.includes('OLD')) throw new Error('rejected');
+          return 'recovered';
+        }).catch(() => 'failed'),
+      ),
+    );
+    expect(outcomes).toEqual(Array.from({ length: 8 }, () => 'recovered'));
+    // ריענון אחד משותף, לא שמונה קריאות /health.
+    expect(host.countOf('network.fetchStream')).toBe(2);
+  });
+
+  it('ריענון אסימון אינו מתפרסם כבדיקת היכולות המשותפת, ולכן ביטול חיפוש אינו הורג אותו', async () => {
+    const repository = new HebrewBooksRepository(healthHost(['OLD', 'NEW'], 2).bridge);
+    await repository.health();
+    let publishedWhileRefreshing = false;
+    const outcome = await repository.withPdfAccess('7', async (url) => {
+      if (url.includes('OLD')) {
+        // בזמן שהריענון באוויר: בדיקה משותפת שפורסמה הייתה נעצרת ע"י חיפוש מבוטל.
+        setTimeout(() => {
+          const probe = (repository as unknown as { capabilityProbe: { stop: AbortController } | null })
+            .capabilityProbe;
+          if (probe) {
+            publishedWhileRefreshing = true;
+            probe.stop.abort();
+          }
+        }, 10);
+        throw new Error('rejected');
+      }
+      return 'recovered';
+    }).catch(() => 'stale');
+    expect(publishedWhileRefreshing).toBe(false);
+    expect(outcome).toBe('recovered');
+  });
+
+  it('ריענון מקביל שכבר החליף אסימון אינו מבטל את הניסיון השני', async () => {
+    const repository = new HebrewBooksRepository(healthHost(['OLD', 'NEW']).bridge);
+    await repository.health();
+    const outcome = await repository.withPdfAccess('7', async (url) => {
+      if (url.includes('OLD')) {
+        // בקשה באוויר עם OLD, בעוד health() אחר כבר נועל את NEW.
+        await repository.health();
+        throw new Error('rejected');
+      }
+      return 'recovered';
+    }).catch(() => 'stale');
+    expect(outcome).toBe('recovered');
+  });
+
+  it('אסימון שלא התחלף אינו מצדיק ניסיון שני', async () => {
+    const repository = new HebrewBooksRepository(healthHost(['SAME']).bridge);
+    await repository.health();
+    let runs = 0;
+    await expect(
+      repository.withPdfAccess('7', async () => {
+        runs += 1;
+        throw new Error('הקובץ אינו זמין');
+      }),
+    ).rejects.toThrow('הקובץ אינו זמין');
+    expect(runs).toBe(1);
+  });
+});
+
 describe('HebrewBooksRepository.inBook', () => {
   it('שולח את אפשרויות החיפוש ומנרמל עמודים ומונחים', async () => {
     const host = createMockHost({

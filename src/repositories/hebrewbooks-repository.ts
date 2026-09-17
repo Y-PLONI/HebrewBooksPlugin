@@ -17,6 +17,8 @@ interface NetworkResponse {
 const baseUrl = 'http://127.0.0.1:8080';
 const searchTimeoutMs = 120_000;
 const healthTimeoutMs = 10_000;
+const pdfRefreshCooldownMs = 5_000;
+const pdfRefreshGraceMs = 3_000;
 const maximumResponseLength = 16 * 1024 * 1024;
 /// כמה חיפוש ממתין לגילוי; מעבר לזה הבדיקה נמשכת ברקע לטובת החיפוש הבא.
 const discoveryGraceMs = 2_000;
@@ -58,6 +60,11 @@ export class HebrewBooksRepository {
   private cachedSearch: CachedSearch | null = null;
   /// ננעל רק אחרי גילוי שהצליח; כישלון לעולם אינו ננעל.
   private capabilities: SearchCapabilities | null = null;
+  /// אסימון גישה ל-/pdf לכל הרצה של השירות, נקרא מ-/health.
+  private pdfToken: string | null = null;
+  private pdfRefreshAt = 0;
+  /// ריענון אחד בטיסה, משותף לכל מי שנכשל באותו רגע.
+  private pdfRefresh: Promise<void> | null = null;
   /// גילוי אחד משותף — מצטרפים אליו במקום לפתוח שני.
   private capabilityProbe: CapabilityProbe | null = null;
   private capabilitiesAt = 0;
@@ -137,6 +144,9 @@ export class HebrewBooksRepository {
     const apiVersion = typeof body.apiVersion === 'number' ? body.apiVersion : null;
     const modern = apiVersion !== null && apiVersion >= 2;
     const pdfRange = capabilities.includes('pdf-range');
+    // /health מגיע דרך גשר המארח (קריאה נייטיבית), ולכן אתר זדוני אינו יכול לקרוא
+    // את האסימון הזה — וגם iframe בארגז חול לא יוכל לזייף בקשת /pdf קריאה.
+    this.pdfToken = typeof body.pdfToken === 'string' ? body.pdfToken : null;
     const streamV2 = modern && capabilities.includes('search-stream-v2');
 
     return {
@@ -423,9 +433,48 @@ export class HebrewBooksRepository {
     };
   }
 
+  /// הרצת פעולה שקוראת /pdf. הניסיון השני נקבע מול האסימון שהבקשה הזו באמת שלחה,
+  /// ולא מול זה שהיה בזמן הריענון — אחרת רענון מקביל היה מבטל את הניסיון.
+  async withPdfAccess<T>(fileId: string, run: (url: string) => Promise<T>): Promise<T> {
+    const used = this.pdfToken;
+    try {
+      return await run(this.pdfUrl(fileId));
+    } catch (error) {
+      await this.refreshPdfToken();
+      if (this.pdfToken === null || this.pdfToken === used) throw error;
+      return run(this.pdfUrl(fileId));
+    }
+  }
+
+  /// קורא /health מחדש. ריענון אחד משותף לכל הקוראים במקביל — אחרת גזיר אחד היה
+  /// מתאושש והשאר נחסמים על תקרת הקצב.
+  private refreshPdfToken(): Promise<void> {
+    if (this.pdfToken === null) return Promise.resolve();
+    const shared = this.pdfRefresh;
+    if (shared) return shared;
+    const now = Date.now();
+    if (now - this.pdfRefreshAt < pdfRefreshCooldownMs) return Promise.resolve();
+    this.pdfRefreshAt = now;
+    const refresh = (async () => {
+      try {
+        // requestHealth ולא beginCapabilityProbe: הבדיקה המשותפת נעצרת כשחיפוש
+        // שאין לו ממתינים מבוטל, וריענון של גזיר אינו אמור למות איתו.
+        await withinGrace(this.requestHealth(), pdfRefreshGraceMs);
+      } catch {
+        // האסימון פשוט לא התחדש; הקורא ישווה ויזרוק את השגיאה המקורית.
+      }
+    })();
+    this.pdfRefresh = refresh;
+    return refresh.finally(() => {
+      if (this.pdfRefresh === refresh) this.pdfRefresh = null;
+    });
+  }
+
   pdfUrl(fileId: string): string {
     if (!/^\d+$/.test(fileId) || Number(fileId) <= 0) throw new Error('מזהה הספר אינו תקין');
-    return `${baseUrl}/pdf/${encodeURIComponent(fileId)}`;
+    const url = `${baseUrl}/pdf/${encodeURIComponent(fileId)}`;
+    // שרת ישן אינו מנפיק אסימון ומתיר את התגובה בלעדיו; נוסיף רק כשקיים.
+    return this.pdfToken === null ? url : `${url}?pdfToken=${encodeURIComponent(this.pdfToken)}`;
   }
 
   private async fetch(

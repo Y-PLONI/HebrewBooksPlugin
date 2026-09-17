@@ -632,8 +632,8 @@ export class AppController {
     if (page === null || !shouldContinue()) return null;
     // סריקות בלי שכבת טקסט מחזירות עמוד ריק — קטע יופיע רק לספרים עם
     // טקסט משובץ (OCR); הטקסט של הסריקות קיים רק באינדקס שבצד השרת.
-    return this.snippets
-      .load(this.repository.pdfUrl(result.fileId), result.fileId, page, query)
+    return this.repository
+      .withPdfAccess(result.fileId, (url) => this.snippets.load(url, result.fileId, page, query))
       .catch((error: unknown) => {
         console.warn(`snippet ${result.fileId} p${page}: extract failed — ${messageOf(error)}`);
         return null;
@@ -984,12 +984,8 @@ export class AppController {
       }
     }
     if (this.snapshot !== snapshot || page === null) return { page: null, text: null };
-    const text = await this.snippets.load(
-      this.repository.pdfUrl(result.fileId),
-      result.fileId,
-      page,
-      snapshot.query,
-    );
+    const text = await this.repository.withPdfAccess(result.fileId, (url) =>
+      this.snippets.load(url, result.fileId, page, snapshot.query));
     return this.snapshot === snapshot ? { page, text } : { page: null, text: null };
   }
 
