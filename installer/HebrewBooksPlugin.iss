@@ -190,7 +190,9 @@ begin
   Lines[3] := '  <name>Otzaria HebrewBooks Search</name>';
   Lines[4] := '  <description>Local HebrewBooks search service for Otzaria</description>';
   Lines[5] := '  <executable>%BASE%\runtime\hbsearch.exe</executable>';
-  Lines[6] := '  <arguments>--serve --port 8080 --data-root &quot;' +
+  // --listen is the service default too, but spelled out so the registration shows
+  // that only this machine reaches search, snippets, PDFs and drive paths.
+  Lines[6] := '  <arguments>--serve --listen 127.0.0.1 --port 8080 --data-root &quot;' +
     XmlEscape(GetDataRoot('')) + '&quot;</arguments>';
   Lines[7] := '  <workingdirectory>%BASE%\runtime</workingdirectory>';
   Lines[8] := '  <startmode>Automatic</startmode>';

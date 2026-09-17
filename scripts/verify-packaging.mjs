@@ -61,9 +61,25 @@ assert(
   installer.includes('ConfigPath := ExpandConstant(\'{app}\\{#ServiceBaseName}.xml\')'),
   'The WinSW executable and XML configuration must share a base name.',
 );
+// hbsearch רץ כ-LocalSystem עם CORS פתוח: האזנה מחוץ ל-loopback חושפת חיפוש,
+// גזירים, PDF-ים ונתיבי כוננים לכל הרשת, ללא אימות.
+const serviceCommands = [...installer.matchAll(/<arguments>([\s\S]*?)<\/arguments>/g)].map(([, value]) => value);
 assert(
-  installer.includes('--serve --port 8080 --data-root'),
-  'The service must start hbsearch in HTTP server mode with an explicit data root.',
+  serviceCommands.length > 0 &&
+    serviceCommands.length === (installer.match(/<arguments>/g) ?? []).length,
+  'Every service <arguments> block must be closed, or its command line cannot be checked in full.',
+);
+assert(
+  serviceCommands.every((command) => {
+    const listeners = listenAddresses(command);
+    return /--serve\b/.test(command) && listeners.length > 0 && listeners.every(isLoopbackAddress) &&
+      /--port(?:\s*=\s*|\s+)8080\b/.test(command) && /--data-root\b/.test(command);
+  }),
+  'The service must start hbsearch in HTTP server mode, confined to loopback, with an explicit data root.',
+);
+assert(
+  !/(?<![\d.])0\.0\.0\.0(?![\d.])|http:\/\/\+|--listen(?:\s*=\s*|\s+)["']?(?:\*|\+|::|0(?::0){7})(?![\w:.])/.test(installer),
+  'The service must never bind to a wildcard or unspecified address.',
 );
 assert(
   installer.includes(
@@ -120,6 +136,24 @@ assert(
   workflow.includes("github.ref == 'refs/heads/main'"),
   'Store publication must be limited to main.',
 );
+
+// ערך <arguments> נבנה בשרשור רב-שורתי, ולכן נבדק כל --listen שבו ולא רק אלה שבשורה הראשונה.
+function listenAddresses(command) {
+  const text = command.replace(/&quot;/g, '"');
+  return [...text.matchAll(/--listen(?:\s*=\s*|\s+)["']?([^\s"'<]+?)["']?(?=[\s"'<]|$)/g)]
+    .map(([, address]) => address);
+}
+
+// מקבל 127.0.0.1, 127.1, ::1, localhost, וכן צורות עם פורט, סוגריים, גרשיים או =.
+function isLoopbackAddress(address) {
+  const bracketed = address.match(/^\[([^\]]+)\](?::[0-9]+)?$/);
+  let host = (bracketed ? bracketed[1] : address).toLowerCase();
+  if ((host.match(/:/g) ?? []).length === 1) host = host.replace(/:[0-9]+$/, '');
+  const mapped = host.match(/^::ffff:(.+)$/);
+  if (mapped) host = mapped[1];
+  return host === 'localhost' || /^127(?:\.[0-9]{1,3}){0,3}$/.test(host) ||
+    /^(?:::1|(?:0:){7}1)$/.test(host);
+}
 
 function assertSha256(value, label) {
   assert(
