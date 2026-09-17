@@ -87,10 +87,31 @@ jobs:
         shell: pwsh
         run: choco install innosetup --no-progress -y
 
+      # The search service now comes from a private repository, so without the
+      # token the installer would be built around a runtime it cannot fetch.
+      # Say so here rather than three minutes into the Inno Setup step.
+      - name: Check service repository access
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.ANGINE_PRIVATE }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:GH_TOKEN)) {
+            Write-Output '::error::Secret ANGINE_PRIVATE is not set; the private service runtime cannot be downloaded.'
+            exit 1
+          }
+          $release = (Get-Content installer/dependencies.json -Raw | ConvertFrom-Json).runtime.release
+          gh release view $release.tag --repo $release.repo --json tagName | Out-Null
+          if ($LASTEXITCODE -ne 0) {
+            Write-Output "::error::ANGINE_PRIVATE cannot read release '$($release.tag)' of $($release.repo)."
+            exit 1
+          }
+          Write-Output "Service runtime source: $($release.repo)@$($release.tag)"
+
       - name: Prepare and compile installer
         shell: pwsh
         env:
           VERSION: ${{ needs.build-plugin.outputs.version }}
+          GH_TOKEN: ${{ secrets.ANGINE_PRIVATE }}
         run: |
           $plugins = @(Get-ChildItem 'build-input/build/plugin/*.otzplugin')
           if ($plugins.Count -ne 1) {

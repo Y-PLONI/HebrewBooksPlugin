@@ -6,7 +6,12 @@ param(
   [Parameter(Mandatory = $true)]
   [string] $AppVersion,
 
-  [string] $OutputSuffix = ''
+  [string] $OutputSuffix = '',
+
+  # A runtime archive already on disk. Without it the archive is fetched from
+  # the private service repository named in dependencies.json, which needs a
+  # token in GH_TOKEN.
+  [string] $RuntimeArchive = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -39,19 +44,72 @@ foreach ($path in @($downloadRoot, $runtimeRoot, $pluginRoot, $serviceRoot, $out
   New-Item $path -ItemType Directory -Force | Out-Null
 }
 
-$runtimeArchive = Join-Path $downloadRoot $dependencies.runtime.archive
-Invoke-WebRequest $dependencies.runtime.url -OutFile $runtimeArchive
+$runtimeArchivePath = Join-Path $downloadRoot $dependencies.runtime.archive
 
-$expectedRuntimeHash = $dependencies.runtime.sha256.ToLowerInvariant()
-$actualRuntimeHash = (Get-FileHash $runtimeArchive -Algorithm SHA256).Hash.ToLowerInvariant()
-if ($actualRuntimeHash -ne $expectedRuntimeHash) {
-  throw "Runtime checksum mismatch. Expected $expectedRuntimeHash, got $actualRuntimeHash."
+if (-not [string]::IsNullOrWhiteSpace($RuntimeArchive)) {
+  Copy-Item (Resolve-Path $RuntimeArchive).Path $runtimeArchivePath
+  Write-Host "Runtime supplied locally: $RuntimeArchive"
+}
+else {
+  $release = $dependencies.runtime.release
+  if ([string]::IsNullOrWhiteSpace($env:GH_TOKEN)) {
+    throw "The runtime comes from the private repository $($release.repo). Set GH_TOKEN (in CI: secrets.ANGINE_PRIVATE), or pass -RuntimeArchive with a local copy."
+  }
+
+  Write-Host "Fetching $($release.asset) from $($release.repo)@$($release.tag)"
+  gh release download $release.tag --repo $release.repo --pattern $release.asset --output $runtimeArchivePath --clobber
+  if ($LASTEXITCODE -ne 0) {
+    throw "Could not download $($release.asset) from $($release.repo)@$($release.tag)."
+  }
+
+  # That release is rebuilt on every push to the service, so a checksum pinned
+  # in this repository would go stale within a day. Compare against the digest
+  # GitHub recorded for the asset instead, which travels with it.
+  $view = gh release view $release.tag --repo $release.repo --json assets | ConvertFrom-Json
+  $asset = @($view.assets | Where-Object { $_.name -eq $release.asset })
+  if ($asset.Count -ne 1) {
+    throw "Expected one asset named $($release.asset), found $($asset.Count)."
+  }
+  $digest = $asset[0].digest
+  if ([string]::IsNullOrWhiteSpace($digest)) {
+    Write-Warning "GitHub reported no digest for $($release.asset); skipping the integrity check."
+  }
+  else {
+    $expectedRuntimeHash = ($digest -replace '^sha256:', '').ToLowerInvariant()
+    $actualRuntimeHash = (Get-FileHash $runtimeArchivePath -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($actualRuntimeHash -ne $expectedRuntimeHash) {
+      throw "Runtime checksum mismatch. Expected $expectedRuntimeHash, got $actualRuntimeHash."
+    }
+  }
 }
 
-Expand-Archive $runtimeArchive -DestinationPath $runtimeRoot
+Expand-Archive $runtimeArchivePath -DestinationPath $runtimeRoot
+
 if (-not (Test-Path (Join-Path $runtimeRoot 'hbsearch.exe'))) {
-  throw 'The runtime archive must contain hbsearch.exe at its root.'
+  # The service repository archives publish/<rid>, so its payload sits one
+  # level down. Lift it, and keep accepting an archive that is already flat.
+  $nested = @(Get-ChildItem $runtimeRoot -Directory)
+  if ($nested.Count -eq 1 -and (Test-Path (Join-Path $nested[0].FullName 'hbsearch.exe'))) {
+    Get-ChildItem $nested[0].FullName -Force | Move-Item -Destination $runtimeRoot
+    Remove-Item $nested[0].FullName -Recurse -Force
+  }
 }
+
+# dtSearch is loaded by filename at run time, so a runtime missing any of these
+# starts and then fails every search. Catch it here rather than in the field.
+foreach ($required in @(
+    'hbsearch.exe',
+    'dtSearchNetApi4.dll',
+    'dten600.dll',
+    'lbvProt.dll',
+    'Alphabet.abc',
+    'msvcp140.dll',
+    'vcruntime140.dll')) {
+  if (-not (Test-Path (Join-Path $runtimeRoot $required))) {
+    throw "The runtime archive is missing $required."
+  }
+}
+Write-Host "Runtime staged: $((Get-ChildItem $runtimeRoot -Recurse -File).Count) files"
 
 $serviceExecutable = Join-Path $serviceRoot 'HebrewBooksSearchService.exe'
 Invoke-WebRequest $dependencies.serviceWrapper.url -OutFile $serviceExecutable
@@ -63,14 +121,29 @@ if ($actualWrapperHash -ne $expectedWrapperHash) {
 
 Copy-Item $pluginPath (Join-Path $pluginRoot 'HebrewBooksPlugin.otzplugin')
 
-$isccCandidates = @(
-  (Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'),
-  (Join-Path $env:ProgramFiles 'Inno Setup 6\ISCC.exe')
+# Machine-wide installers land in Program Files; winget installs Inno Setup per
+# user, under LOCALAPPDATA, and spells the folder both ways.
+$isccRoots = @(
+  ${env:ProgramFiles(x86)},
+  $env:ProgramFiles,
+  (Join-Path $env:LOCALAPPDATA 'Programs')
 ) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+$isccCandidates = foreach ($root in $isccRoots) {
+  foreach ($folder in @('Inno Setup 6', 'InnoSetup6')) {
+    Join-Path $root (Join-Path $folder 'ISCC.exe')
+  }
+}
 $iscc = $isccCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+if ($null -eq $iscc) {
+  $onPath = Get-Command 'ISCC.exe' -ErrorAction SilentlyContinue
+  if ($null -ne $onPath) {
+    $iscc = $onPath.Source
+  }
+}
 if ($null -eq $iscc) {
   throw 'Inno Setup 6 was not found. Install it before running this script.'
 }
+Write-Host "Inno Setup: $iscc"
 
 $isccArguments = @("/DAppVersion=$AppVersion")
 if (-not [string]::IsNullOrEmpty($OutputSuffix)) {

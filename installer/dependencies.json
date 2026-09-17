@@ -1,9 +1,12 @@
 {
   "runtime": {
-    "version": "3.0.114-beta2",
-    "archive": "hbsearch-min.zip",
-    "url": "https://github.com/HebrewBooks-2026/Hebrewbooks-Releases/releases/download/prerequisites/hbsearch-min.zip",
-    "sha256": "a49eaf39bd9dbbe4aa628b22ee39b87517ca02e2882705afebbeb21b96eff041"
+    "version": "3.0.114",
+    "archive": "hbsearch-win-x86.zip",
+    "release": {
+      "repo": "Y-PLONI/hbsearch",
+      "tag": "latest",
+      "asset": "hbsearch-win-x86.zip"
+    }
   },
   "serviceWrapper": {
     "name": "WinSW",
