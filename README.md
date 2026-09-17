@@ -84,10 +84,15 @@ node tools/screenshot.mjs "http://127.0.0.1:8080/?screen=viewer" shot.png 1400 9
 הקבצים. לפרסום בחנות יש להגדיר ב־GitHub את הסודות `OTZARIA_USER`
 ו־`OTZARIA_PASSWORD`; לפני כל פרסום יש להעלות את הגרסה ב־`manifest.json`.
 
-המתקין מוריד את `hbsearch-min.zip` ישירות מה־Release הרשמי של מפתחי
-HebrewBooks, ומאמת SHA-256 מקובע לפני האריזה. אם המפתחים מחליפים את ה־asset,
-יש לבדוק את הבנייה החדשה ולעדכן את `installer/dependencies.json`; שינוי מרוחק
-לא מאומת יכשיל את הבנייה ולא ייכנס למתקין בשקט.
+המתקין מוריד את `hbsearch-win-x86.zip` מה־Release `latest` של מאגר השירות
+`Y-PLONI/hbsearch`, לפי `installer/dependencies.json`. המאגר פרטי, ולכן נדרש
+טוקן ב־`GH_TOKEN` (ב־CI: `secrets.ANGINE_PRIVATE`). לבנייה מקומית ללא טוקן אפשר
+להעביר `-RuntimeArchive <path>` עם עותק מקומי של הארכיון.
+
+`latest` נבנה מחדש בכל דחיפה לשירות, ולכן אין SHA-256 מקובע כאן — הוא היה
+מתיישן תוך יום. במקומו מושווה ה־digest ש־GitHub רשם ל־asset, שמזהה שיבוש
+בהעברה אך לא החלפה של ה־asset במקור. מי שצריך הצמדה אמיתית יכול להצביע על
+Release קבוע מסוג `build-<short sha>`, שנוצר בכל קומיט של השירות.
 
 ב־Windows המתקין:
 
