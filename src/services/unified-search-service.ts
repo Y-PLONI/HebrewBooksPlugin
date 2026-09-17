@@ -95,13 +95,10 @@ export class UnifiedSearchService {
       return partialUnifiedResponse(partialNative, partialHebrewBooks);
     }
     const warnings: string[] = [];
+    // תוצאות שכבר הוצגו נשארות גם אחרי נפילת המקור; האזהרות אומרות מי נכשל.
     const native = otzariaResult.status === 'fulfilled'
       ? otzariaResult.value ?? emptyOtzariaResponse()
-      : emptyOtzariaResponse();
-    // זרם היברובוקס שנפל באמצע משאיר מאחוריו ספרים שכבר נמצאו והוצגו.
-    // החלפתם בעמוד ריק הפכה כישלון חלקי לתשובה חסרת תוצאות — ולמשתמש זה
-    // נראה כאילו התוצאות נעלמו מאליהן. הן נשארות, והאזהרה שלמטה אומרת
-    // שהחיפוש נכשל.
+      : partialNative;
     const externalPage = hebrewBooksResult.status === 'fulfilled'
       ? hebrewBooksResult.value ?? emptyHebrewBooksPage()
       : partialHebrewBooks;
@@ -110,7 +107,13 @@ export class UnifiedSearchService {
     if (hebrewBooksResult.status === 'rejected') {
       warnings.push(`החיפוש בהיברובוקס נכשל: ${messageOf(hebrewBooksResult.reason)}`);
     }
-    if (otzariaResult.status === 'rejected' && hebrewBooksResult.status === 'rejected') {
+    // שני המקורות נפלו: זורקים רק כשאין שורה אחת להציג.
+    if (
+      otzariaResult.status === 'rejected'
+      && hebrewBooksResult.status === 'rejected'
+      && native.results.length === 0
+      && external.length === 0
+    ) {
       throw new Error(warnings.join('\n'));
     }
 
@@ -126,6 +129,12 @@ export class UnifiedSearchService {
       || hebrewBooksResult.status === 'rejected'
       || hebrewBooksOffset >= externalPage.totalBooks;
     const hebrewBooksCapped = externalPage.truncated;
+    const anyRejected = otzariaResult.status === 'rejected' || hebrewBooksResult.status === 'rejected';
+    // מקור שנפל אינו מציע "עוד", ולכן הכותרת מדווחת רק על מה שהתקבל בפועל — כ"לפחות".
+    const otzariaTotal = otzariaResult.status === 'rejected' ? native.results.length : native.total;
+    const hebrewBooksTotal = hebrewBooksResult.status === 'rejected'
+      ? external.reduce((hits, result) => hits + result.hitCount, 0)
+      : externalPage.totalHits;
     const nextCursor = otzariaComplete && hebrewBooksComplete
       ? null
       : { otzariaOffset, hebrewBooksOffset, otzariaComplete, hebrewBooksComplete };
@@ -142,9 +151,9 @@ export class UnifiedSearchService {
           hit,
         })),
       ],
-      otzariaTotal: native.total,
-      hebrewBooksTotal: externalPage.totalHits,
-      totalIsLowerBound: hebrewBooksCapped,
+      otzariaTotal,
+      hebrewBooksTotal,
+      totalIsLowerBound: hebrewBooksCapped || anyRejected,
       truncated: nextCursor !== null || hebrewBooksCapped,
       warnings,
       nextCursor,
