@@ -6,3 +6,5 @@ installer/output/
 installer/staging/
 .DS_Store
 tools/sample.pdf
+decompiled/
+.sentry-native/*
