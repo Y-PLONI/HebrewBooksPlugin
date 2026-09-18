@@ -95,6 +95,14 @@ node tools/screenshot.mjs "http://127.0.0.1:8080/?screen=viewer" shot.png 1400 9
 נעצרת; לעקיפה מפורשת יש `-AllowUnverifiedRuntime`. מי שצריך הצמדה אמיתית יכול
 להצביע על Release קבוע מסוג `build-<short sha>`, שנוצר בכל קומיט של השירות.
 
+ה־digest מאמת את מה שהורד, אך לא את גרסתו. לכן `runtime.version` ב־`dependencies.json`
+מציין את גרסת המנוע המינימלית שהתוסף דורש, ו־`Prepare-Installer.ps1` משווה אליה את
+משאב הגרסה של ה־`hbsearch.exe` שנפרש (`ProductVersion`, ובהיעדרו `FileVersion`).
+מנוע חדש יותר מתקבל; ישן יותר — לרבות prerelease של אותה גרסה — מכשיל את הבנייה.
+זה המקרה שקורה כשהתוסף נדחף לפני ש־workflow השירות סיים לפרסם מחדש את `latest`.
+גם משאב גרסה חסר או בלתי קריא עוצר את הבנייה, ואותו בלבד אפשר לעקוף עם
+`-AllowUnverifiedRuntime`; גרסה ישנה שזוהתה בוודאות אינה ניתנת לעקיפה.
+
 ב־Windows המתקין:
 
 1. מתקין את ה־runtime תחת `Program Files (x86)\Otzaria HebrewBooks Search`.
