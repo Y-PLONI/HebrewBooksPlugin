@@ -89,6 +89,12 @@ function sumHitCounts(results: readonly HebrewBooksResult[]): number {
   return results.reduce((total, result) => total + result.hitCount, 0);
 }
 
+interface ExternalPageTotals {
+  totalBooks: number;
+  totalHits: number;
+  hasMore: boolean;
+}
+
 /// טקסט המשתמש להצגה ולהדגשה: בהתאמה חלקית snapshot.query היא שאילתת
 /// אופרטורים שנבנתה עבור המנוע, ואין להראות אותה או להדגיש לפיה.
 function displayQueryOf(snapshot: SearchSnapshot | null | undefined): string {
@@ -103,6 +109,44 @@ function toIndexEntry(result: HebrewBooksResult, withTitle: boolean): ExternalSe
   const category = mapHebrewBooksCategory(result.categories);
   if (withTitle) return [id, result.hitCount, category ?? '', result.bookName];
   return category === null ? [id, result.hitCount] : [id, result.hitCount, category];
+}
+
+/// התוצאות שאוצריא יכולה לפתוח, לצד המזהה שלפיו תפתח אותן. שורה בלי מזהה
+/// כזה נופלת — בדיוק כמו באינדקס — ואינה נשלחת למדור.
+function openableResults(
+  results: readonly HebrewBooksResult[],
+): Array<readonly [number, HebrewBooksResult]> {
+  return results.flatMap((result) => {
+    const externalId = externalIdOf(result.fileId);
+    return externalId === null ? [] : [[externalId, result] as const];
+  });
+}
+
+/// עמוד למדור החיצוני מתוך כלל התוצאות. הדפדוף והספירות נספרים על התוצאות
+/// הניתנות לפתיחה בלבד, אחרת המדור מבטיח ספרים שלעולם לא יוצגו — ועמוד
+/// צפוף שומר על כך גם כשהמארח מקדם offset לפי מספר השורות שקיבל.
+function externalPage(
+  all: readonly HebrewBooksResult[] | null,
+  page: HebrewBooksSearchPage,
+  offset: number,
+  limit: number,
+): { entries: Array<readonly [number, HebrewBooksResult]>; totals: ExternalPageTotals } {
+  // המטמון מלא בכל מסלול תקין; בלעדיו נשלח העמוד שהתקבל עם ספירות השרת.
+  if (all === null) {
+    const entries = openableResults(page.results);
+    const hasMore = offset + page.results.length < page.totalBooks;
+    return { entries, totals: { totalBooks: page.totalBooks, totalHits: page.totalHits, hasMore } };
+  }
+  const openable = openableResults(all);
+  const entries = openable.slice(offset, offset + limit);
+  return {
+    entries,
+    totals: {
+      totalBooks: openable.length,
+      totalHits: sumHitCounts(openable.map(([, result]) => result)),
+      hasMore: offset + entries.length < openable.length,
+    },
+  };
 }
 
 /// אותה רשומה עם נתיב קטגוריה מעודן, בלי לאבד את שם הספר שכבר יושב עליה.
@@ -364,16 +408,18 @@ export class AppController {
           }, signal);
           all = this.repository.cachedResultsFor(snapshot.fingerprint) ?? [];
         }
-        const byId = new Map(all.map((result) => [Number(result.fileId), result]));
-        const results = ids
-          .map((id) => byId.get(id))
-          .filter((result): result is HebrewBooksResult => result !== undefined);
+        const openable = openableResults(all);
+        const byId = new Map(openable);
+        const entries = ids.flatMap((id) => {
+          const result = byId.get(id);
+          return result === undefined ? [] : [[id, result] as const];
+        });
         await this.streamPageWithSnippets(
           requestId,
-          results,
+          entries,
           {
-            totalBooks: all.length,
-            totalHits: sumHitCounts(all),
+            totalBooks: openable.length,
+            totalHits: sumHitCounts(openable.map(([, result]) => result)),
             hasMore: false,
           },
           query,
@@ -396,7 +442,7 @@ export class AppController {
         lastPartialAt = now;
         lastPartialHadResults = partial.results.length > 0;
         const payload = {
-          results: partial.results.map((result) => this.toExternalResult(result)),
+          results: openableResults(partial.results).map((entry) => this.toExternalResult(entry)),
           totalBooks: partial.totalBooks,
           totalHits: partial.totalHits,
           hasMore: true,
@@ -419,19 +465,16 @@ export class AppController {
       // אוצריא לכל ספר. הסיווג כולו כאן, בצד התוסף: מיפוי ההשוואות
       // (hb→otzaria, דרך ה-DB של המארח במסלול bulk) קובע נתיב מדויק, ותגיות
       // הקטלוג משמשות fallback. אוצריא רק מאמתת את הנתיבים מול עץ הספרייה.
-      const all = offset === 0
-        ? this.repository.cachedResultsFor(snapshot.fingerprint)
-        : null;
+      const all = this.repository.cachedResultsFor(snapshot.fingerprint);
+      const { entries, totals } = externalPage(all, page, offset, limit);
       let index: ExternalSearchIndexEntry[] | undefined;
-      if (all) {
+      if (offset === 0 && all) {
         // התוצאות עצמן לא ממתינות לעידון האינדקס — עמוד ראשון נשלח מיד,
         // והאינדקס המסווג מצטרף בעדכון הבסיס של הזרמת הקטעים.
         await this.otzariaRepository
           .respondExternalSearch(requestId, {
-            results: page.results.map((result) => this.toExternalResult(result)),
-            totalBooks: page.totalBooks,
-            totalHits: page.totalHits,
-            hasMore: offset + page.results.length < page.totalBooks,
+            results: entries.map((entry) => this.toExternalResult(entry)),
+            ...totals,
             done: false,
           })
           .catch((error) => this.abandonIfHostDropped(requestId, error));
@@ -445,12 +488,8 @@ export class AppController {
       }
       await this.streamPageWithSnippets(
         requestId,
-        page.results,
-        {
-          totalBooks: page.totalBooks,
-          totalHits: page.totalHits,
-          hasMore: offset + page.results.length < page.totalBooks,
-        },
+        entries,
+        totals,
         query,
         index,
         signal,
@@ -516,13 +555,15 @@ export class AppController {
     return refined;
   }
 
-  private toExternalResult(result: HebrewBooksResult): ExternalSearchResultPayload {
+  private toExternalResult(
+    [externalId, result]: readonly [number, HebrewBooksResult],
+  ): ExternalSearchResultPayload {
     return {
       title: result.bookName,
       meta: metaLineOf(result),
       hitCount: result.hitCount,
       firstPage: result.firstHitPage ?? undefined,
-      externalId: Number(result.fileId),
+      externalId,
     };
   }
 
@@ -532,8 +573,8 @@ export class AppController {
   /// לכן התקרה כאן כוללת, והתשובה הסופית נושאת את מה שהספיק להיטען.
   private async streamPageWithSnippets(
     requestId: string,
-    pageResults: HebrewBooksResult[],
-    totals: { totalBooks: number; totalHits: number; hasMore: boolean },
+    pageResults: ReadonlyArray<readonly [number, HebrewBooksResult]>,
+    totals: ExternalPageTotals,
     query: string,
     index?: ExternalSearchIndexEntry[],
     signal?: AbortSignal,
@@ -541,8 +582,8 @@ export class AppController {
     // בקשה שנזנחה בדרך לכאן תשלח עמוד שאינו שלה — ולרוב עמוד ריק, שהיה
     // מוחק מהמדור את התוצאות של הבקשה שהחליפה אותה.
     if (signal?.aborted) return;
-    const results: ExternalSearchResultPayload[] = pageResults.map((result) =>
-      this.toExternalResult(result),
+    const results: ExternalSearchResultPayload[] = pageResults.map((entry) =>
+      this.toExternalResult(entry),
     );
     // האינדקס (שעשוי להגיע ל-10K רשומות) נשלח בעדכון הבסיס — כדי שהעץ
     // יתעדכן בלי להמתין לקטעים — ושוב בתשובה הסופית ליתר ביטחון; עדכוני
@@ -589,7 +630,7 @@ export class AppController {
     });
     try {
       await Promise.race([
-        mapWithConcurrency(pageResults, snippetConcurrency, async (result, position) => {
+        mapWithConcurrency(pageResults, snippetConcurrency, async ([, result], position) => {
           // בקשה שבוטלה (חיפוש חדש החליף אותה) — אין טעם להמשיך לחלץ קטעים.
           if (stopNewWork || signal?.aborted) return;
           const snippet = await this.loadResultSnippet(result, query, () => !stopNewWork && !signal?.aborted, abandonSnippets.signal);

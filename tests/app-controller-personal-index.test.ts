@@ -126,3 +126,45 @@ describe('אינדקס המדור החיצוני מול מזהה שאינו מס
     expect(final.index).toEqual([[1_000_000_000_001, 9]]);
   });
 });
+
+describe('שורות המדור החיצוני מול מזהה שאינו מספר', () => {
+  it('שורת מאגר אישי משרת ישן אינה נשלחת כתוצאה', async () => {
+    const host = await bootController({ network: mixedRows });
+    host.emit('search.external.requested', externalRequest());
+    const final = await finalResponse(host);
+    const results = final.results as Array<Record<string, unknown>>;
+    expect(results.map((result) => result.externalId)).toEqual([201]);
+    expect(JSON.stringify(results)).not.toContain('null');
+  });
+
+  it('הספירות והמשך הטעינה נספרים על התוצאות שנשלחות בלבד', async () => {
+    const host = await bootController({ network: mixedRows });
+    host.emit('search.external.requested', externalRequest());
+    const final = await finalResponse(host);
+    expect(final).toMatchObject({ totalBooks: 1, totalHits: 3, hasMore: false });
+  });
+
+  it('מזהה אישי מספרי מהשרת המתוקן נשלח כמות שהוא', async () => {
+    const host = await bootController({
+      network: {
+        '/search': () => ({
+          body: hebrewBooksNdjson([
+            hebrewBooksRow({
+              fileId: '1000000000001',
+              bookName: 'משנה תורה מדע',
+              sourceType: 'Personal',
+              categories: 'מאגר אישי',
+              hitCount: 9,
+              firstHitPage: undefined,
+            }),
+          ]),
+        }),
+      },
+    });
+    host.emit('search.external.requested', externalRequest());
+    const final = await finalResponse(host);
+    const results = final.results as Array<Record<string, unknown>>;
+    expect(results.map((result) => result.externalId)).toEqual([1_000_000_000_001]);
+    expect(final).toMatchObject({ totalBooks: 1, totalHits: 9 });
+  });
+});
