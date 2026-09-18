@@ -321,7 +321,7 @@ export class AppController {
         query,
         mode: request.mode,
         distance: request.distance,
-        ...sanitizedMatchPolicy(request.proximityScope, request.wordMatchMode),
+        ...sanitizedMatchPolicy(request.proximityScope, request.wordMatchMode, request.wordMatchCount),
         limit,
         // אפשרויות הטאב — מהן נגזרות קידומות דקדוקיות, כתיב מלא/חסר וכו'.
         // options (הגלובלית) חיונית: מפתחות wordOptions נבנים בטוקניזציה
