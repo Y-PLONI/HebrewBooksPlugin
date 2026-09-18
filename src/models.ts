@@ -38,9 +38,9 @@ export interface SearchMatchPolicy {
   wordMatchCount?: number;
 }
 
-/// תקרת הפירוק של "לפחות k מתוך n" לצירופים; מעליה נשלחת דיסיונקציה פשוטה
-/// (רחבה מדי) במקום C(n,k) תת-שאילתות.
-export const maximumMatchCombinations = 32;
+/// תקרת הפירוק של "לפחות k מתוך n" לצירופים; מעליה המדיניות נדחית, כי
+/// דיסיונקציה פשוטה הייתה מחפשת "מילה כלשהי" במקום "רוב המילים".
+export const maximumMatchCombinations = 128;
 
 /// כמה ממילות השאילתה חייבות להופיע, ביחידות של המנוע של אוצריא:
 /// רוב = n/2+1 בחלוקה שלמה, "לפחות X" נחתך ל-[1, n].
@@ -61,22 +61,41 @@ export function requiredWordCount(
   }
 }
 
+/// תרגום מדיניות ההתאמה: [query] ריק = די בשאילתה הרגילה בחלון רחב,
+/// ו-[unsupported] = אין לה תרגום, ואין להריץ במקומה חיפוש אחר.
+export interface MatchQueryTranslation {
+  query: string;
+  unsupported?: string;
+}
+
 /// שאילתת dtSearch שמשחזרת מדיניות שהמנוע של אוצריא מוותר בה על הסדר ועל
-/// המרווח; מחרוזת ריקה = די בשאילתה הרגילה עם חלון proximity רחב.
-export function hebrewBooksMatchQuery(query: string, policy: SearchMatchPolicy): string {
+/// המרווח.
+export function hebrewBooksMatchQuery(query: string, policy: SearchMatchPolicy): MatchQueryTranslation {
   const scope = policy.proximityScope ?? 'wordDistance';
   const mode = policy.wordMatchMode ?? 'all';
   const words = matchWords(query);
-  if (words.length < 2 || (scope === 'wordDistance' && mode === 'all')) return '';
+  if (words.length < 2 || (scope === 'wordDistance' && mode === 'all')) return { query: '' };
   const required = requiredWordCount(words.length, mode, policy.wordMatchCount);
   // "תחת אותה כותרת" גדול מפסקה ואין לו גבול ב-dtSearch — המסמך (הספר) כולו.
   const join = scope === 'sameSection' ? ' and ' : ` w/${maximumProximity} `;
-  if (required >= words.length) return scope === 'sameSection' ? words.join(' and ') : '';
-  if (required <= 1) return words.join(' or ');
-  if (combinationCount(words.length, required) > maximumMatchCombinations) {
-    return words.join(' or ');
+  if (required >= words.length) {
+    return { query: scope === 'sameSection' ? words.join(' and ') : '' };
   }
-  return combinations(words, required).map((group) => `(${group.join(join)})`).join(' or ');
+  if (required <= 1) return { query: words.join(' or ') };
+  if (combinationCount(words.length, required) > maximumMatchCombinations) {
+    return { query: '', unsupported: unsupportedMatchMessage(required, words.length) };
+  }
+  return {
+    query: combinations(words, required).map((group) => `(${group.join(join)})`).join(' or '),
+  };
+}
+
+/// ל-dtSearch אין "לפחות k מתוך n", ופירוק לצירופים הוא הביטוי המדויק
+/// היחיד שלו; מעל התקרה עדיף לומר זאת מאשר להריץ בשקט חיפוש רחב יותר.
+function unsupportedMatchMessage(required: number, words: number): string {
+  return `חיפוש "לפחות ${required} מתוך ${words} מילים" אינו נתמך בהיברובוקס: `
+    + `הוא מתפרק ליותר מ-${maximumMatchCombinations} צירופים. אפשר לקצר את `
+    + 'השאילתה או לבחור "כל המילים".';
 }
 
 /// גרשיים מוסרים כמו שהבנאי של hbsearch עושה למילה הבסיסית; בשאילתת
@@ -132,6 +151,9 @@ export interface SearchSnapshot {
   query: string;
   /// טקסט המשתמש להצגה ולהדגשה, כשהוא שונה מהשאילתה שנשלחה.
   displayQuery?: string;
+  /// מדיניות התאמה שאין לה תרגום ל-dtSearch: החיפוש נדחה עם ההודעה הזו,
+  /// במקום לרוץ בשקט כשאילתה אחרת.
+  unsupportedPolicy?: string;
   options: SearchOptions;
   fingerprint: string;
 }

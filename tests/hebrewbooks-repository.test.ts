@@ -18,6 +18,19 @@ const snapshot: SearchSnapshot = {
 };
 
 describe('HebrewBooksRepository', () => {
+  it('מדיניות התאמה בלי תרגום נדחית, ואינה מגיעה לשרת כשאילתה אחרת', async () => {
+    let calls = 0;
+    const bridge = bridgeWith(() => {
+      calls += 1;
+      return networkChunks([]);
+    });
+
+    await expect(
+      new HebrewBooksRepository(bridge).search({ ...snapshot, unsupportedPolicy: 'המדיניות אינה נתמכת' }),
+    ).rejects.toThrow('המדיניות אינה נתמכת');
+    expect(calls).toBe(0);
+  });
+
   it('uses network.fetchStream and allows two minutes for a search', async () => {
     let payload: NetworkFetchParams | undefined;
     const bridge = bridgeWith((request) => {

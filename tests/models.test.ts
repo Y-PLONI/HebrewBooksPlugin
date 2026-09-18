@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
   clampProximity,
   defaultSearchOptions,
+  hebrewBooksMatchQuery,
+  maximumMatchCombinations,
   maximumProximity,
   minimumProximity,
 } from '../src/models';
@@ -44,5 +46,44 @@ describe('defaultSearchOptions', () => {
     const copy = { ...defaultSearchOptions, proximity: 3 };
     expect(defaultSearchOptions.proximity).toBe(maximumProximity);
     expect(copy.proximity).toBe(3);
+  });
+});
+
+describe('hebrewBooksMatchQuery', () => {
+  const words = ['אלף', 'בית', 'גימל', 'דלת', 'הא'];
+
+  /// כל תת-קבוצה בגודל k מהמילים, כמפתחות ממוינים להשוואה.
+  function subsets(size: number): Set<string> {
+    const found = new Set<string>();
+    const walk = (index: number, group: string[]): void => {
+      if (group.length === size) return void found.add([...group].sort().join('|'));
+      if (index === words.length) return;
+      walk(index + 1, [...group, words[index] as string]);
+      walk(index + 1, group);
+    };
+    walk(0, []);
+    return found;
+  }
+
+  it('הדיסיונקציה היא בדיוק צירופי k המילים — בלי חוסר ובלי כפילות', () => {
+    for (const required of [2, 3, 4]) {
+      const groups = hebrewBooksMatchQuery(words.join(' '), {
+        wordMatchMode: 'atLeast',
+        wordMatchCount: required,
+      }).query.split(' or ');
+      const keys = groups.map((group) => group.replace(/[()]/g, '').split(' w/30 ').sort().join('|'));
+
+      expect(new Set(keys)).toEqual(subsets(required));
+      expect(keys).toHaveLength(new Set(keys).size);
+    }
+  });
+
+  it('מעל התקרה המדיניות נדחית, ואינה מתורגמת לחיפוש רחב יותר', () => {
+    const many = [...words, 'וו', 'זין', 'חית', 'טית', 'יוד', 'כף', 'למד'];
+    const translation = hebrewBooksMatchQuery(many.join(' '), { wordMatchMode: 'mostWords' });
+
+    expect(translation.query).toBe('');
+    expect(translation.unsupported).toContain(String(maximumMatchCombinations));
+    expect(translation.unsupported).toContain('אינו נתמך');
   });
 });

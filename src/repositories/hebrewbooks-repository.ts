@@ -179,6 +179,9 @@ export class HebrewBooksRepository {
     signal?: AbortSignal,
     offset = 0,
   ): Promise<HebrewBooksSearchPage> {
+    // מדיניות התאמה בלי תרגום נעצרת כאן ולא נשלחת כשאילתה אחרת: שני
+    // המסלולים עוטפים את הקריאה, ולכן ההודעה מגיעה למשתמש.
+    if (snapshot.unsupportedPolicy !== undefined) throw new Error(snapshot.unsupportedPolicy);
     const cached = this.cachedSearch;
     if (cached?.fingerprint === snapshot.fingerprint) {
       return pageFromCache(cached, offset, snapshot.options.limit);

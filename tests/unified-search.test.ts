@@ -660,14 +660,31 @@ describe('Otzaria match policy as a hbsearch query', () => {
     );
   });
 
-  it('falls back to a plain disjunction beyond the combination cap', () => {
-    const eight = 'א ב ג ד ה ו ז ח';
-    const nine = `${eight} ט`;
-    // C(8,2)=28 עוד נפרש; C(9,2)=36 חוצה את התקרה (32) ונופל לדיסיונקציה.
-    expect(queryOf({ wordMatchMode: 'atLeast', wordMatchCount: 2 }, eight).startsWith('(א w/30 ב) or ')).toBe(true);
-    expect(queryOf({ wordMatchMode: 'atLeast', wordMatchCount: 2 }, nine)).toBe(
-      'א or ב or ג or ד or ה or ו or ז or ח or ט',
-    );
+  it('expands "most of eight words" instead of degrading it to a disjunction', () => {
+    const groups = queryOf({ wordMatchMode: 'mostWords' }, 'א ב ג ד ה ו ז ח').split(' or ');
+
+    // רוב מתוך שמונה = חמש מילים ב-C(8,5)=56 צירופים.
+    expect(groups).toHaveLength(56);
+    expect(new Set(groups.map((group) => group.split(' w/30 ').length))).toEqual(new Set([5]));
+  });
+
+  it('refuses a partial match too large to express, instead of searching for any word', () => {
+    const many = 'א ב ג ד ה ו ז ח ט י כ ל';
+    const snapshot = toHebrewBooksSnapshot({ query: many, mode: 'advanced', wordMatchMode: 'mostWords' });
+
+    // C(12,7)=792: דיסיונקציה במקומה הייתה "מילה כלשהי" — חיפוש אחר לגמרי.
+    expect(snapshot.unsupportedPolicy).toContain('אינו נתמך');
+    expect(snapshot.unsupportedPolicy).toContain('7 מתוך 12');
+    expect(snapshot.query).toBe(many);
+    expect(snapshot.query).not.toContain(' or ');
+  });
+
+  it('refuses only above the cap — C(n,k) that fits still expands', () => {
+    const cap = (words: string, count: number): string | undefined =>
+      toHebrewBooksSnapshot({ query: words, wordMatchMode: 'atLeast', wordMatchCount: count }).unsupportedPolicy;
+
+    expect(cap('א ב ג ד ה ו ז ח ט י כ ל ם מ ן נ', 2)).toBeUndefined();
+    expect(cap('א ב ג ד ה ו ז ח ט י כ ל ם מ ן נ ס', 2)).toContain('אינו נתמך');
   });
 
   it('strips gershayim like the hbsearch query builder does, and never splits one word', () => {

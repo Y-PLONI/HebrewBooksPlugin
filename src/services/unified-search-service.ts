@@ -256,7 +256,7 @@ export function toHebrewBooksSnapshot(request: HostSearchRequest): SearchSnapsho
     || (request.wordMatchMode ?? 'all') !== 'all';
   const displayQuery = request.query.trim();
   // התאמה חלקית, ו"תחת אותה כותרת", אינן ניתנות לביטוי באפשרויות — רק בשאילתה.
-  const matchQuery = hebrewBooksMatchQuery(displayQuery, request);
+  const match = hebrewBooksMatchQuery(displayQuery, request);
   const options: SearchOptions = {
     // במקורב distance הוא מרחק עריכה, והמילים עצמן צמודות.
     proximity: wideMatch
@@ -281,10 +281,11 @@ export function toHebrewBooksSnapshot(request: HostSearchRequest): SearchSnapsho
     requireWordOrder: !wideMatch,
     rashiOcr: false,
   };
-  const query = matchQuery === '' ? displayQuery : matchQuery;
+  const query = match.query === '' ? displayQuery : match.query;
   return {
     query,
-    ...(matchQuery === '' ? {} : { displayQuery }),
+    ...(match.query === '' ? {} : { displayQuery }),
+    ...(match.unsupported === undefined ? {} : { unsupportedPolicy: match.unsupported }),
     options,
     fingerprint: `${query}\u0000${JSON.stringify(options)}`,
   };

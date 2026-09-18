@@ -88,4 +88,27 @@ describe('"לפחות N מילים" במדור התוצאות החיצוני', (
     host.emit('search.external.requested', request({ wordMatchMode: 'atLeast' }));
     expect(new Set(wordsPerGroup(await sentQuery(host)))).toEqual(new Set([2]));
   });
+
+  it('מדיניות שאין לה תרגום נענית בהודעה, ולא בחיפוש אחר בשקט', async () => {
+    const host = await bootController();
+    host.emit(
+      'search.external.requested',
+      request({ query: 'א ב ג ד ה ו ז ח ט י כ ל', wordMatchMode: 'mostWords' }),
+    );
+
+    const error = await vi.waitFor(
+      () => {
+        const payload = host
+          .payloadsOf('reader.respondExternalSearch')
+          .find((entry) => typeof entry?.error === 'string');
+        expect(payload).toBeDefined();
+        return String(payload?.error);
+      },
+      { timeout: 5_000 },
+    );
+    expect(error).toContain('אינו נתמך');
+    expect(
+      host.payloadsOf('network.fetchStream').some((payload) => String(payload?.url).endsWith('/search')),
+    ).toBe(false);
+  });
 });
