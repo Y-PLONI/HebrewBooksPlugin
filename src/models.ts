@@ -43,6 +43,74 @@ export interface SearchMatchPolicy {
   wordMatchCount?: number;
 }
 
+/// תקרת הפירוק של "לפחות k מתוך n" לצירופים; מעליה נשלחת דיסיונקציה פשוטה
+/// (רחבה מדי) במקום C(n,k) תת-שאילתות.
+export const maximumMatchCombinations = 32;
+
+/// כמה ממילות השאילתה חייבות להופיע, ביחידות של המנוע של אוצריא:
+/// רוב = n/2+1 בחלוקה שלמה, "לפחות X" נחתך ל-[1, n].
+export function requiredWordCount(
+  words: number,
+  mode: SearchWordMatchMode | undefined,
+  count: number | undefined,
+): number {
+  switch (mode) {
+    case 'anyWord':
+      return 1;
+    case 'mostWords':
+      return Math.floor(words / 2) + 1;
+    case 'atLeast':
+      return Math.min(Math.max(Math.round(count ?? 2), 1), words);
+    default:
+      return words;
+  }
+}
+
+/// שאילתת dtSearch שמשחזרת מדיניות שהמנוע של אוצריא מוותר בה על הסדר ועל
+/// המרווח; מחרוזת ריקה = די בשאילתה הרגילה עם חלון proximity רחב.
+export function hebrewBooksMatchQuery(query: string, policy: SearchMatchPolicy): string {
+  const scope = policy.proximityScope ?? 'wordDistance';
+  const mode = policy.wordMatchMode ?? 'all';
+  const words = matchWords(query);
+  if (words.length < 2 || (scope === 'wordDistance' && mode === 'all')) return '';
+  const required = requiredWordCount(words.length, mode, policy.wordMatchCount);
+  // "תחת אותה כותרת" גדול מפסקה ואין לו גבול ב-dtSearch — המסמך (הספר) כולו.
+  const join = scope === 'sameSection' ? ' and ' : ` w/${maximumProximity} `;
+  if (required >= words.length) return scope === 'sameSection' ? words.join(' and ') : '';
+  if (required <= 1) return words.join(' or ');
+  if (combinationCount(words.length, required) > maximumMatchCombinations) {
+    return words.join(' or ');
+  }
+  return combinations(words, required).map((group) => `(${group.join(join)})`).join(' or ');
+}
+
+/// גרשיים מוסרים כמו שהבנאי של hbsearch עושה למילה הבסיסית; בשאילתת
+/// אופרטורים הם היו נקראים כתחילת ביטוי.
+function matchWords(query: string): string[] {
+  return query
+    .trim()
+    .split(/\s+/)
+    .map((word) => word.replace(/["'׳״()]/g, ''))
+    .filter(Boolean);
+}
+
+function combinationCount(words: number, size: number): number {
+  let count = 1;
+  for (let step = 1; step <= size; step++) {
+    count = (count * (words - size + step)) / step;
+    if (count > maximumMatchCombinations) return maximumMatchCombinations + 1;
+  }
+  return count;
+}
+
+function combinations(words: string[], size: number): string[][] {
+  if (size === 0) return [[]];
+  const [first, ...rest] = words;
+  if (first === undefined) return [];
+  const withFirst = combinations(rest, size - 1).map((group) => [first, ...group]);
+  return rest.length < size ? withFirst : [...withFirst, ...combinations(rest, size)];
+}
+
 export interface SearchOptions {
   proximity: number;
   fuzziness: number;

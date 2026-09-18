@@ -13,7 +13,7 @@ import type {
   UnifiedSearchResponse,
   UnifiedSearchResult,
 } from '../models';
-import { maximumProximity, proximityForOtzariaDistance } from '../models';
+import { hebrewBooksMatchQuery, maximumProximity, proximityForOtzariaDistance } from '../models';
 
 const hebrewBooksFallbackCategory = 'ספרי היברובוקס';
 const otzariaFallbackCategory = 'ספרי אוצריא';
@@ -254,6 +254,9 @@ export function toHebrewBooksSnapshot(request: HostSearchRequest): SearchSnapsho
   // סדר — מתורגמים לחלון המרבי בלי סדר, ולא למרווח ש-UI של אוצריא השבית.
   const wideMatch = (request.proximityScope ?? 'wordDistance') !== 'wordDistance'
     || (request.wordMatchMode ?? 'all') !== 'all';
+  const displayQuery = request.query.trim();
+  // התאמה חלקית, ו"תחת אותה כותרת", אינן ניתנות לביטוי באפשרויות — רק בשאילתה.
+  const matchQuery = hebrewBooksMatchQuery(displayQuery, request);
   const options: SearchOptions = {
     // במקורב distance הוא מרחק עריכה, והמילים עצמן צמודות.
     proximity: wideMatch
@@ -278,10 +281,12 @@ export function toHebrewBooksSnapshot(request: HostSearchRequest): SearchSnapsho
     requireWordOrder: !wideMatch,
     rashiOcr: false,
   };
+  const query = matchQuery === '' ? displayQuery : matchQuery;
   return {
-    query: request.query.trim(),
+    query,
+    ...(matchQuery === '' ? {} : { displayQuery }),
     options,
-    fingerprint: `${request.query.trim()}\u0000${JSON.stringify(options)}`,
+    fingerprint: `${query}\u0000${JSON.stringify(options)}`,
   };
 }
 

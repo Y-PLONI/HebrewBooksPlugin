@@ -5,6 +5,7 @@ import type {
   HostSearchRequest,
   OtzariaSearchChunk,
   OtzariaSearchResponse,
+  SearchMatchPolicy,
   UnifiedSearchResponse,
 } from '../src/models';
 import {
@@ -580,8 +581,130 @@ describe('UnifiedSearchService', () => {
   });
 });
 
-// מדיניות ההתאמה של הטאב מגיעה מהאירוע כשדות חופשיים (issue #1427).
-describe('Otzaria match policy', () => {
+// מדיניות ההתאמה של אוצריא (issue #1427): כל מצב שאינו "כל המילים לפי הסדר"
+// מתורגם לשאילתת האופרטורים שנשלחת ל-hbsearch בשדה q.
+describe('Otzaria match policy as a hbsearch query', () => {
+  const query = 'ברוך אתה השם אלוקינו';
+  const queryOf = (policy: SearchMatchPolicy, text = query): string =>
+    toHebrewBooksSnapshot({ query: text, mode: 'advanced', distance: 0, ...policy }).query;
+
+  it('leaves the query untouched when the host sends no policy (older host)', () => {
+    const snapshot = toHebrewBooksSnapshot({ query, mode: 'advanced', distance: 0 });
+
+    expect(snapshot.query).toBe(query);
+    expect(snapshot.displayQuery).toBeUndefined();
+    expect(snapshot.options).toMatchObject({ proximity: 3, requireWordOrder: true });
+  });
+
+  it('keeps "same paragraph" as the plain query in the widest unordered window', () => {
+    const snapshot = toHebrewBooksSnapshot({ query, proximityScope: 'sameParagraph' });
+
+    expect(snapshot.query).toBe(query);
+    expect(snapshot.options).toMatchObject({ proximity: 30, requireWordOrder: false });
+  });
+
+  it('maps "same section" to a whole-book and, the only unit larger than the window', () => {
+    const snapshot = toHebrewBooksSnapshot({ query, proximityScope: 'sameSection' });
+
+    expect(snapshot.query).toBe('ברוך and אתה and השם and אלוקינו');
+    expect(snapshot.displayQuery).toBe(query);
+  });
+
+  it('maps anyWord to a disjunction in every scope', () => {
+    const disjunction = 'ברוך or אתה or השם or אלוקינו';
+    expect(queryOf({ wordMatchMode: 'anyWord' })).toBe(disjunction);
+    expect(queryOf({ wordMatchMode: 'anyWord', proximityScope: 'sameParagraph' })).toBe(disjunction);
+    expect(queryOf({ wordMatchMode: 'anyWord', proximityScope: 'sameSection' })).toBe(disjunction);
+  });
+
+  it('maps mostWords to the n/2+1 sized combinations', () => {
+    expect(queryOf({ wordMatchMode: 'mostWords' })).toBe(
+      '(ברוך w/30 אתה w/30 השם) or (ברוך w/30 אתה w/30 אלוקינו)'
+        + ' or (ברוך w/30 השם w/30 אלוקינו) or (אתה w/30 השם w/30 אלוקינו)',
+    );
+    // שתי מילים: רוב = שתיהן, ואין צורך באופרטורים.
+    expect(queryOf({ wordMatchMode: 'mostWords' }, 'ברכת המזון')).toBe('ברכת המזון');
+    expect(queryOf({ wordMatchMode: 'mostWords' }, 'ברוך אתה השם')).toBe(
+      '(ברוך w/30 אתה) or (ברוך w/30 השם) or (אתה w/30 השם)',
+    );
+  });
+
+  it('joins the combinations of "most words under the same heading" with and', () => {
+    expect(queryOf({ wordMatchMode: 'mostWords', proximityScope: 'sameSection' }, 'ברוך אתה השם')).toBe(
+      '(ברוך and אתה) or (ברוך and השם) or (אתה and השם)',
+    );
+  });
+
+  it('expands atLeast to the combinations of the requested size', () => {
+    expect(queryOf({ wordMatchMode: 'atLeast', wordMatchCount: 2 })).toBe(
+      '(ברוך w/30 אתה) or (ברוך w/30 השם) or (ברוך w/30 אלוקינו)'
+        + ' or (אתה w/30 השם) or (אתה w/30 אלוקינו) or (השם w/30 אלוקינו)',
+    );
+    // בלי wordMatchCount ברירת המחדל של אוצריא היא שתי מילים.
+    expect(queryOf({ wordMatchMode: 'atLeast' })).toBe(queryOf({ wordMatchMode: 'atLeast', wordMatchCount: 2 }));
+  });
+
+  it('clamps atLeast to the number of query words, which is the plain search again', () => {
+    expect(queryOf({ wordMatchMode: 'atLeast', wordMatchCount: 9 })).toBe(query);
+    expect(queryOf({ wordMatchMode: 'atLeast', wordMatchCount: 0 })).toBe('ברוך or אתה or השם or אלוקינו');
+    expect(queryOf({ wordMatchMode: 'atLeast', wordMatchCount: 9, proximityScope: 'sameSection' })).toBe(
+      'ברוך and אתה and השם and אלוקינו',
+    );
+  });
+
+  it('falls back to a plain disjunction beyond the combination cap', () => {
+    const eight = 'א ב ג ד ה ו ז ח';
+    const nine = `${eight} ט`;
+    // C(8,2)=28 עוד נפרש; C(9,2)=36 חוצה את התקרה (32) ונופל לדיסיונקציה.
+    expect(queryOf({ wordMatchMode: 'atLeast', wordMatchCount: 2 }, eight).startsWith('(א w/30 ב) or ')).toBe(true);
+    expect(queryOf({ wordMatchMode: 'atLeast', wordMatchCount: 2 }, nine)).toBe(
+      'א or ב or ג or ד or ה or ו or ז or ח or ט',
+    );
+  });
+
+  it('strips gershayim like the hbsearch query builder does, and never splits one word', () => {
+    expect(queryOf({ wordMatchMode: 'anyWord' }, 'רמב"ם הלכות')).toBe('רמבם or הלכות');
+    for (const mode of ['anyWord', 'mostWords', 'atLeast'] as const) {
+      expect(queryOf({ wordMatchMode: mode, proximityScope: 'sameSection' }, 'ברכה')).toBe('ברכה');
+    }
+  });
+
+  it('changes the request fingerprint whenever the policy changes', () => {
+    const fingerprints = [
+      {},
+      { proximityScope: 'sameParagraph' as const },
+      { proximityScope: 'sameSection' as const },
+      { wordMatchMode: 'anyWord' as const },
+      { wordMatchMode: 'mostWords' as const },
+      { wordMatchMode: 'atLeast' as const, wordMatchCount: 2 },
+    ].map((policy) => toHebrewBooksSnapshot({ query, mode: 'advanced', distance: 0, ...policy }).fingerprint);
+    const fingerprintOf = (policy: SearchMatchPolicy): string =>
+      toHebrewBooksSnapshot({ query, mode: 'advanced', distance: 0, ...policy }).fingerprint;
+
+    expect(new Set(fingerprints).size).toBe(fingerprints.length);
+    // "רוב המילים" מארבע מילים הוא בדיוק "לפחות שלוש" — אותו חיפוש, ובצדק אותו מטמון.
+    expect(fingerprintOf({ wordMatchMode: 'atLeast', wordMatchCount: 3 }))
+      .toBe(fingerprintOf({ wordMatchMode: 'mostWords' }));
+  });
+
+  it('sends that query to the HebrewBooks repository', async () => {
+    const snapshots: string[] = [];
+    const service = new UnifiedSearchService(
+      {
+        search: async (snapshot) => {
+          snapshots.push(snapshot.query);
+          return hebrewBooksPage([]);
+        },
+      },
+      { search: () => searchChunks(otzariaResponse), resolveBooks: async () => [] },
+      { findBestOtzariaIds: async () => new Map() },
+    );
+
+    await service.search({ ...request, query, wordMatchMode: 'anyWord' });
+
+    expect(snapshots).toEqual(['ברוך or אתה or השם or אלוקינו']);
+  });
+
   it('sanitizedMatchPolicy forwards a usable wordMatchCount and drops the rest', () => {
     expect(sanitizedMatchPolicy('sameSection', 'atLeast', 3)).toEqual({
       proximityScope: 'sameSection',
