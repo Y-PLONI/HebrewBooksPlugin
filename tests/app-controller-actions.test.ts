@@ -900,13 +900,16 @@ describe('מסך הפתיחה ומצב השירות', () => {
     expect(harness.shell.querySelector('.library-version-warning')).toBeNull();
   });
 
-  it('שירות שאינו מדווח גרסה כלל עולה תקין ובלי אזהרה', async () => {
+  it('שירות שאינו מדווח גרסה כלל מבקש עדכון באותה אזהרה, ואינו חוסם', async () => {
     const harness = await bootHarness({
       network: { '/health': () => ({ body: JSON.stringify({ ok: true, service: 'hbsearch' }) }) },
     });
+    const warning = harness.shell.querySelector('.library-version-warning')?.textContent ?? '';
+    expect(warning).toContain('אינו מדווח על גרסתו');
+    expect(warning).toContain(requiredServiceVersion);
+    expect(warning).toContain('מתקין HebrewBooks לאוצריא');
     expect(harness.shell.querySelector('.library-status')?.textContent).toBe(
       'שירות החיפוש מחובר (חיפוש בלבד)',
     );
-    expect(harness.shell.querySelector('.library-version-warning')).toBeNull();
   });
 });

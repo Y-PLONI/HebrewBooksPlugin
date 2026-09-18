@@ -5,28 +5,35 @@ import dependencies from '../../installer/dependencies.json';
 export const requiredServiceVersion: string = dependencies.runtime.version;
 
 export interface OutdatedService {
-  readonly found: string;
+  /// null כששירות אינו מדווח גרסה שאפשר להשוות — ולכן הוא ישן.
+  readonly found: string | null;
   readonly required: string;
 }
 
-/// null כשהשירות עדכני, חדש מהנדרש, או לא דיווח גרסה שאפשר להשוות.
+/// null רק כשהשירות דיווח גרסה עדכנית או חדשה ממנה. שירות בלי דיווח גרסה
+/// הוא ישן: את `serverVersion` מדווחות רק הגרסאות שהתוסף דורש.
 export function outdatedService(
   found: string | null | undefined,
   required: string = requiredServiceVersion,
 ): OutdatedService | null {
-  if (typeof found !== 'string') return null;
-  const foundParts = numericParts(found);
   const requiredParts = numericParts(required);
-  if (foundParts === null || requiredParts === null) return null;
-  return compareParts(foundParts, requiredParts) < 0 ? { found: found.trim(), required } : null;
+  if (requiredParts === null) return null;
+  const foundParts = typeof found === 'string' ? numericParts(found) : null;
+  if (foundParts === null) return { found: null, required };
+  return compareParts(foundParts, requiredParts) < 0
+    ? { found: (found as string).trim(), required }
+    : null;
 }
 
 /// הודעה למשתמש: הגרסה שנמצאה, הגרסה הנדרשת והדרך לתקן. מודיעה ואינה חוסמת.
 export function outdatedServiceMessage(found: string | null | undefined): string | null {
   const outdated = outdatedService(found);
   if (outdated === null) return null;
+  const opening = outdated.found === null
+    ? 'שירות החיפוש המותקן אינו מדווח על גרסתו — סימן שהוא ישן'
+    : `שירות החיפוש המותקן הוא גרסה ${outdated.found}`;
   return (
-    `שירות החיפוש המותקן הוא גרסה ${outdated.found}, והתוסף מצפה לגרסה ${outdated.required} ומעלה. ` +
+    `${opening}, והתוסף מצפה לגרסה ${outdated.required} ומעלה. ` +
     'החיפוש ימשיך לפעול במסלול הישן, אך יכולות חדשות עלולות לא לעבוד. ' +
     'לעדכון: הרץ שוב את מתקין HebrewBooks לאוצריא.'
   );

@@ -35,10 +35,13 @@ describe('outdatedService', () => {
     expect(outdatedService('3.1', '3.0.114')).toBeNull();
   });
 
-  it('שירות שאינו מדווח גרסה כלל מטופל בלי לזרוק ובלי להתריע', () => {
+  it('שירות שאינו מדווח גרסה שאפשר להשוות נחשב ישן — הדיווח עצמו חדש', () => {
     for (const value of [null, undefined, '', '   ', 'unknown', {} as unknown as string]) {
       expect(() => outdatedService(value as string | null | undefined, '3.0.114')).not.toThrow();
-      expect(outdatedService(value as string | null | undefined, '3.0.114')).toBeNull();
+      expect(outdatedService(value as string | null | undefined, '3.0.114')).toEqual({
+        found: null,
+        required: '3.0.114',
+      });
     }
   });
 
@@ -57,9 +60,16 @@ describe('outdatedServiceMessage', () => {
     expect(message).toContain('מתקין HebrewBooks לאוצריא');
   });
 
-  it('שותקת לגרסה עדכנית, לגרסה חדשה יותר ולגרסה חסרה', () => {
+  it('שותקת לגרסה עדכנית ולגרסה חדשה יותר', () => {
     expect(outdatedServiceMessage(requiredServiceVersion)).toBeNull();
     expect(outdatedServiceMessage('99.0.0')).toBeNull();
-    expect(outdatedServiceMessage(null)).toBeNull();
+  });
+
+  it('גרסה חסרה מקבלת את אותה הודעת עדכון, ואומרת שהשירות אינו מדווח גרסה', () => {
+    const message = outdatedServiceMessage(null) ?? '';
+    expect(message).toContain('אינו מדווח על גרסתו');
+    expect(message).toContain(requiredServiceVersion);
+    expect(message).toContain('מתקין HebrewBooks לאוצריא');
+    expect(outdatedServiceMessage(undefined)).toBe(message);
   });
 });
