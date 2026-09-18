@@ -81,6 +81,13 @@ assert(
   !/(?<![\d.])0\.0\.0\.0(?![\d.])|http:\/\/\+|--listen(?:\s*=\s*|\s+)["']?(?:\*|\+|::|0(?::0){7})(?![\w:.])/.test(installer),
   'The service must never bind to a wildcard or unspecified address.',
 );
+// חימום אינדקס של עשרות GB בכונן USB הוא החלק האטי, ולכן הוא מתחיל באתחול ולא
+// אחרי שהמשתמש כבר פתח את אוצריא. Windows שומר שלוש פעולות כשל בלבד.
+assert(
+  !installer.includes('delayedAutoStart') &&
+    (installer.match(/<onfailure /g) ?? []).length === 3,
+  'The service must start at boot, with all three Windows failure actions spelled out.',
+);
 assert(
   installer.includes(
     'Flags: postinstall runhidden waituntilterminated skipifsilent runasoriginaluser',

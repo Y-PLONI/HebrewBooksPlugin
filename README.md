@@ -98,8 +98,9 @@ Release קבוע מסוג `build-<short sha>`, שנוצר בכל קומיט של
 
 1. מתקין את ה־runtime תחת `Program Files (x86)\Otzaria HebrewBooks Search`.
 2. מבקש את תיקיית הנתונים שמכילה `App\Katalog.db`.
-3. מתקין שירות Windows בשם `OtzariaHebrewBooksSearch`, עם הפעלה אוטומטית
-   מושהית וניסיון הפעלה מחדש לאחר תקלה.
+3. מתקין שירות Windows בשם `OtzariaHebrewBooksSearch`, עם הפעלה אוטומטית כבר
+   באתחול — כדי שחימום האינדקס יתחיל לפני שאוצריא נפתחת — ועם שלוש פעולות
+   הפעלה מחדש לאחר תקלה, שמכסות כונן נתונים שטרם עלה.
 4. מציע בסיום לשגר את אוצריא עם נתיב קובץ ה־`.otzplugin`, כדי שהיא תעתיק
    ותתקין אותו. `installer/Install-OtzariaPlugin.ps1` מאתר את `otzaria.exe`
    (רישום הפרוטוקול, רשומת ההסרה, מיקומי ברירת המחדל ו־PATH) ומפעיל אותו

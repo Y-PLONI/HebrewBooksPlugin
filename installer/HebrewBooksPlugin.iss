@@ -195,15 +195,19 @@ begin
   Lines[6] := '  <arguments>--serve --listen 127.0.0.1 --port 8080 --data-root &quot;' +
     XmlEscape(GetDataRoot('')) + '&quot;</arguments>';
   Lines[7] := '  <workingdirectory>%BASE%\runtime</workingdirectory>';
+  // הפעלה מיידית באתחול, בלי השהיה: חימום אינדקס בכונן USB הוא החלק האטי,
+  // והוא נדחה ממילא מפני חיפוש אמיתי.
   Lines[8] := '  <startmode>Automatic</startmode>';
-  Lines[9] := '  <delayedAutoStart/>';
-  Lines[10] := '  <logpath>' + XmlEscape(LogsPath) + '</logpath>';
-  Lines[11] := '  <log mode="roll-by-size">';
-  Lines[12] := '    <sizeThreshold>10240</sizeThreshold>';
-  Lines[13] := '    <keepFiles>8</keepFiles>';
-  Lines[14] := '  </log>';
-  Lines[15] := '  <onfailure action="restart" delay="30 sec"/>';
-  Lines[16] := '  <onfailure action="restart" delay="1 min"/>';
+  Lines[9] := '  <logpath>' + XmlEscape(LogsPath) + '</logpath>';
+  Lines[10] := '  <log mode="roll-by-size">';
+  Lines[11] := '    <sizeThreshold>10240</sizeThreshold>';
+  Lines[12] := '    <keepFiles>8</keepFiles>';
+  Lines[13] := '  </log>';
+  // כונן ה-USB עלול לא להיות מוכן באתחול; hbsearch מסיים אז בקוד 2. Windows שומר
+  // שלוש פעולות כשל בלבד וחוזר על האחרונה, ולכן שלושתן נכתבות במפורש.
+  Lines[14] := '  <onfailure action="restart" delay="30 sec"/>';
+  Lines[15] := '  <onfailure action="restart" delay="1 min"/>';
+  Lines[16] := '  <onfailure action="restart" delay="2 min"/>';
   Lines[17] := '  <resetfailure>1 hour</resetfailure>';
   Lines[18] := '  <stoptimeout>15 sec</stoptimeout>';
   Lines[19] := '</service>';
