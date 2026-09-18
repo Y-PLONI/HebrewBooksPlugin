@@ -1017,8 +1017,8 @@ export class AppController {
       // פותחים מעמוד 1 ולא מעבירים אותם לקורא.
       const anchored = snapshot.options.firstWord || snapshot.options.lastWord;
       const page = anchored ? 1 : locations.pages[0] ?? 1;
-      const externalId = Number(result.hit.fileId);
-      if (!Number.isInteger(externalId) || externalId <= 0) throw new Error('מזהה הספר בהיברובוקס אינו תקין');
+      const externalId = externalIdOf(result.hit.fileId);
+      if (externalId === null) throw new Error('מזהה הספר בהיברובוקס אינו תקין');
       const opened = await this.otzariaRepository.openBook(
         { external: { provider: 'hebrewbooks', id: externalId } },
         Math.max(0, page - 1),
