@@ -278,6 +278,8 @@ function QueryServiceStatus(Service: Cardinal; var Status: TServiceStatus): Bool
   external 'QueryServiceStatus@advapi32.dll stdcall';
 function CloseServiceHandle(Handle: Cardinal): Boolean;
   external 'CloseServiceHandle@advapi32.dll stdcall';
+function GetTickCount(): Cardinal;
+  external 'GetTickCount@kernel32.dll stdcall';
 
 function ServiceIsRunning(): Boolean;
 var
