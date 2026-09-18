@@ -88,6 +88,15 @@ assert(
     (installer.match(/<onfailure /g) ?? []).length === 3,
   'The service must start at boot, with all three Windows failure actions spelled out.',
 );
+// מתקין שמסתיים בשקט אחרי ש-hbsearch לא עלה משאיר את המשתמש בלי חיפוש ובלי סיבה.
+// זיהוי השירות חובה — כל תהליך אחר יכול להחזיק את פורט 8080.
+assert(
+  installer.includes('ssPostInstall') &&
+    installer.includes('"service":"hbsearch"') &&
+    installer.includes('"searchable":true') &&
+    installer.includes('SetTimeouts('),
+  'The installer must check /health after installing, confirm it is hbsearch, and bound the wait.',
+);
 assert(
   installer.includes(
     'Flags: postinstall runhidden waituntilterminated skipifsilent runasoriginaluser',

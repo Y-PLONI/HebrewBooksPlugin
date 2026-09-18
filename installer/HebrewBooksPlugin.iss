@@ -64,6 +64,25 @@ Type: filesandordirs; Name: "{commonappdata}\Otzaria\HebrewBooksSearch\logs"
 Type: dirifempty; Name: "{commonappdata}\Otzaria\HebrewBooksSearch"
 
 [Code]
+const
+  SC_MANAGER_CONNECT = $0001;
+  SERVICE_QUERY_STATUS = $0004;
+  SERVICE_RUNNING = 4;
+  HealthUrl = 'http://127.0.0.1:8080/health';
+  HealthAttempts = 30;
+  HealthBudgetMs = 40000;
+
+type
+  TServiceStatus = record
+    ServiceType: Cardinal;
+    CurrentState: Cardinal;
+    ControlsAccepted: Cardinal;
+    Win32ExitCode: Cardinal;
+    ServiceSpecificExitCode: Cardinal;
+    CheckPoint: Cardinal;
+    WaitHint: Cardinal;
+  end;
+
 var
   DataRootPage: TInputDirWizardPage;
 
@@ -247,4 +266,120 @@ begin
       ewWaitUntilTerminated, ResultCode);
     RaiseException('הפעלת שירות החיפוש נכשלה.');
   end;
+end;
+
+// דרך ה-API ולא דרך `sc query`: פלט sc מתורגם לשפת המערכת, וקוד היציאה שלו זהה
+// בכל מצב שירות.
+function OpenSCManagerW(MachineName, DatabaseName: String; DesiredAccess: Cardinal): Cardinal;
+  external 'OpenSCManagerW@advapi32.dll stdcall';
+function OpenServiceW(Manager: Cardinal; ServiceName: String; DesiredAccess: Cardinal): Cardinal;
+  external 'OpenServiceW@advapi32.dll stdcall';
+function QueryServiceStatus(Service: Cardinal; var Status: TServiceStatus): Boolean;
+  external 'QueryServiceStatus@advapi32.dll stdcall';
+function CloseServiceHandle(Handle: Cardinal): Boolean;
+  external 'CloseServiceHandle@advapi32.dll stdcall';
+
+function ServiceIsRunning(): Boolean;
+var
+  Manager: Cardinal;
+  Service: Cardinal;
+  Status: TServiceStatus;
+begin
+  Result := False;
+  Manager := OpenSCManagerW('', 'ServicesActive', SC_MANAGER_CONNECT);
+  if Manager = 0 then
+    Exit;
+  Service := OpenServiceW(Manager, '{#ServiceId}', SERVICE_QUERY_STATUS);
+  if Service <> 0 then
+  begin
+    if QueryServiceStatus(Service, Status) then
+      Result := Status.CurrentState = SERVICE_RUNNING;
+    CloseServiceHandle(Service);
+  end;
+  CloseServiceHandle(Manager);
+end;
+
+function HealthBody(var Body: String): Boolean;
+var
+  Http: Variant;
+begin
+  Result := False;
+  try
+    Http := CreateOleObject('WinHttp.WinHttpRequest.5.1');
+    // חייב זמן קצוב: פורט 8080 עלול להיות בידי תהליך שפותח חיבור ולא עונה.
+    Http.SetTimeouts(2000, 2000, 2000, 4000);
+    Http.Open('GET', HealthUrl, False);
+    Http.Send('');
+    if Http.Status = 200 then
+    begin
+      Body := Http.ResponseText;
+      Result := True;
+    end;
+  except
+    Result := False;
+  end;
+end;
+
+function CompactJson(Value: String): String;
+begin
+  Result := Value;
+  StringChangeEx(Result, ' ', '', True);
+  StringChangeEx(Result, #9, '', True);
+  StringChangeEx(Result, #13, '', True);
+  StringChangeEx(Result, #10, '', True);
+end;
+
+// כישלון כאן אינו מפיל את ההתקנה: כונן הנתונים עשוי פשוט להיות מנותק כרגע,
+// והשירות ינסה לעלות שוב לבדו לפי פעולות הכשל שנרשמו לו.
+procedure VerifyServiceHealth();
+var
+  Attempt: Integer;
+  Started: Cardinal;
+  Body: String;
+  Reason: String;
+begin
+  Started := GetTickCount();
+  Reason := 'שירות החיפוש לא הגיע למצב "פועל".';
+  for Attempt := 1 to HealthAttempts do
+  begin
+    if ServiceIsRunning() then
+    begin
+      Reason := 'שירות החיפוש פועל, אך אינו עונה בכתובת ' + HealthUrl + '.';
+      if HealthBody(Body) then
+      begin
+        Body := CompactJson(Body);
+        // בלי זיהוי השירות, כל תהליך אחר שמחזיק את פורט 8080 ייראה כהצלחה.
+        if Pos('"service":"hbsearch"', Body) = 0 then
+          Reason := 'פורט 8080 תפוס בידי תוכנה אחרת, ולכן שירות החיפוש אינו זמין.'
+        else if Pos('"searchable":true', Body) = 0 then
+          Reason := 'השירות עלה אך לא הצליח לפתוח אף אינדקס בתיקיית הנתונים שנבחרה.'
+        else
+        begin
+          Log('HebrewBooks: health check passed on attempt ' + IntToStr(Attempt) + '.');
+          Exit;
+        end;
+      end;
+    end;
+    if GetTickCount() - Started >= HealthBudgetMs then
+      Break;
+    Sleep(1000);
+  end;
+
+  Log('HebrewBooks: health check failed. ' + Reason);
+  if not WizardSilent then
+    MsgBox(
+      'ההתקנה הסתיימה, אך בדיקת שירות החיפוש נכשלה:' + #13#10 +
+        Reason + #13#10#13#10 +
+        'אם כונן הנתונים אינו מחובר כעת — חבר אותו, והשירות יעלה מעצמו תוך דקות ספורות.' + #13#10 +
+        'אחרת אפשר לבדוק את יומן השירות בתיקייה:' + #13#10 +
+        ExpandConstant('{commonappdata}\Otzaria\HebrewBooksSearch\logs'),
+      mbInformation,
+      MB_OK
+    );
+end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+begin
+  if CurStep = ssPostInstall then
+    VerifyServiceHealth();
 end;
