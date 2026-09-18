@@ -15,6 +15,7 @@ import {
   toHebrewBooksSnapshot,
 } from '../src/services/unified-search-service';
 import { buildCategoryTree, collectBooks, facetMatches } from '../src/screens/results-screen';
+import { otzariaDistanceForProximity } from '../src/models';
 
 const request: HostSearchRequest = {
   query: 'חכמה בינה',
@@ -112,7 +113,7 @@ describe('UnifiedSearchService', () => {
     const snapshot = toHebrewBooksSnapshot(request);
 
     expect(snapshot.options).toMatchObject({
-      proximity: 4,
+      proximity: 5,
       hybur: true,
       spelling: true,
       rashetevot: true,
@@ -125,6 +126,47 @@ describe('UnifiedSearchService', () => {
     const snapshot = toHebrewBooksSnapshot({ ...request, distance: 0 });
 
     expect(snapshot.options.proximity).toBe(1);
+  });
+
+  // issue #1427: proximity נמדד מהמילה הראשונה לאחרונה — 1:1 חסם 3+ מילים צמודות.
+  it('widens the HebrewBooks proximity with the number of query words', () => {
+    const query = 'ברוך אתה השם אלוקינו';
+    expect(toHebrewBooksSnapshot({ query, distance: 0 }).options.proximity).toBe(3);
+    expect(toHebrewBooksSnapshot({ query, distance: 2 }).options.proximity).toBe(9);
+    expect(toHebrewBooksSnapshot({ query, distance: 30 }).options.proximity).toBe(30);
+    expect(toHebrewBooksSnapshot({ query: 'ברכה', distance: 0 }).options.proximity).toBe(1);
+  });
+
+  it('treats the fuzzy distance as an edit distance, not as word spacing', () => {
+    const snapshot = toHebrewBooksSnapshot({ query: 'ברכת המזון', mode: 'fuzzy', distance: 2 });
+    expect(snapshot.options).toMatchObject({ proximity: 1, fuzziness: 2 });
+  });
+
+  it('searches the widest unordered window when Otzaria waives the word spacing', () => {
+    for (const policy of [
+      { proximityScope: 'sameParagraph' as const },
+      { proximityScope: 'sameSection' as const },
+      { wordMatchMode: 'mostWords' as const },
+    ]) {
+      const snapshot = toHebrewBooksSnapshot({ ...request, distance: 0, ...policy });
+      expect(snapshot.options).toMatchObject({ proximity: 30, requireWordOrder: false });
+    }
+    expect(
+      toHebrewBooksSnapshot({ ...request, distance: 0, proximityScope: 'wordDistance', wordMatchMode: 'all' })
+        .options,
+    ).toMatchObject({ proximity: 1, requireWordOrder: true });
+  });
+
+  it('keeps the dialog proximity across the Otzaria tab round trip', () => {
+    for (const query of ['ברכה', 'ברכת המזון', 'ברוך אתה השם אלוקינו']) {
+      for (let proximity = 1; proximity <= 30; proximity++) {
+        const distance = otzariaDistanceForProximity(proximity, query);
+        const back = toHebrewBooksSnapshot({ query, distance }).options.proximity;
+        // שאילתה של מילה אחת: אין מרווח למדוד, והחלון נשאר המינימלי.
+        if (query !== 'ברכה') expect(back).toBeGreaterThanOrEqual(proximity);
+        expect(back - proximity).toBeLessThan(Math.max(1, query.split(' ').length - 1));
+      }
+    }
   });
 
   it('maps a global Otzaria option when no per-word override is supplied', () => {

@@ -33,6 +33,7 @@ import {
   mergeUnifiedSearchResponses,
   UnifiedSearchService,
   sanitizedGlobalOptions,
+  sanitizedMatchPolicy,
   sanitizedWordOptions,
   toHebrewBooksSnapshot,
 } from './services/unified-search-service';
@@ -181,7 +182,7 @@ export class AppController {
       // חיפוש מהתוסף נפתח בכרטיסיית חיפוש מובנית של אוצריא (המדור החיצוני
       // מציג שם את התוצאות); מארח ישן שאינו מכיר את ה-API נופל למסך התוסף.
       void this.otzariaRepository
-        .openSearchTab(request.query, request.options.proximity)
+        .openSearchTab(request.query, request.options)
         .catch(() => this.performSearch(request.query, request.options));
     });
 
@@ -316,6 +317,7 @@ export class AppController {
         query,
         mode: request.mode,
         distance: request.distance,
+        ...sanitizedMatchPolicy(request.proximityScope, request.wordMatchMode),
         limit,
         // אפשרויות הטאב — מהן נגזרות קידומות דקדוקיות, כתיב מלא/חסר וכו'.
         // options (הגלובלית) חיונית: מפתחות wordOptions נבנים בטוקניזציה
