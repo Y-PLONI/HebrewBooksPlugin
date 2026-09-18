@@ -89,6 +89,12 @@ function sumHitCounts(results: readonly HebrewBooksResult[]): number {
   return results.reduce((total, result) => total + result.hitCount, 0);
 }
 
+/// טקסט המשתמש להצגה ולהדגשה: בהתאמה חלקית snapshot.query היא שאילתת
+/// אופרטורים שנבנתה עבור המנוע, ואין להראות אותה או להדגיש לפיה.
+function displayQueryOf(snapshot: SearchSnapshot | null | undefined): string {
+  return snapshot ? snapshot.displayQuery ?? snapshot.query : '';
+}
+
 /// null כשאין מזהה מספרי: שרת ישן שולח בספר אישי נתיב יחסי בעברית, ורשומה
 /// שנבנית ממנו נושאת NaN שמגיע לאוצריא כ-null ומרעיל את האינדקס כולו.
 function toIndexEntry(result: HebrewBooksResult, withTitle: boolean): ExternalSearchIndexEntry | null {
@@ -144,7 +150,7 @@ export class AppController {
     );
 
     this.library = new LibraryScreen({
-      onSearch: () => this.dialog.open(this.snapshot?.query ?? ''),
+      onSearch: () => this.dialog.open(displayQueryOf(this.snapshot)),
       onRetry: () => void this.checkHealth(),
     });
 
@@ -155,7 +161,7 @@ export class AppController {
       },
       onEditSearch: () => {
         if (this.snapshot) this.dialog.setOptions(this.snapshot.options);
-        this.dialog.open(this.snapshot?.query ?? '');
+        this.dialog.open(displayQueryOf(this.snapshot));
       },
       onLoadMore: () => void this.loadMoreUnifiedSearch(),
       onOpenResult: (result) => void this.openResult(result),
@@ -954,7 +960,7 @@ export class AppController {
         const opened = await this.otzariaRepository.openBook(
           { id, bookId, type, source },
           result.hit.index,
-          this.snapshot?.query ?? '',
+          displayQueryOf(this.snapshot),
         );
         if (!this.isCurrentResultOpen(openRequestId)) return;
         if (!opened) throw new Error('לא ניתן היה לפתוח את הספר באוצריא');
@@ -974,7 +980,7 @@ export class AppController {
       const opened = await this.otzariaRepository.openBook(
         { external: { provider: 'hebrewbooks', id: externalId } },
         Math.max(0, page - 1),
-        snapshot.query,
+        displayQueryOf(snapshot),
         anchored
           ? undefined
           : { pages: locations.pages, matchedTerms: locations.matchedTerms },
@@ -1003,7 +1009,7 @@ export class AppController {
     }
     if (this.snapshot !== snapshot || page === null) return { page: null, text: null };
     const text = await this.repository.withPdfAccess(result.fileId, (url) =>
-      this.snippets.load(url, result.fileId, page, snapshot.query));
+      this.snippets.load(url, result.fileId, page, displayQueryOf(snapshot)));
     return this.snapshot === snapshot ? { page, text } : { page: null, text: null };
   }
 
@@ -1013,7 +1019,7 @@ export class AppController {
     if (!snapshot) return;
     this.selectedResult = result;
     this.showScreen('viewer');
-    this.viewer.setSearchQuery(snapshot.query);
+    this.viewer.setSearchQuery(displayQueryOf(snapshot));
     try {
       const locations = await this.locateOpeningInBook(snapshot, result.fileId);
       if (!this.isCurrentResultOpen(openRequestId) || this.snapshot !== snapshot) return;
@@ -1055,7 +1061,7 @@ export class AppController {
       const opened = await requireHostData<boolean>(this.bridge, 'reader.openBook', {
         bookId: match.bookId,
         index: 0,
-        searchQuery: this.snapshot && isSimpleSearch(this.snapshot.options) ? this.snapshot.query : '',
+        searchQuery: this.snapshot && isSimpleSearch(this.snapshot.options) ? displayQueryOf(this.snapshot) : '',
       });
       if (!opened) throw new Error('הספר נמצא אך לא ניתן היה לפתוח אותו');
     } catch (error) {
