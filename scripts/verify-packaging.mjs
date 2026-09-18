@@ -45,6 +45,16 @@ assert(
     prepare.includes('Runtime checksum mismatch'),
   'The runtime archive must be verified against the digest GitHub recorded for it.',
 );
+// ה-digest מזהה את הארכיון שהורד, אך לא את גרסתו: תג מתגלגל עשוי להגיש מנוע ישן
+// יותר מזה שהתוסף דורש. הגרסה המוצהרת היא ההגנה היחידה, וללא אכיפה היא הערה בלבד.
+assert(
+  /^[0-9]+\.[0-9]+\.[0-9]+$/.test(dependencies.runtime.version ?? ''),
+  'dependencies.json must declare, as X.Y.Z, the runtime version the plugin expects.',
+);
+assert(
+  prepare.includes('VersionInfo') && prepare.includes('Runtime too old'),
+  'The installer must reject a staged runtime older than the declared runtime.version.',
+);
 // דילוג שקט על הבדיקה כשאין digest הופך אותה לחסרת ערך בדיוק ברגע שהיא נחוצה.
 assert(
   /IsNullOrWhiteSpace\(\$digest\)\)\s*\{[\s\S]{0,400}?throw/.test(prepare) &&
