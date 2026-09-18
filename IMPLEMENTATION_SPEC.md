@@ -392,15 +392,15 @@ hebrewbooks-otzaria-plugin/
 ב־`toHebrewBooksSnapshot`. `/inbook` מקבל את אותו ערך מה־snapshot, ולכן חסום
 באותה צורה.
 
-`distance` של אוצריא ו-`proximity` של hbsearch אינם באותה יחידה: `distance` הוא מספר
-המילים המותר *בין* כל שתי מילות שאילתה (0 = צמודות), ו-`proximity` נמדד מהמילה
-הראשונה לאחרונה. לכן `proximityForOtzariaDistance` מכפיל במספר המרווחים שבשאילתה
-(`(מילים − 1) × (distance + 1)`), ו-`otzariaDistanceForProximity` הוא ההופכי שלו
-לפתיחת טאב החיפוש של אוצריא מהדיאלוג (דרך `settings` של `reader.openSearchTab` —
-המארח מתעלם מ-`distance` ברמה העליונה). כשהטאב מוותר על המרווח (`proximityScope`
-שאינו `wordDistance`, או `wordMatchMode` שאינו `all`) החיפוש רץ ב-`proximity` 30
-בלי `requireWordOrder`. תרגום 1:1 הפך שאילתה של 3+ מילים צמודות לבלתי-אפשרית
-(issue #1427 באוצריא).
+`proximity` הוא מגבלה *לכל צמד סמוך*, לא מרחק מהמילה הראשונה לאחרונה:
+`QueryBuilder.cs` פולט `A w/N B w/N C` עם אותו N בכל הצמדים (שורות 135, 149, 255).
+`w/N` של dtSearch מתיר N−1 מילים בין שתי מילים, ולכן `proximityForOtzariaDistance`
+הוא `distance + 1` בלבד — בלי תלות במספר המילים — ו-`otzariaDistanceForProximity`
+הוא `proximity − 1`, לפתיחת טאב החיפוש של אוצריא מהדיאלוג (דרך `settings` של
+`reader.openSearchTab` — המארח מתעלם מ-`distance` ברמה העליונה). כשהטאב מוותר על
+המרווח (`proximityScope` שאינו `wordDistance`, או `wordMatchMode` שאינו `all`)
+החיפוש רץ ב-`proximity` 30 בלי `requireWordOrder`. הכפל הקודם ב-(מילים − 1) הרחיב
+את החלון יתר על המידה, וגדל עם אורך השאילתה.
 
 ### 11.1.1 מדיניות ההתאמה של הטאב
 
