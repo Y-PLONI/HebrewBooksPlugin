@@ -81,6 +81,12 @@ jobs:
     environment: service-runtime
     permissions:
       contents: read
+    outputs:
+      runtime_release: ${{ steps.runtime.outputs.repo }}@${{ steps.runtime.outputs.tag }}
+      runtime_release_name: ${{ steps.runtime.outputs.name }}
+      runtime_published: ${{ steps.runtime.outputs.published }}
+      runtime_asset: ${{ steps.runtime.outputs.asset }}
+      runtime_sha256: ${{ steps.provenance.outputs.sha256 }}
 
     steps:
       - name: Checkout
@@ -96,10 +102,10 @@ jobs:
         shell: pwsh
         run: choco install innosetup --no-progress -y
 
-      # The search service now comes from a private repository, so without the
-      # token the installer would be built around a runtime it cannot fetch.
-      # Say so here rather than three minutes into the Inno Setup step.
-      - name: Check service repository access
+      # Without the token the installer would be built around a runtime it cannot
+      # fetch, so resolve the release here and record exactly what it resolved to.
+      - name: Resolve service runtime release
+        id: runtime
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.ANGINE_PRIVATE }}
@@ -109,12 +115,38 @@ jobs:
             exit 1
           }
           $release = (Get-Content installer/dependencies.json -Raw | ConvertFrom-Json).runtime.release
-          gh release view $release.tag --repo $release.repo --json tagName | Out-Null
+          $json = gh release view $release.tag --repo $release.repo --json tagName,name,publishedAt,targetCommitish,url,assets
           if ($LASTEXITCODE -ne 0) {
             Write-Output "::error::ANGINE_PRIVATE cannot read release '$($release.tag)' of $($release.repo)."
             exit 1
           }
-          Write-Output "Service runtime source: $($release.repo)@$($release.tag)"
+          $view = $json | ConvertFrom-Json
+          $asset = @($view.assets | Where-Object { $_.name -eq $release.asset })
+          if ($asset.Count -ne 1) {
+            Write-Output "::error::Expected one asset named $($release.asset) in $($release.repo)@$($release.tag), found $($asset.Count)."
+            exit 1
+          }
+          # dependencies.json names a rolling tag, so the dates and the digest are
+          # what actually identify the engine build an installer was made from.
+          function Set-StepOutput([string] $key, $value) {
+            # ConvertFrom-Json returns dates as DateTime; keep them ISO-8601 in UTC.
+            if ($value -is [datetime]) {
+              $value = $value.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ', [cultureinfo]::InvariantCulture)
+            }
+            $flat = ([string] $value) -replace '[\r\n]+', ' '
+            Add-Content -Path $env:GITHUB_OUTPUT -Value "${key}=$flat"
+          }
+          Set-StepOutput 'repo' $release.repo
+          Set-StepOutput 'tag' $view.tagName
+          Set-StepOutput 'name' $view.name
+          Set-StepOutput 'published' $view.publishedAt
+          Set-StepOutput 'commitish' $view.targetCommitish
+          Set-StepOutput 'url' $view.url
+          Set-StepOutput 'asset' $asset[0].name
+          Set-StepOutput 'asset_updated' $asset[0].updatedAt
+          Set-StepOutput 'asset_size' $asset[0].size
+          Set-StepOutput 'published_digest' $asset[0].digest
+          Write-Output "Service runtime source: $($release.repo)@$($view.tagName), asset digest $($asset[0].digest)"
 
       - name: Prepare and compile installer
         shell: pwsh
@@ -138,6 +170,67 @@ jobs:
             -AppVersion $env:VERSION `
             -OutputSuffix $suffix
 
+      - name: Record runtime provenance
+        id: provenance
+        shell: pwsh
+        env:
+          PLUGIN_VERSION: ${{ needs.build-plugin.outputs.version }}
+          RUNTIME_REPO: ${{ steps.runtime.outputs.repo }}
+          RUNTIME_TAG: ${{ steps.runtime.outputs.tag }}
+          RUNTIME_RELEASE_NAME: ${{ steps.runtime.outputs.name }}
+          RUNTIME_PUBLISHED: ${{ steps.runtime.outputs.published }}
+          RUNTIME_COMMITISH: ${{ steps.runtime.outputs.commitish }}
+          RUNTIME_URL: ${{ steps.runtime.outputs.url }}
+          RUNTIME_ASSET: ${{ steps.runtime.outputs.asset }}
+          RUNTIME_ASSET_UPDATED: ${{ steps.runtime.outputs.asset_updated }}
+          RUNTIME_ASSET_SIZE: ${{ steps.runtime.outputs.asset_size }}
+          RUNTIME_PUBLISHED_DIGEST: ${{ steps.runtime.outputs.published_digest }}
+        run: |
+          $dependencies = Get-Content installer/dependencies.json -Raw | ConvertFrom-Json
+          $archive = Join-Path 'installer/staging/downloads' $dependencies.runtime.archive
+          if (-not (Test-Path $archive)) {
+            throw "Staged runtime archive $archive is missing; provenance cannot be recorded."
+          }
+          # Hash the archive that was actually packaged: GitHub does not report a
+          # digest for every asset, and dependencies.json pins no checksum.
+          $sha256 = (Get-FileHash $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+          $provenance = [ordered] @{
+            plugin = [ordered] @{
+              version = $env:PLUGIN_VERSION
+              commit  = $env:GITHUB_SHA
+              runId   = $env:GITHUB_RUN_ID
+            }
+            runtime = [ordered] @{
+              repo            = $env:RUNTIME_REPO
+              tag             = $env:RUNTIME_TAG
+              releaseName     = $env:RUNTIME_RELEASE_NAME
+              releaseUrl      = $env:RUNTIME_URL
+              publishedAt     = $env:RUNTIME_PUBLISHED
+              targetCommitish = $env:RUNTIME_COMMITISH
+              asset           = $env:RUNTIME_ASSET
+              assetUpdatedAt  = $env:RUNTIME_ASSET_UPDATED
+              assetSize       = $env:RUNTIME_ASSET_SIZE
+              publishedDigest = $env:RUNTIME_PUBLISHED_DIGEST
+              sha256          = $sha256
+            }
+          }
+          New-Item build -ItemType Directory -Force | Out-Null
+          $provenance | ConvertTo-Json -Depth 5 | Set-Content build/runtime-provenance.json -Encoding utf8
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "sha256=$sha256"
+          @(
+            '### Search engine packaged by this build',
+            '',
+            '| field | value |',
+            '| --- | --- |',
+            "| release | $($env:RUNTIME_REPO)@$($env:RUNTIME_TAG) |",
+            "| release name | $($env:RUNTIME_RELEASE_NAME) |",
+            "| published | $($env:RUNTIME_PUBLISHED) |",
+            "| target commitish | $($env:RUNTIME_COMMITISH) |",
+            "| asset | $($env:RUNTIME_ASSET), $($env:RUNTIME_ASSET_SIZE) bytes, updated $($env:RUNTIME_ASSET_UPDATED) |",
+            "| digest reported by GitHub | $($env:RUNTIME_PUBLISHED_DIGEST) |",
+            "| SHA-256 of the packaged archive | $sha256 |"
+          ) | Add-Content -Path $env:GITHUB_STEP_SUMMARY
+
       - name: Upload installer build
         uses: actions/upload-artifact@v4
         with:
@@ -145,6 +238,7 @@ jobs:
           path: |
             installer/output/*.exe
             build-input/build/plugin/*.otzplugin
+            build/runtime-provenance.json
           if-no-files-found: error
           retention-days: 14
 
@@ -246,6 +340,7 @@ jobs:
           files: |
             ${{ steps.plugin.outputs.file }}
             release-input/installer/output/*.exe
+            release-input/build/runtime-provenance.json
           body: |
             ## HebrewBooks לאוצריא — ${{ needs.build-plugin.outputs.tag }}
 
@@ -258,4 +353,13 @@ jobs:
             ### Checksum לתוסף
             ```
             SHA-256: ${{ steps.plugin.outputs.sha256 }}
+            ```
+
+            ### מנוע החיפוש שנארז במתקין
+            ```
+            Release:   ${{ needs.build-installer.outputs.runtime_release }}
+            Name:      ${{ needs.build-installer.outputs.runtime_release_name }}
+            Published: ${{ needs.build-installer.outputs.runtime_published }}
+            Asset:     ${{ needs.build-installer.outputs.runtime_asset }}
+            SHA-256:   ${{ needs.build-installer.outputs.runtime_sha256 }}
             ```
