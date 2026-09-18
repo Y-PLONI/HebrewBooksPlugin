@@ -1,6 +1,6 @@
 {
   "runtime": {
-    "version": "3.0.114",
+    "version": "3.0.115",
     "archive": "hbsearch-win-x86.zip",
     "release": {
       "repo": "Y-PLONI/hbsearch",
