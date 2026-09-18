@@ -671,6 +671,7 @@ export class AppController {
     if (strict.pages.length > 0) return strict;
     const fallback: SearchSnapshot = {
       query: snapshot.query,
+      ...(snapshot.displayQuery === undefined ? {} : { displayQuery: snapshot.displayQuery }),
       options: defaultSearchOptions,
       fingerprint: createFingerprint(snapshot.query, defaultSearchOptions),
     };

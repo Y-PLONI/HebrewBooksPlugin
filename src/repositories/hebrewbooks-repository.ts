@@ -407,7 +407,7 @@ export class HebrewBooksRepository {
       body: JSON.stringify({
         fileName: fileId,
         q: snapshot.query,
-        displayQuery: snapshot.query,
+        displayQuery: snapshot.displayQuery ?? snapshot.query,
         proximity: options.proximity,
         fuzziness: options.fuzziness,
         hybur: options.hybur,
