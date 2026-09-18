@@ -6,6 +6,7 @@ import type {
   OtzariaSearchChunk,
   OtzariaSearchResponse,
   ResolvedBook,
+  SearchMatchPolicy,
   SearchOptions,
   SearchSnapshot,
   UnifiedSearchCursor,
@@ -217,12 +218,15 @@ export function sanitizedGlobalOptions(raw: unknown): Record<string, boolean> | 
 export function sanitizedMatchPolicy(
   rawScope: unknown,
   rawWordMatchMode: unknown,
-): Pick<HostSearchRequest, 'proximityScope' | 'wordMatchMode'> {
+  rawWordMatchCount?: unknown,
+): SearchMatchPolicy {
   const scopes = ['wordDistance', 'sameParagraph', 'sameSection'] as const;
   const modes = ['all', 'anyWord', 'mostWords', 'atLeast'] as const;
+  const count = Number(rawWordMatchCount);
   return {
     proximityScope: scopes.find((scope) => scope === rawScope),
     wordMatchMode: modes.find((mode) => mode === rawWordMatchMode),
+    ...(Number.isInteger(count) && count >= 1 ? { wordMatchCount: count } : {}),
   };
 }
 

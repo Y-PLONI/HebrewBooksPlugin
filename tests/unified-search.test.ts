@@ -11,6 +11,7 @@ import {
   mergeUnifiedSearchResponses,
   UnifiedSearchService,
   sanitizedGlobalOptions,
+  sanitizedMatchPolicy,
   sanitizedWordOptions,
   toHebrewBooksSnapshot,
 } from '../src/services/unified-search-service';
@@ -576,5 +577,27 @@ describe('UnifiedSearchService', () => {
     expect(facetMatches('/הלכה', elsewhere)).toBe(false);
     expect(facetMatches(bookFacet, inSubCategory)).toBe(true);
     expect(facetMatches(bookFacet, elsewhere)).toBe(false);
+  });
+});
+
+// מדיניות ההתאמה של הטאב מגיעה מהאירוע כשדות חופשיים (issue #1427).
+describe('Otzaria match policy', () => {
+  it('sanitizedMatchPolicy forwards a usable wordMatchCount and drops the rest', () => {
+    expect(sanitizedMatchPolicy('sameSection', 'atLeast', 3)).toEqual({
+      proximityScope: 'sameSection',
+      wordMatchMode: 'atLeast',
+      wordMatchCount: 3,
+    });
+    for (const count of [undefined, null, 0, -2, 1.5, 'שלוש', {}]) {
+      expect(sanitizedMatchPolicy('sameParagraph', 'mostWords', count)).toEqual({
+        proximityScope: 'sameParagraph',
+        wordMatchMode: 'mostWords',
+      });
+    }
+    expect(sanitizedMatchPolicy('everywhere', 'someWords', 3)).toEqual({
+      proximityScope: undefined,
+      wordMatchMode: undefined,
+      wordMatchCount: 3,
+    });
   });
 });

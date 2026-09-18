@@ -32,6 +32,17 @@ function queryGapCount(query: string): number {
   return Math.max(1, query.trim().split(/\s+/).filter(Boolean).length - 1);
 }
 
+export type SearchProximityScope = 'wordDistance' | 'sameParagraph' | 'sameSection';
+export type SearchWordMatchMode = 'all' | 'anyWord' | 'mostWords' | 'atLeast';
+
+/// מדיניות ההתאמה של טאב החיפוש באוצריא. מארח ותיק אינו שולח אותה, וחסר
+/// פירושו ברירת המחדל: מרווח מילים לפי הסדר, כל המילים.
+export interface SearchMatchPolicy {
+  proximityScope?: SearchProximityScope;
+  wordMatchMode?: SearchWordMatchMode;
+  wordMatchCount?: number;
+}
+
 export interface SearchOptions {
   proximity: number;
   fuzziness: number;
@@ -54,7 +65,10 @@ export interface SearchOptions {
 }
 
 export interface SearchSnapshot {
+  /// השאילתה כפי שהיא נשלחת ל-hbsearch; בהתאמה חלקית היא שאילתת אופרטורים.
   query: string;
+  /// טקסט המשתמש להצגה ולהדגשה, כשהוא שונה מהשאילתה שנשלחה.
+  displayQuery?: string;
   options: SearchOptions;
   fingerprint: string;
 }
@@ -117,9 +131,9 @@ export interface HostSearchRequest {
   limit?: number;
   offset?: number;
   distance?: number;
-  proximityScope?: 'wordDistance' | 'sameParagraph' | 'sameSection';
+  proximityScope?: SearchProximityScope;
   grouping?: 'none' | 'sameSection' | 'identicalText';
-  wordMatchMode?: 'all' | 'anyWord' | 'mostWords' | 'atLeast';
+  wordMatchMode?: SearchWordMatchMode;
   wordMatchCount?: number;
   /** אפשרויות החלות על כל מילות השאילתה; wordOptions גובר עליהן לכל מילה. */
   options?: Record<string, boolean>;
@@ -159,6 +173,7 @@ export interface ExternalSearchRequestedEvent {
   /// מדיניות ההתאמה של הטאב; מארח ותיק אינו שולח אותה (= מרווח מילים, כל המילים).
   proximityScope?: unknown;
   wordMatchMode?: unknown;
+  wordMatchCount?: unknown;
   offset?: number;
   limit?: number;
   ids?: unknown;
