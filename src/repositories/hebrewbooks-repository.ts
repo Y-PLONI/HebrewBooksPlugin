@@ -68,6 +68,10 @@ export class HebrewBooksRepository {
   /// גילוי אחד משותף — מצטרפים אליו במקום לפתוח שני.
   private capabilityProbe: CapabilityProbe | null = null;
   private capabilitiesAt = 0;
+  /// מונה עולה לכל בקשת /health מול המונה של התשובה האחרונה שנקלטה, כדי
+  /// שתשובה ששוגרה לפני מידע חדש יותר שכבר נחת תיזרק במקום לדרוס אותו.
+  private healthIssued = 0;
+  private healthApplied = 0;
 
   constructor(private readonly bridge: HostBridge) {}
 
@@ -91,14 +95,7 @@ export class HebrewBooksRepository {
     const done = (): void => {
       if (this.capabilityProbe === probe) this.capabilityProbe = null;
     };
-    void probe.result.then(
-      (result) => {
-        this.capabilities = result.capabilities;
-        this.capabilitiesAt = Date.now();
-        done();
-      },
-      done,
-    );
+    void probe.result.then(done, done);
     return probe;
   }
 
@@ -132,6 +129,7 @@ export class HebrewBooksRepository {
 
 
   private async requestHealth(signal?: AbortSignal): Promise<HealthProbe> {
+    const generation = ++this.healthIssued;
     const response = await this.fetch('/health', { timeoutMs: healthTimeoutMs }, signal);
     const body = parseJsonRecord(response.body, 'בדיקת השירות');
     if (!response.ok || body.ok !== true || body.service !== 'hbsearch') {
@@ -144,12 +142,8 @@ export class HebrewBooksRepository {
     const apiVersion = typeof body.apiVersion === 'number' ? body.apiVersion : null;
     const modern = apiVersion !== null && apiVersion >= 2;
     const pdfRange = capabilities.includes('pdf-range');
-    // /health מגיע דרך גשר המארח (קריאה נייטיבית), ולכן אתר זדוני אינו יכול לקרוא
-    // את האסימון הזה — וגם iframe בארגז חול לא יוכל לזייף בקשת /pdf קריאה.
-    this.pdfToken = typeof body.pdfToken === 'string' ? body.pdfToken : null;
     const streamV2 = modern && capabilities.includes('search-stream-v2');
-
-    return {
+    const probe: HealthProbe = {
       pdfRangeMissing: modern && !pdfRange,
       status: {
         kind: modern && pdfRange ? 'onlineFull' : 'onlineLegacy',
@@ -160,6 +154,17 @@ export class HebrewBooksRepository {
         cancelV2: streamV2 && capabilities.includes('search-cancel-v2'),
       },
     };
+    // /health מגיע דרך גשר המארח (קריאה נייטיבית), ולכן אתר זדוני אינו יכול לקרוא
+    // את האסימון הזה — וגם iframe בארגז חול לא יוכל לזייף בקשת /pdf קריאה.
+    const token = typeof body.pdfToken === 'string' ? body.pdfToken : null;
+    // תמונת מצב אחת של השירות; רק תשובה חדשה מזו שנקלטה מעדכנת את המצב המשותף.
+    if (generation > this.healthApplied) {
+      this.healthApplied = generation;
+      this.pdfToken = token;
+      this.capabilities = probe.capabilities;
+      this.capabilitiesAt = Date.now();
+    }
+    return probe;
   }
 
   /// כלל תוצאות החיפוש שבמטמון עבור [fingerprint], או null כשאין התאמה.

@@ -257,6 +257,34 @@ describe('גילוי יכולות — עמידות', () => {
     expect(requestsTo(host, '/health')).toHaveLength(2);
   });
 
+  /// אותו מרוץ על הוורדיקט: ורדיקט ישן שנחת אחרון היה מוריד את הסשן ל-v1.
+  it('ורדיקט ישן שנחת אחרי ורדיקט חדש אינו מחזיר את הסשן למסלול הישן', async () => {
+    const gates: Array<(reply: NetworkReply) => void> = [];
+    const host = createMockHost({
+      network: {
+        '/health': () =>
+          new Promise<NetworkReply>((resolve) => {
+            gates.push(resolve);
+          }),
+        '/search': () => ({ bodies: v2Bodies }),
+      },
+    });
+    const repository = new HebrewBooksRepository(host.bridge);
+
+    const first = repository.health();
+    await flush();
+    const second = repository.health();
+    await flush();
+    gates[1]!({ body: JSON.stringify(v2Health) });
+    await second;
+    gates[0]!({ body: JSON.stringify(legacyHealth) });
+    await first;
+    await repository.search(snapshot).catch(() => undefined);
+
+    expect(searchBodies(host)[0]).toMatchObject({ streamVersion: 2 });
+    expect(requestsTo(host, '/health')).toHaveLength(2);
+  });
+
   it('היעדר pdf-range אינו מבטל את זרם v2 ואת הביטול בשרת', async () => {
     const host = createMockHost({
       network: {

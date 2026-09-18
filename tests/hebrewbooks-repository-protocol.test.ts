@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { HostBridge } from '../src/bridge';
 import { defaultSearchOptions, type SearchSnapshot } from '../src/models';
 import { HebrewBooksRepository } from '../src/repositories/hebrewbooks-repository';
-import { createMockHost, hebrewBooksNdjson, hebrewBooksRow } from './helpers/mock-host';
+import { createMockHost, hebrewBooksNdjson, hebrewBooksRow, type NetworkReply } from './helpers/mock-host';
 
 function snapshot(query = 'ברכת המזון'): SearchSnapshot {
   return { query, options: defaultSearchOptions, fingerprint: `${query}\0default` };
@@ -136,6 +136,33 @@ function healthHost(tokens: readonly (string | null)[], slowFromCall = Number.MA
   });
 }
 
+const flush = (): Promise<unknown> => new Promise((resolve) => setTimeout(resolve, 0));
+
+/// כל קריאה ל-/health ממתינה עד ששחרור מפורש קובע את סדר הנחיתה.
+function gatedHealthHost() {
+  const gates: Array<(reply: NetworkReply) => void> = [];
+  const host = createMockHost({
+    network: {
+      '/health': () =>
+        new Promise<NetworkReply>((resolve) => {
+          gates.push(resolve);
+        }),
+    },
+  });
+  const release = (index: number, pdfToken: string): void => {
+    gates[index]!({
+      body: JSON.stringify({
+        ok: true,
+        service: 'hbsearch',
+        apiVersion: 2,
+        capabilities: ['pdf-range'],
+        pdfToken,
+      }),
+    });
+  };
+  return { host, release };
+}
+
 describe('אסימון הגישה ל-/pdf', () => {
   it('מצורף לכתובת אחרי שנקרא מ-/health', async () => {
     const repository = new HebrewBooksRepository(healthHost(['ABC123']).bridge);
@@ -219,6 +246,26 @@ describe('אסימון הגישה ל-/pdf', () => {
       return 'recovered';
     }).catch(() => 'stale');
     expect(outcome).toBe('recovered');
+  });
+
+  /// מרוץ הבדיקות: בדיקה שיצאה ראשונה ונחתה אחרונה נושאת אסימון מיושן.
+  it('בדיקת שירות ישנה שנחתה אחרי חדשה אינה דורסת את האסימון החדש', async () => {
+    const { host, release } = gatedHealthHost();
+    const repository = new HebrewBooksRepository(host.bridge);
+
+    const first = repository.health();
+    await flush();
+    const second = repository.health();
+    await flush();
+    release(1, 'NEW');
+    await second;
+    expect(repository.pdfUrl('7')).toBe('http://127.0.0.1:8080/pdf/7?pdfToken=NEW');
+
+    release(0, 'OLD');
+    await first;
+
+    expect(repository.pdfUrl('7')).toBe('http://127.0.0.1:8080/pdf/7?pdfToken=NEW');
+    expect(host.countOf('network.fetchStream')).toBe(2);
   });
 
   it('אסימון שלא התחלף אינו מצדיק ניסיון שני', async () => {
