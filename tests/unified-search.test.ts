@@ -651,6 +651,12 @@ describe('Otzaria match policy as a hbsearch query', () => {
     );
   });
 
+  it('counts distinct words for the threshold, as the Otzaria engine merges repeats', () => {
+    // "רוב" משתי מילים ייחודיות הוא שתיהן — השאילתה הרגילה, ולא צירופי זוגות.
+    expect(queryOf({ wordMatchMode: 'mostWords' }, 'ברכת ברכת המזון')).toBe('ברכת ברכת המזון');
+    expect(queryOf({ wordMatchMode: 'anyWord' }, 'ברכת ברכת המזון')).toBe('ברכת or המזון');
+  });
+
   it('expands atLeast to the combinations of the requested size', () => {
     expect(queryOf({ wordMatchMode: 'atLeast', wordMatchCount: 2 })).toBe(
       '(ברוך w/30 אתה) or (ברוך w/30 השם) or (ברוך w/30 אלוקינו)'

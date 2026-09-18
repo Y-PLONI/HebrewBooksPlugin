@@ -55,8 +55,8 @@ export function scopeProximity(scope: SearchProximityScope | undefined): number 
 /// דיסיונקציה פשוטה הייתה מחפשת "מילה כלשהי" במקום "רוב המילים".
 export const maximumMatchCombinations = 128;
 
-/// כמה ממילות השאילתה חייבות להופיע, ביחידות של המנוע של אוצריא:
-/// רוב = n/2+1 בחלוקה שלמה, "לפחות X" נחתך ל-[1, n].
+/// כמה ממילות השאילתה חייבות להופיע, ביחידות של המנוע של אוצריא (על
+/// המילים הייחודיות): רוב = n/2+1 בחלוקה שלמה, "לפחות X" נחתך ל-[1, n].
 export function requiredWordCount(
   words: number,
   mode: SearchWordMatchMode | undefined,
@@ -109,14 +109,16 @@ function unsupportedMatchMessage(required: number, words: number): string {
     + 'השאילתה או לבחור "כל המילים".';
 }
 
-/// גרשיים מוסרים כמו שהבנאי של hbsearch עושה למילה הבסיסית; בשאילתת
-/// אופרטורים הם היו נקראים כתחילת ביטוי.
+/// גרשיים מוסרים כמו שהבנאי של hbsearch עושה למילה הבסיסית; מילה כפולה
+/// מתמזגת, כי גם אוצריא מודדת את הסף במילים ייחודיות.
 function matchWords(query: string): string[] {
-  return query
-    .trim()
-    .split(/\s+/)
-    .map((word) => word.replace(/["'׳״()]/g, ''))
-    .filter(Boolean);
+  return [...new Set(
+    query
+      .trim()
+      .split(/\s+/)
+      .map((word) => word.replace(/["'׳״()]/g, ''))
+      .filter(Boolean),
+  )];
 }
 
 function combinationCount(words: number, size: number): number {
