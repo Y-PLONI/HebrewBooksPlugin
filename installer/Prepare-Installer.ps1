@@ -119,6 +119,57 @@ foreach ($required in @(
     throw "The runtime archive is missing $required."
   }
 }
+
+# Accepts '3.0.115', '3.0.115.0' and '3.0.115-beta2+<sha>'; $null when unparseable.
+function ConvertTo-RuntimeVersion([string] $text) {
+  if ([string]::IsNullOrWhiteSpace($text) -or
+    $text.Trim() -notmatch '^(\d+(?:\.\d+){0,3})(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$') {
+    return $null
+  }
+  $parts = @($Matches[1] -split '\.') + @('0', '0', '0', '0')
+  [pscustomobject] @{
+    Version    = [version] ($parts[0..3] -join '.')
+    Prerelease = if ($Matches.ContainsKey(2)) { $Matches[2] } else { '' }
+  }
+}
+
+# The runtime comes from a rolling tag, so a plugin pushed before the service has
+# republished it would otherwise be packaged around an engine older than it needs.
+$declaredText = if ($dependencies.runtime.PSObject.Properties.Name -contains 'version') {
+  $dependencies.runtime.version
+} else { '' }
+$declared = ConvertTo-RuntimeVersion $declaredText
+if ($null -eq $declared) {
+  throw "dependencies.json declares no usable runtime.version (found '$declaredText')."
+}
+
+$stampedInfo = (Get-Item (Join-Path $runtimeRoot 'hbsearch.exe')).VersionInfo
+# ProductVersion carries the full SemVer; FileVersion is the four-part fallback.
+$stampedText = $stampedInfo.ProductVersion
+$staged = ConvertTo-RuntimeVersion $stampedText
+if ($null -eq $staged) {
+  $stampedText = $stampedInfo.FileVersion
+  $staged = ConvertTo-RuntimeVersion $stampedText
+}
+
+if ($null -eq $staged) {
+  # An engine we cannot identify is exactly the case this check exists for.
+  if (-not $AllowUnverifiedRuntime) {
+    throw "The staged hbsearch.exe carries no readable version (FileVersion '$($stampedInfo.FileVersion)', ProductVersion '$($stampedInfo.ProductVersion)'), so it cannot be checked against the $declaredText dependencies.json declares. Pass -AllowUnverifiedRuntime to build anyway."
+  }
+  Write-Warning "The staged hbsearch.exe carries no readable version; building unverified because -AllowUnverifiedRuntime was given."
+}
+else {
+  # Newer than declared is fine; older is the failure. A prerelease of the
+  # declared version is not the declared version.
+  $isOlder = ($staged.Version -lt $declared.Version) -or
+    (($staged.Version -eq $declared.Version) -and $staged.Prerelease -and (-not $declared.Prerelease))
+  if ($isOlder) {
+    throw "Runtime too old. dependencies.json declares runtime.version $declaredText, but the staged hbsearch.exe reports $stampedText. $($dependencies.runtime.release.repo)@$($dependencies.runtime.release.tag) has probably not been republished yet; rebuild once it has, or pass -RuntimeArchive with an engine that is $declaredText or newer."
+  }
+  Write-Host "Runtime version: $stampedText (declared: $declaredText or newer)"
+}
+
 Write-Host "Runtime staged: $((Get-ChildItem $runtimeRoot -Recurse -File).Count) files"
 
 $serviceExecutable = Join-Path $serviceRoot 'HebrewBooksSearchService.exe'
