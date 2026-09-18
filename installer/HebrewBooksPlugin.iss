@@ -55,8 +55,8 @@ Root: HKLM; Subkey: "Software\Otzaria\HebrewBooksSearch"; ValueType: string; Val
 Filename: "powershell.exe"; Parameters: "-NoProfile -NonInteractive -ExecutionPolicy Bypass -File ""{app}\installer\Install-OtzariaPlugin.ps1"" -PluginPath ""{app}\plugin\{#PluginArchive}"""; Description: "התקן את התוסף באוצריא"; Flags: postinstall runhidden waituntilterminated skipifsilent runasoriginaluser
 
 [UninstallRun]
-Filename: "{app}\{#ServiceExecutable}"; Parameters: "stop"; Flags: runhidden waituntilterminated skipifdoesntexist
-Filename: "{app}\{#ServiceExecutable}"; Parameters: "uninstall"; Flags: runhidden waituntilterminated skipifdoesntexist
+Filename: "{app}\{#ServiceExecutable}"; Parameters: "stop"; RunOnceId: "StopSearchService"; Flags: runhidden waituntilterminated skipifdoesntexist
+Filename: "{app}\{#ServiceExecutable}"; Parameters: "uninstall"; RunOnceId: "RemoveSearchService"; Flags: runhidden waituntilterminated skipifdoesntexist
 
 [UninstallDelete]
 Type: files; Name: "{app}\{#ServiceBaseName}.xml"
