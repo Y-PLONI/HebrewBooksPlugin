@@ -38,6 +38,7 @@ import {
   toHebrewBooksSnapshot,
 } from './services/unified-search-service';
 import { applyTheme } from './theme';
+import { externalIdOf } from './utils/personal-id';
 import { outdatedServiceMessage } from './utils/service-version';
 
 type Screen = 'library' | 'results' | 'viewer';
@@ -88,8 +89,11 @@ function sumHitCounts(results: readonly HebrewBooksResult[]): number {
   return results.reduce((total, result) => total + result.hitCount, 0);
 }
 
-function toIndexEntry(result: HebrewBooksResult, withTitle: boolean): ExternalSearchIndexEntry {
-  const id = Number(result.fileId);
+/// null כשאין מזהה מספרי: שרת ישן שולח בספר אישי נתיב יחסי בעברית, ורשומה
+/// שנבנית ממנו נושאת NaN שמגיע לאוצריא כ-null ומרעיל את האינדקס כולו.
+function toIndexEntry(result: HebrewBooksResult, withTitle: boolean): ExternalSearchIndexEntry | null {
+  const id = externalIdOf(result.fileId);
+  if (id === null) return null;
   const category = mapHebrewBooksCategory(result.categories);
   if (withTitle) return [id, result.hitCount, category ?? '', result.bookName];
   return category === null ? [id, result.hitCount] : [id, result.hitCount, category];
@@ -477,7 +481,9 @@ export class AppController {
     const cacheKey = withTitles ? `${fingerprint}|t` : fingerprint;
     const cached = this.refinedIndexCache.get(cacheKey);
     if (cached) return cached;
-    const base = all.map((result) => toIndexEntry(result, withTitles));
+    const base = all
+      .map((result) => toIndexEntry(result, withTitles))
+      .filter((entry): entry is ExternalSearchIndexEntry => entry !== null);
     let refined = base;
     try {
       const mapping = await this.catalogMapping.findBestOtzariaIdsBulk(
