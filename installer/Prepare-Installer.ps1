@@ -11,7 +11,11 @@ param(
   # A runtime archive already on disk. Without it the archive is fetched from
   # the private service repository named in dependencies.json, which needs a
   # token in GH_TOKEN.
-  [string] $RuntimeArchive = ''
+  [string] $RuntimeArchive = '',
+
+  # Accept a downloaded runtime that GitHub reports no digest for. The supported
+  # way to build without the digest check is -RuntimeArchive, with a copy you trust.
+  [switch] $AllowUnverifiedRuntime
 )
 
 $ErrorActionPreference = 'Stop'
@@ -70,9 +74,15 @@ else {
   if ($asset.Count -ne 1) {
     throw "Expected one asset named $($release.asset), found $($asset.Count)."
   }
-  $digest = $asset[0].digest
+  # An older gh omits the field entirely, which Set-StrictMode turns into an
+  # unrelated-looking error; treat that the same as an empty digest.
+  $digest = if ($asset[0].PSObject.Properties.Name -contains 'digest') { $asset[0].digest } else { '' }
   if ([string]::IsNullOrWhiteSpace($digest)) {
-    Write-Warning "GitHub reported no digest for $($release.asset); skipping the integrity check."
+    # Shipping an unverified runtime is worse than not shipping one.
+    if (-not $AllowUnverifiedRuntime) {
+      throw "GitHub reported no digest for $($release.asset), so the download cannot be verified. Pass -RuntimeArchive with a copy you trust, or -AllowUnverifiedRuntime to build anyway."
+    }
+    Write-Warning "GitHub reported no digest for $($release.asset); building unverified because -AllowUnverifiedRuntime was given."
   }
   else {
     $expectedRuntimeHash = ($digest -replace '^sha256:', '').ToLowerInvariant()

@@ -45,6 +45,12 @@ assert(
     prepare.includes('Runtime checksum mismatch'),
   'The runtime archive must be verified against the digest GitHub recorded for it.',
 );
+// דילוג שקט על הבדיקה כשאין digest הופך אותה לחסרת ערך בדיוק ברגע שהיא נחוצה.
+assert(
+  /IsNullOrWhiteSpace\(\$digest\)\)\s*\{[\s\S]{0,400}?throw/.test(prepare) &&
+    prepare.includes('[switch] $AllowUnverifiedRuntime'),
+  'A runtime with no digest must stop the build unless the check is waived explicitly.',
+);
 assert(
   workflow.includes('secrets.ANGINE_PRIVATE'),
   'The installer build must authenticate to the private service repository.',
