@@ -84,7 +84,7 @@ describe('מסך התוצאות — איתור עצלני של עמוד לגזי
     await vi.waitFor(() => expect(shell.querySelector('.hebrewbooks-snippet')?.textContent).toContain('עמוד 12 ·'));
     expect(shell.querySelector('.hebrewbooks-snippet')?.textContent).toContain('ברכת המזון');
     expect(inBookCalls(host)).toHaveLength(1);
-    expect(JSON.parse(String(inBookCalls(host)[0]?.body))).toMatchObject({ fileName: '43558', proximity: 5 });
+    expect(JSON.parse(String(inBookCalls(host)[0]?.body))).toMatchObject({ fileName: '43558', proximity: 6 });
     expect(pdf.pages).toEqual([12]);
   });
 

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { HostBridge } from '../src/bridge';
 import type { OtzariaSearchChunk } from '../src/models';
+import { defaultSearchOptions } from '../src/models';
 import { OtzariaSearchRepository } from '../src/repositories/otzaria-search-repository';
 
 describe('OtzariaSearchRepository', () => {
@@ -107,22 +108,31 @@ describe('OtzariaSearchRepository', () => {
       };
     }
 
-    it('מעביר את המרווח שנבחר בדיאלוג לטאב המובנה', async () => {
+    it('מעביר את הגדרות הדיאלוג בתוך settings, ביחידות של אוצריא', async () => {
       const payloads: Record<string, unknown>[] = [];
-      await new OtzariaSearchRepository(bridgeRecording(payloads)).openSearchTab('ברכת המזון', 30);
+      await new OtzariaSearchRepository(bridgeRecording(payloads)).openSearchTab('ברכת המזון', {
+        ...defaultSearchOptions,
+        proximity: 2,
+        hybur: true,
+        spelling: true,
+      });
       expect(payloads).toEqual([
-        { query: 'ברכת המזון', selectItems: ['include-hebrewbooks'], distance: 30 },
+        {
+          query: 'ברכת המזון',
+          selectItems: ['include-hebrewbooks'],
+          settings: { distance: 1, options: { 'קידומות דקדוקיות': true, 'כתיב מלא/חסר': true } },
+        },
       ]);
     });
 
-    it('בלי מרווח (או ערך לא-מספרי) השדה מושמט — תאימות למארח ותיק', async () => {
+    it('בלי הגדרות settings מושמט; בלי הרחבות options מושמט', async () => {
       const payloads: Record<string, unknown>[] = [];
       const repository = new OtzariaSearchRepository(bridgeRecording(payloads));
       await repository.openSearchTab('ברכת המזון');
-      await repository.openSearchTab('ברכת המזון', Number.NaN);
+      await repository.openSearchTab('ברכת המזון', defaultSearchOptions);
       expect(payloads).toEqual([
         { query: 'ברכת המזון', selectItems: ['include-hebrewbooks'] },
-        { query: 'ברכת המזון', selectItems: ['include-hebrewbooks'] },
+        { query: 'ברכת המזון', selectItems: ['include-hebrewbooks'], settings: { distance: 29 } },
       ]);
     });
   });

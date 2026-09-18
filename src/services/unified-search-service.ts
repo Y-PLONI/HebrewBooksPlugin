@@ -12,7 +12,7 @@ import type {
   UnifiedSearchResponse,
   UnifiedSearchResult,
 } from '../models';
-import { clampProximity } from '../models';
+import { maximumProximity, proximityForOtzariaDistance } from '../models';
 
 const hebrewBooksFallbackCategory = 'ספרי היברובוקס';
 const otzariaFallbackCategory = 'ספרי אוצריא';
@@ -200,6 +200,19 @@ export function sanitizedGlobalOptions(raw: unknown): Record<string, boolean> | 
   return sanitized;
 }
 
+/// מדיניות ההתאמה מאירוע של המארח; ערך לא מוכר נחשב כאילו לא נשלח.
+export function sanitizedMatchPolicy(
+  rawScope: unknown,
+  rawWordMatchMode: unknown,
+): Pick<HostSearchRequest, 'proximityScope' | 'wordMatchMode'> {
+  const scopes = ['wordDistance', 'sameParagraph', 'sameSection'] as const;
+  const modes = ['all', 'anyWord', 'mostWords', 'atLeast'] as const;
+  return {
+    proximityScope: scopes.find((scope) => scope === rawScope),
+    wordMatchMode: modes.find((mode) => mode === rawWordMatchMode),
+  };
+}
+
 /// מפת wordOptions מאירוע של המארח מגיעה כ-JSON חופשי; מוחזרת רק כשצורתה
 /// תקינה (אובייקט של אובייקטים), אחרת undefined — כאילו לא נשלחה.
 export function sanitizedWordOptions(
@@ -220,10 +233,15 @@ export function sanitizedWordOptions(
 }
 
 export function toHebrewBooksSnapshot(request: HostSearchRequest): SearchSnapshot {
+  // "באותה פסקה"/"תחת אותה כותרת" והתאמה חלקית מוותרים באוצריא על מרווח ועל
+  // סדר — מתורגמים לחלון המרבי בלי סדר, ולא למרווח ש-UI של אוצריא השבית.
+  const wideMatch = (request.proximityScope ?? 'wordDistance') !== 'wordDistance'
+    || (request.wordMatchMode ?? 'all') !== 'all';
   const options: SearchOptions = {
-    // אוצריא משתמשת ב־0 למילים סמוכות; hbsearch דורש מספר חיובי ואינו כופה
-    // תקרה, ולכן חוסמים ב־maximumProximity (הטווח שהשירות תומך בו בפועל).
-    proximity: clampProximity(request.distance ?? 0),
+    // במקורב distance הוא מרחק עריכה, והמילים עצמן צמודות.
+    proximity: wideMatch
+      ? maximumProximity
+      : proximityForOtzariaDistance(request.mode === 'fuzzy' ? 0 : request.distance, request.query),
     fuzziness: request.mode === 'fuzzy' ? Math.min(2, request.distance ?? 2) : 0,
     max: maximumHebrewBooksResults,
     limit: Math.min(500, Math.max(1, request.limit ?? 100)),
@@ -240,7 +258,7 @@ export function toHebrewBooksSnapshot(request: HostSearchRequest): SearchSnapsho
     rashetevot: sharedOptionEnabled(request, 'ראשי תיבות'),
     firstWord: false,
     lastWord: false,
-    requireWordOrder: true,
+    requireWordOrder: !wideMatch,
     rashiOcr: false,
   };
   return {

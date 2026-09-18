@@ -181,7 +181,24 @@ describe('ספק התוצאות החיצוני — אימות הבקשה', () =>
           .find((payload) => String(payload?.url).endsWith('/search'))?.body,
       ),
     );
-    expect(searchBody).toMatchObject({ proximity: 2, hybur: false, spelling: false });
+    expect(searchBody).toMatchObject({ proximity: 3, hybur: false, spelling: false });
+  });
+
+  it('טווח "באותה פסקה" מהטאב מחפש בחלון המרבי בלי סדר מילים', async () => {
+    const host = await bootController({ network: singleRowNetwork });
+    host.emit(
+      'search.external.requested',
+      externalRequest({ mode: 'advanced', distance: 0, proximityScope: 'sameParagraph', wordMatchMode: 'all' }),
+    );
+    await finalResponse(host);
+    const searchBody = JSON.parse(
+      String(
+        host
+          .payloadsOf('network.fetchStream')
+          .find((payload) => String(payload?.url).endsWith('/search'))?.body,
+      ),
+    );
+    expect(searchBody).toMatchObject({ proximity: 30, requireWordOrder: false });
   });
 
   it('כשל של שירות החיפוש מוחזר כשגיאה למדור', async () => {

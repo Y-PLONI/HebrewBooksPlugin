@@ -392,6 +392,16 @@ hebrewbooks-otzaria-plugin/
 ב־`toHebrewBooksSnapshot`. `/inbook` מקבל את אותו ערך מה־snapshot, ולכן חסום
 באותה צורה.
 
+`distance` של אוצריא ו-`proximity` של hbsearch אינם באותה יחידה: `distance` הוא מספר
+המילים המותר *בין* כל שתי מילות שאילתה (0 = צמודות), ו-`proximity` נמדד מהמילה
+הראשונה לאחרונה. לכן `proximityForOtzariaDistance` מכפיל במספר המרווחים שבשאילתה
+(`(מילים − 1) × (distance + 1)`), ו-`otzariaDistanceForProximity` הוא ההופכי שלו
+לפתיחת טאב החיפוש של אוצריא מהדיאלוג (דרך `settings` של `reader.openSearchTab` —
+המארח מתעלם מ-`distance` ברמה העליונה). כשהטאב מוותר על המרווח (`proximityScope`
+שאינו `wordDistance`, או `wordMatchMode` שאינו `all`) החיפוש רץ ב-`proximity` 30
+בלי `requireWordOrder`. תרגום 1:1 הפך שאילתה של 3+ מילים צמודות לבלתי-אפשרית
+(issue #1427 באוצריא).
+
 ### 11.2 ברירות מחדל
 
 | הגדרה | ברירת מחדל |

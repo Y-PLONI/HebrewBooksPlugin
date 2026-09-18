@@ -1,6 +1,6 @@
 import type { HostBridge } from '../bridge';
 import { requireHostData } from '../bridge';
-import { hebrewBooksProvider } from '../models';
+import { hebrewBooksProvider, otzariaDistanceForProximity } from '../models';
 import type {
   ExternalSearchIndexEntry,
   ExternalSearchResultPayload,
@@ -9,6 +9,7 @@ import type {
   OtzariaSearchChunk,
   OtzariaSearchHit,
   ResolvedBook,
+  SearchOptions,
 } from '../models';
 
 export class OtzariaSearchRepository {
@@ -103,13 +104,13 @@ export class OtzariaSearchRepository {
   }
 
   /// פותח כרטיסיית חיפוש מובנית באוצריא עם שורת ההיברובוקס מסומנת —
-  /// התוצאות יוצגו שם דרך ספק התוצאות החיצוני. `distance` מעביר את
-  /// המרווח שנבחר בדיאלוג התוסף (מארח ותיק מתעלם ופותח עם מרווח 0).
-  async openSearchTab(query: string, distance?: number): Promise<void> {
+  /// התוצאות יוצגו שם דרך ספק התוצאות החיצוני. הגדרות הדיאלוג עוברות רק
+  /// בתוך `settings` — המארח מתעלם משדות אחרים ופותח במרווח 0.
+  async openSearchTab(query: string, options?: SearchOptions): Promise<void> {
     await requireHostData<boolean>(this.bridge, 'reader.openSearchTab', {
       query,
       selectItems: ['include-hebrewbooks'],
-      ...(Number.isFinite(distance) ? { distance } : {}),
+      ...(options ? { settings: otzariaTabSettings(query, options) } : {}),
     });
   }
 
@@ -231,4 +232,21 @@ function chunk<T>(items: T[], size: number): T[][] {
   const result: T[][] = [];
   for (let index = 0; index < items.length; index += size) result.push(items.slice(index, index + size));
   return result;
+}
+
+/// הגדרות הדיאלוג ביחידות של אוצריא: המרווח מתורגם כך שהמדור החיצוני יחזיר
+/// את אותו proximity, וההרחבות המשותפות לשני המנועים עוברות כאפשרויות גלובליות.
+export function otzariaTabSettings(
+  query: string,
+  options: SearchOptions,
+): { distance: number; options?: Record<string, boolean> } {
+  const shared: Record<string, boolean> = {};
+  if (options.hybur) shared['קידומות דקדוקיות'] = true;
+  if (options.spelling) shared['כתיב מלא/חסר'] = true;
+  if (options.aramaic) shared['תרגום ארמי'] = true;
+  if (options.rashetevot) shared['ראשי תיבות'] = true;
+  return {
+    distance: otzariaDistanceForProximity(options.proximity, query),
+    ...(Object.keys(shared).length > 0 ? { options: shared } : {}),
+  };
 }
