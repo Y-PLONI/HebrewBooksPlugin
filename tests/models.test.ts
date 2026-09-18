@@ -6,6 +6,9 @@ import {
   maximumMatchCombinations,
   maximumProximity,
   minimumProximity,
+  paragraphProximity,
+  scopeProximity,
+  sectionProximity,
 } from '../src/models';
 
 describe('clampProximity', () => {
@@ -49,6 +52,19 @@ describe('defaultSearchOptions', () => {
   });
 });
 
+describe('scopeProximity', () => {
+  it('לכל טווח קרבה חלון משלו, והסעיף רחב מהפסקה', () => {
+    expect(scopeProximity('sameParagraph')).toBe(paragraphProximity);
+    expect(scopeProximity('sameSection')).toBe(sectionProximity);
+    expect(sectionProximity).toBeGreaterThan(paragraphProximity);
+  });
+
+  it('בהתאמה חלקית אוצריא מתאימה ברזולוציית הפסקה — וכך גם wordDistance', () => {
+    expect(scopeProximity('wordDistance')).toBe(paragraphProximity);
+    expect(scopeProximity(undefined)).toBe(paragraphProximity);
+  });
+});
+
 describe('hebrewBooksMatchQuery', () => {
   const words = ['אלף', 'בית', 'גימל', 'דלת', 'הא'];
 
@@ -75,6 +91,12 @@ describe('hebrewBooksMatchQuery', () => {
 
       expect(new Set(keys)).toEqual(subsets(required));
       expect(keys).toHaveLength(new Set(keys).size);
+    }
+  });
+
+  it('"כל המילים" בכל טווח הוא השאילתה הרגילה, שהבנאי של hbsearch מרחיב', () => {
+    for (const proximityScope of ['wordDistance', 'sameParagraph', 'sameSection'] as const) {
+      expect(hebrewBooksMatchQuery(words.join(' '), { proximityScope })).toEqual({ query: '' });
     }
   });
 

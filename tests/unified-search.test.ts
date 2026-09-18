@@ -17,7 +17,7 @@ import {
   toHebrewBooksSnapshot,
 } from '../src/services/unified-search-service';
 import { buildCategoryTree, collectBooks, facetMatches } from '../src/screens/results-screen';
-import { otzariaDistanceForProximity } from '../src/models';
+import { otzariaDistanceForProximity, paragraphProximity, sectionProximity } from '../src/models';
 
 const request: HostSearchRequest = {
   query: 'חכמה בינה',
@@ -135,14 +135,14 @@ describe('UnifiedSearchService', () => {
     expect(snapshot.options).toMatchObject({ proximity: 1, fuzziness: 2 });
   });
 
-  it('searches the widest unordered window when Otzaria waives the word spacing', () => {
-    for (const policy of [
-      { proximityScope: 'sameParagraph' as const },
-      { proximityScope: 'sameSection' as const },
-      { wordMatchMode: 'mostWords' as const },
-    ]) {
+  it('searches the window of the requested scope when Otzaria waives the word spacing', () => {
+    for (const [policy, proximity] of [
+      [{ proximityScope: 'sameParagraph' as const }, paragraphProximity],
+      [{ proximityScope: 'sameSection' as const }, sectionProximity],
+      [{ wordMatchMode: 'mostWords' as const }, paragraphProximity],
+    ] as const) {
       const snapshot = toHebrewBooksSnapshot({ ...request, distance: 0, ...policy });
-      expect(snapshot.options).toMatchObject({ proximity: 30, requireWordOrder: false });
+      expect(snapshot.options).toMatchObject({ proximity, requireWordOrder: false });
     }
     expect(
       toHebrewBooksSnapshot({ ...request, distance: 0, proximityScope: 'wordDistance', wordMatchMode: 'all' })
@@ -611,11 +611,19 @@ describe('Otzaria match policy as a hbsearch query', () => {
     expect(snapshot.options).toMatchObject({ proximity: 30, requireWordOrder: false });
   });
 
-  it('maps "same section" to a whole-book and, the only unit larger than the window', () => {
+  it('searches "same section" in a section-sized window, not across the whole book', () => {
     const snapshot = toHebrewBooksSnapshot({ query, proximityScope: 'sameSection' });
 
-    expect(snapshot.query).toBe('ברוך and אתה and השם and אלוקינו');
-    expect(snapshot.displayQuery).toBe(query);
+    // and על פני המסמך החזיר ספרים שהמילים בהם בפרקים שאינם קשורים זה לזה.
+    expect(snapshot.query).toBe(query);
+    expect(snapshot.displayQuery).toBeUndefined();
+    expect(snapshot.options).toMatchObject({ proximity: sectionProximity, requireWordOrder: false });
+  });
+
+  it('keeps the section window wider than the paragraph window, and both under the book', () => {
+    expect(sectionProximity).toBeGreaterThan(paragraphProximity);
+    expect(toHebrewBooksSnapshot({ query, proximityScope: 'sameParagraph' }).options.proximity)
+      .toBe(paragraphProximity);
   });
 
   it('maps anyWord to a disjunction in every scope', () => {
@@ -637,9 +645,9 @@ describe('Otzaria match policy as a hbsearch query', () => {
     );
   });
 
-  it('joins the combinations of "most words under the same heading" with and', () => {
+  it('joins the combinations of "most words under the same heading" with the section window', () => {
     expect(queryOf({ wordMatchMode: 'mostWords', proximityScope: 'sameSection' }, 'ברוך אתה השם')).toBe(
-      '(ברוך and אתה) or (ברוך and השם) or (אתה and השם)',
+      '(ברוך w/300 אתה) or (ברוך w/300 השם) or (אתה w/300 השם)',
     );
   });
 
@@ -655,9 +663,7 @@ describe('Otzaria match policy as a hbsearch query', () => {
   it('clamps atLeast to the number of query words, which is the plain search again', () => {
     expect(queryOf({ wordMatchMode: 'atLeast', wordMatchCount: 9 })).toBe(query);
     expect(queryOf({ wordMatchMode: 'atLeast', wordMatchCount: 0 })).toBe('ברוך or אתה or השם or אלוקינו');
-    expect(queryOf({ wordMatchMode: 'atLeast', wordMatchCount: 9, proximityScope: 'sameSection' })).toBe(
-      'ברוך and אתה and השם and אלוקינו',
-    );
+    expect(queryOf({ wordMatchMode: 'atLeast', wordMatchCount: 9, proximityScope: 'sameSection' })).toBe(query);
   });
 
   it('expands "most of eight words" instead of degrading it to a disjunction', () => {

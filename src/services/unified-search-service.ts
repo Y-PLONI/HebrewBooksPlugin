@@ -13,7 +13,7 @@ import type {
   UnifiedSearchResponse,
   UnifiedSearchResult,
 } from '../models';
-import { hebrewBooksMatchQuery, maximumProximity, proximityForOtzariaDistance } from '../models';
+import { hebrewBooksMatchQuery, proximityForOtzariaDistance, scopeProximity } from '../models';
 
 const hebrewBooksFallbackCategory = 'ספרי היברובוקס';
 const otzariaFallbackCategory = 'ספרי אוצריא';
@@ -251,16 +251,16 @@ export function sanitizedWordOptions(
 
 export function toHebrewBooksSnapshot(request: HostSearchRequest): SearchSnapshot {
   // "באותה פסקה"/"תחת אותה כותרת" והתאמה חלקית מוותרים באוצריא על מרווח ועל
-  // סדר — מתורגמים לחלון המרבי בלי סדר, ולא למרווח ש-UI של אוצריא השבית.
+  // סדר — מתורגמים לחלון של הטווח בלי סדר, ולא למרווח ש-UI של אוצריא השבית.
   const wideMatch = (request.proximityScope ?? 'wordDistance') !== 'wordDistance'
     || (request.wordMatchMode ?? 'all') !== 'all';
   const displayQuery = request.query.trim();
-  // התאמה חלקית, ו"תחת אותה כותרת", אינן ניתנות לביטוי באפשרויות — רק בשאילתה.
+  // התאמה חלקית אינה ניתנת לביטוי באפשרויות — רק בשאילתת אופרטורים.
   const match = hebrewBooksMatchQuery(displayQuery, request);
   const options: SearchOptions = {
     // במקורב distance הוא מרחק עריכה, והמילים עצמן צמודות.
     proximity: wideMatch
-      ? maximumProximity
+      ? scopeProximity(request.proximityScope)
       : proximityForOtzariaDistance(request.mode === 'fuzzy' ? 0 : request.distance),
     fuzziness: request.mode === 'fuzzy' ? Math.min(2, request.distance ?? 2) : 0,
     max: maximumHebrewBooksResults,

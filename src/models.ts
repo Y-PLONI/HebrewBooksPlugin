@@ -38,6 +38,19 @@ export interface SearchMatchPolicy {
   wordMatchCount?: number;
 }
 
+/// חלון "באותה פסקה": לאינדקס של dtSearch אין פסקה, והיחידה היחידה שקטנה
+/// מהספר היא חלון מילים — זה הרחב שבהם שעדיין נחשב "מרחק בין מילים".
+export const paragraphProximity = maximumProximity;
+
+/// חלון "תחת אותה כותרת": כעמוד דפוס — הרבה מעל פסקה, והרבה מתחת לספר.
+export const sectionProximity = 300;
+
+/// חלון המילים של טווח הקרבה; בהתאמה חלקית אוצריא מוותרת על המרווח ומתאימה
+/// ברזולוציית הפסקה, ולכן גם wordDistance מקבל שם את חלון הפסקה.
+export function scopeProximity(scope: SearchProximityScope | undefined): number {
+  return scope === 'sameSection' ? sectionProximity : paragraphProximity;
+}
+
 /// תקרת הפירוק של "לפחות k מתוך n" לצירופים; מעליה המדיניות נדחית, כי
 /// דיסיונקציה פשוטה הייתה מחפשת "מילה כלשהי" במקום "רוב המילים".
 export const maximumMatchCombinations = 128;
@@ -61,30 +74,28 @@ export function requiredWordCount(
   }
 }
 
-/// תרגום מדיניות ההתאמה: [query] ריק = די בשאילתה הרגילה בחלון רחב,
+/// תרגום מדיניות ההתאמה: [query] ריק = די בשאילתה הרגילה בחלון של הטווח,
 /// ו-[unsupported] = אין לה תרגום, ואין להריץ במקומה חיפוש אחר.
 export interface MatchQueryTranslation {
   query: string;
   unsupported?: string;
 }
 
-/// שאילתת dtSearch שמשחזרת מדיניות שהמנוע של אוצריא מוותר בה על הסדר ועל
-/// המרווח.
+/// שאילתת dtSearch למדיניות שהמנוע של אוצריא מוותר בה על הסדר ועל המרווח
+/// ומתאים ברזולוציית הפסקה או הסעיף.
 export function hebrewBooksMatchQuery(query: string, policy: SearchMatchPolicy): MatchQueryTranslation {
-  const scope = policy.proximityScope ?? 'wordDistance';
   const mode = policy.wordMatchMode ?? 'all';
   const words = matchWords(query);
-  if (words.length < 2 || (scope === 'wordDistance' && mode === 'all')) return { query: '' };
+  // "כל המילים" הוא השאילתה הרגילה בחלון של הטווח, עם ההרחבות שהבנאי של
+  // hbsearch מוסיף לה — שאילתת אופרטורים הייתה מוותרת עליהן.
+  if (words.length < 2 || mode === 'all') return { query: '' };
   const required = requiredWordCount(words.length, mode, policy.wordMatchCount);
-  // "תחת אותה כותרת" גדול מפסקה ואין לו גבול ב-dtSearch — המסמך (הספר) כולו.
-  const join = scope === 'sameSection' ? ' and ' : ` w/${maximumProximity} `;
-  if (required >= words.length) {
-    return { query: scope === 'sameSection' ? words.join(' and ') : '' };
-  }
+  if (required >= words.length) return { query: '' };
   if (required <= 1) return { query: words.join(' or ') };
   if (combinationCount(words.length, required) > maximumMatchCombinations) {
     return { query: '', unsupported: unsupportedMatchMessage(required, words.length) };
   }
+  const join = ` w/${scopeProximity(policy.proximityScope)} `;
   return {
     query: combinations(words, required).map((group) => `(${group.join(join)})`).join(' or '),
   };
