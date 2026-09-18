@@ -123,7 +123,7 @@ export class OtzariaSearchRepository {
     await requireHostData<boolean>(this.bridge, 'reader.openSearchTab', {
       query,
       selectItems: ['include-hebrewbooks'],
-      ...(options ? { settings: otzariaTabSettings(query, options) } : {}),
+      ...(options ? { settings: otzariaTabSettings(options) } : {}),
     });
   }
 
@@ -256,17 +256,14 @@ function chunk<T>(items: T[], size: number): T[][] {
 
 /// הגדרות הדיאלוג ביחידות של אוצריא: המרווח מתורגם כך שהמדור החיצוני יחזיר
 /// את אותו proximity, וההרחבות המשותפות לשני המנועים עוברות כאפשרויות גלובליות.
-export function otzariaTabSettings(
-  query: string,
-  options: SearchOptions,
-): { distance: number; options?: Record<string, boolean> } {
+export function otzariaTabSettings(options: SearchOptions): { distance: number; options?: Record<string, boolean> } {
   const shared: Record<string, boolean> = {};
   if (options.hybur) shared['קידומות דקדוקיות'] = true;
   if (options.spelling) shared['כתיב מלא/חסר'] = true;
   if (options.aramaic) shared['תרגום ארמי'] = true;
   if (options.rashetevot) shared['ראשי תיבות'] = true;
   return {
-    distance: otzariaDistanceForProximity(options.proximity, query),
+    distance: otzariaDistanceForProximity(options.proximity),
     ...(Object.keys(shared).length > 0 ? { options: shared } : {}),
   };
 }

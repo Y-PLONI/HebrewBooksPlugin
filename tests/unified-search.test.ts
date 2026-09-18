@@ -130,15 +130,6 @@ describe('UnifiedSearchService', () => {
     expect(snapshot.options.proximity).toBe(1);
   });
 
-  // issue #1427: proximity נמדד מהמילה הראשונה לאחרונה — 1:1 חסם 3+ מילים צמודות.
-  it('widens the HebrewBooks proximity with the number of query words', () => {
-    const query = 'ברוך אתה השם אלוקינו';
-    expect(toHebrewBooksSnapshot({ query, distance: 0 }).options.proximity).toBe(3);
-    expect(toHebrewBooksSnapshot({ query, distance: 2 }).options.proximity).toBe(9);
-    expect(toHebrewBooksSnapshot({ query, distance: 30 }).options.proximity).toBe(30);
-    expect(toHebrewBooksSnapshot({ query: 'ברכה', distance: 0 }).options.proximity).toBe(1);
-  });
-
   it('treats the fuzzy distance as an edit distance, not as word spacing', () => {
     const snapshot = toHebrewBooksSnapshot({ query: 'ברכת המזון', mode: 'fuzzy', distance: 2 });
     expect(snapshot.options).toMatchObject({ proximity: 1, fuzziness: 2 });
@@ -162,12 +153,29 @@ describe('UnifiedSearchService', () => {
   it('keeps the dialog proximity across the Otzaria tab round trip', () => {
     for (const query of ['ברכה', 'ברכת המזון', 'ברוך אתה השם אלוקינו']) {
       for (let proximity = 1; proximity <= 30; proximity++) {
-        const distance = otzariaDistanceForProximity(proximity, query);
-        const back = toHebrewBooksSnapshot({ query, distance }).options.proximity;
-        // שאילתה של מילה אחת: אין מרווח למדוד, והחלון נשאר המינימלי.
-        if (query !== 'ברכה') expect(back).toBeGreaterThanOrEqual(proximity);
-        expect(back - proximity).toBeLessThan(Math.max(1, query.split(' ').length - 1));
+        const distance = otzariaDistanceForProximity(proximity);
+        expect(toHebrewBooksSnapshot({ query, distance }).options.proximity).toBe(proximity);
       }
+    }
+  });
+
+  // hbsearch מחיל את proximity על כל צמד סמוך (`A w/N B w/N C`), ולכן המרת
+  // distance אינה תלויה במספר המילים — היא distance+1 תמיד.
+  it('sends a per-gap proximity that does not grow with the number of query words', () => {
+    const queries = ['ברכת המזון', 'ברוך אתה השם', 'ברוך אתה השם אלוקינו'];
+    for (const [distance, proximity] of [[0, 1], [1, 2], [5, 6]] as const) {
+      for (const query of queries) {
+        const snapshot = toHebrewBooksSnapshot({ query, mode: 'exact', distance });
+        expect({ q: snapshot.query, proximity: snapshot.options.proximity }).toEqual({ q: query, proximity });
+      }
+    }
+  });
+
+  // הגבול: distance 0 חייב להפיק w/1 — מילה מוכנסת באמצע פוסלת את ההתאמה.
+  it('maps an adjacent-words request to the strictest window', () => {
+    for (const query of ['ברכת המזון', 'ברוך אתה השם', 'ברוך אתה השם אלוקינו']) {
+      expect(toHebrewBooksSnapshot({ query, mode: 'exact', distance: 0 }).options.proximity).toBe(1);
+      expect(toHebrewBooksSnapshot({ query, mode: 'exact', distance: 1 }).options.proximity).toBe(2);
     }
   });
 
@@ -593,7 +601,7 @@ describe('Otzaria match policy as a hbsearch query', () => {
 
     expect(snapshot.query).toBe(query);
     expect(snapshot.displayQuery).toBeUndefined();
-    expect(snapshot.options).toMatchObject({ proximity: 3, requireWordOrder: true });
+    expect(snapshot.options).toMatchObject({ proximity: 1, requireWordOrder: true });
   });
 
   it('keeps "same paragraph" as the plain query in the widest unordered window', () => {

@@ -14,22 +14,17 @@ export function clampProximity(value: number | undefined): number {
   return Math.min(Math.max(Math.round(value), minimumProximity), maximumProximity);
 }
 
-/// היחידות שונות: distance של אוצריא = מילים מותרות *בין* כל שתי מילות שאילתה
-/// (0 = צמודות); proximity של hbsearch = המרחק בין המילה הראשונה לאחרונה, ולכן
-/// תרגום 1:1 הופך שאילתה של 3+ מילים צמודות לבלתי-אפשרית (issue #1427).
-export function proximityForOtzariaDistance(distance: number | undefined, query: string): number {
+/// hbsearch פולט `A w/N B w/N C` — N חל על כל צמד סמוך ומתיר N-1 מילים ביניהן,
+/// בדיוק כמו distance של אוצריא (מילים בין כל שתי מילים, 0 = צמודות).
+export function proximityForOtzariaDistance(distance: number | undefined): number {
   const gap = distance === undefined || !Number.isFinite(distance) ? 0 : Math.max(0, Math.round(distance));
-  return clampProximity(queryGapCount(query) * (gap + 1));
+  return clampProximity(gap + 1);
 }
 
 /// ההופכית של [proximityForOtzariaDistance] — לפתיחת טאב באוצריא מהדיאלוג של
 /// התוסף, כך שהטאב מחפש בהיברובוקס באותו proximity שנבחר.
-export function otzariaDistanceForProximity(proximity: number, query: string): number {
-  return Math.max(0, Math.ceil(clampProximity(proximity) / queryGapCount(query)) - 1);
-}
-
-function queryGapCount(query: string): number {
-  return Math.max(1, query.trim().split(/\s+/).filter(Boolean).length - 1);
+export function otzariaDistanceForProximity(proximity: number): number {
+  return clampProximity(proximity) - 1;
 }
 
 export type SearchProximityScope = 'wordDistance' | 'sameParagraph' | 'sameSection';

@@ -261,7 +261,7 @@ export function toHebrewBooksSnapshot(request: HostSearchRequest): SearchSnapsho
     // במקורב distance הוא מרחק עריכה, והמילים עצמן צמודות.
     proximity: wideMatch
       ? maximumProximity
-      : proximityForOtzariaDistance(request.mode === 'fuzzy' ? 0 : request.distance, request.query),
+      : proximityForOtzariaDistance(request.mode === 'fuzzy' ? 0 : request.distance),
     fuzziness: request.mode === 'fuzzy' ? Math.min(2, request.distance ?? 2) : 0,
     max: maximumHebrewBooksResults,
     limit: Math.min(500, Math.max(1, request.limit ?? 100)),
