@@ -4,8 +4,9 @@ on:
   push:
   workflow_dispatch:
 
+# Least privilege by default; only the job that publishes widens it.
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: hebrewbooks-plugin-${{ github.ref }}
@@ -15,6 +16,8 @@ jobs:
   build-plugin:
     name: Verify and package plugin
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     outputs:
       version: ${{ steps.meta.outputs.version }}
       tag: ${{ steps.meta.outputs.tag }}
@@ -70,8 +73,14 @@ jobs:
 
   build-installer:
     name: Build Windows installer
+    # ANGINE_PRIVATE reaches a private repository, so keep it off branch pushes:
+    # only main reaches this job, and the environment can also require approval.
+    if: github.ref == 'refs/heads/main'
     needs: build-plugin
     runs-on: windows-latest
+    environment: service-runtime
+    permissions:
+      contents: read
 
     steps:
       - name: Checkout
@@ -144,6 +153,8 @@ jobs:
     if: github.ref == 'refs/heads/main'
     needs: build-plugin
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     outputs:
       should_publish: ${{ steps.check.outputs.should_publish }}
 
@@ -166,6 +177,8 @@ jobs:
     if: github.ref == 'refs/heads/main' && needs.release-check.outputs.should_publish == 'true'
     needs: [build-plugin, build-installer, release-check]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout
