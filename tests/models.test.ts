@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { MatchQueryTranslation } from '../src/models';
+import { honouredExpansions, partialMatchHonoursExpansions } from '../src/search-option-support';
 import {
   clampProximity,
   defaultSearchOptions,
@@ -199,6 +200,35 @@ describe('hebrewBooksMatchQuery', () => {
     }
     // `*` נשאר, כי גם "כל המילים" שולחת אותו כתו כללי של dtSearch.
     expect(tokens('שלו* אתה מלך')).toEqual(['שלו*', 'אתה', 'מלך']);
+  });
+
+  it('הרחבה שהטאב ביקש נדחית — שאילתת האופרטורים עוקפת את הבנאי של המנוע', () => {
+    expect(partialMatchHonoursExpansions).toBe(false);
+    for (const option of honouredExpansions) {
+      const translation = hebrewBooksMatchQuery('ברוך אתה השם', {
+        wordMatchMode: 'mostWords',
+        options: { [option.hostKey]: true },
+      });
+      expect(translation.query).toBe('');
+      expect(translation.unsupported).toContain(option.hostKey);
+    }
+    // אפשרות שאין לה מקבילה בהיברובוקס ממילא אינה משנה את השאילתה.
+    expect(hebrewBooksMatchQuery('ברוך אתה השם', {
+      wordMatchMode: 'mostWords',
+      options: { 'שגיאות כתיב': true },
+    }).unsupported).toBeUndefined();
+  });
+
+  it('הרחבה פעילה בחלק מהמילים אינה מיושמת גם ב"כל המילים", ולכן אינה נדחית', () => {
+    const options = { 'קידומות דקדוקיות': true };
+    expect(hebrewBooksMatchQuery('ברוך אתה השם', {
+      wordMatchMode: 'mostWords',
+      options,
+      wordOptions: { 'אתה_1': {} },
+    }).unsupported).toBeUndefined();
+    // "כל המילים" נשלחת כמילות המשתמש, והמנוע מרחיב אותה בעצמו.
+    expect(hebrewBooksMatchQuery('ברוך אתה השם', { wordMatchMode: 'all', options }))
+      .toEqual({ query: '' });
   });
 
   it('התקרה היא גבול מדוד: עשרה צירופים נשלחים, חמישה־עשר נדחים', () => {

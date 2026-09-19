@@ -1,3 +1,5 @@
+import { expansionsHonoured, honouredExpansions } from './search-option-support';
+
 export type SourceType = 'PDF' | 'Text' | 'Personal';
 
 /// גבולות "מרחק בין מילים" (proximity). hbsearch דוחה כל ערך שאינו מספר שלם
@@ -36,6 +38,9 @@ export interface SearchMatchPolicy {
   proximityScope?: SearchProximityScope;
   wordMatchMode?: SearchWordMatchMode;
   wordMatchCount?: number;
+  /** אפשרויות ההרחבה של הטאב, כדי שהתרגום יסרב להן כשאינו יכול ליישמן. */
+  options?: Record<string, boolean>;
+  wordOptions?: Record<string, Record<string, boolean>>;
 }
 
 /// חלון "באותה פסקה": לאינדקס של dtSearch אין פסקה, והיחידה היחידה שקטנה
@@ -104,6 +109,8 @@ export function hebrewBooksMatchQuery(query: string, policy: SearchMatchPolicy):
   if (words.length < 2 || mode === 'all') return withinSizeBudget('', plain);
   const required = requiredWordCount(words.length, mode, policy.wordMatchCount);
   if (required >= words.length) return withinSizeBudget('', plain);
+  const expansion = unhonouredExpansion(query, policy);
+  if (expansion !== undefined) return { query: '', unsupported: expansionMessage(expansion) };
   const operator = operatorWord(query);
   if (operator !== undefined) return { query: '', unsupported: operatorWordMessage(operator) };
   if (required <= 1) return withinSizeBudget(words.join(' or '));
@@ -141,6 +148,23 @@ function metacharacterWord(query: string): string | undefined {
 function metacharacterWordMessage(word: string): string {
   return `"${word}" אינו מילת חיפוש אלא תו מיוחד של מנוע החיפוש, ולכן חיפוש `
     + 'בהיברובוקס יחזיר בגללו תוצאות שגויות או ייתקע. אפשר להסיר אותו מהשאילתה.';
+}
+
+/// ההרחבה הראשונה שהטאב ביקש ושאילתת האופרטורים אינה מיישמת. כמו
+/// `sharedOptionEnabled`: היברובוקס מיישמת אפשרות רק כשכל המילים נושאות אותה.
+function unhonouredExpansion(query: string, policy: SearchMatchPolicy): string | undefined {
+  if (expansionsHonoured(true)) return undefined;
+  const words = query.trim().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return undefined;
+  return honouredExpansions.find((option) => words.every((word, index) => (
+    (policy.wordOptions?.[`${word}_${index}`] ?? policy.options)?.[option.hostKey] === true
+  )))?.hostKey;
+}
+
+function expansionMessage(option: string): string {
+  return `אי אפשר להפעיל "${option}" בהתאמה חלקית בהיברובוקס: השאילתה נשלחת `
+    + 'כאופרטורים, ומנוע החיפוש אינו מרחיב אותה. אפשר לבטל את האפשרות או '
+    + 'לבחור "כל המילים".';
 }
 
 /// נבדק על המילים כפי שהמשתמש הפריד אותן ברווח: הטוקנייזר שובר `w/5`
