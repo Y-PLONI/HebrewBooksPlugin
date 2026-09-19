@@ -103,7 +103,7 @@ describe('ResultsScreen — מצבים', () => {
     screen.setSearch('בדיקה', null, false);
     screen.showLoading();
     expect(screen.root.querySelector('.centered-progress')).not.toBeNull();
-    expect(screen.root.textContent).toContain('מחפש בשני המאגרים…');
+    expect(screen.root.textContent).toContain('מחפש בהיברובוקס…');
   });
 
   it('מצב "אין תוצאות" מציע לערוך את החיפוש רק כשהוא ניתן לעריכה', () => {
@@ -423,6 +423,30 @@ describe('ResultsScreen — תצוגת מילות החיפוש', () => {
     };
     screen.setSearch('חכמה בינה', 2, false, undefined, false, { source: 'otzaria', request });
     expect(screen.root.querySelector('.search-terms')?.textContent).toBe('חכמה+3בינה');
+  });
+
+  /// החיפוש שהתוסף מריץ בעצמו שואל את היברובוקס בלבד — הכותרות ומצב
+  /// "אין תוצאות" אינם רשאים לנקוב גם באוצריא.
+  it('חיפוש של התוסף נוקב בהיברובוקס בלבד; חיפוש מאוחד — בשני המאגרים', () => {
+    const { screen } = createScreen();
+    screen.setSearch('ברכה', null, true, undefined, false, {
+      source: 'hebrewbooks',
+      options: defaultSearchOptions,
+    });
+    screen.showNoResults();
+    expect(screen.root.querySelector('.source-label')?.textContent).toBe('היברובוקס');
+    expect(screen.root.querySelector('.top-bar-trailing')?.textContent).toContain(
+      'מחפש בהיברובוקס…',
+    );
+    expect(screen.root.querySelector('.informative-state p')?.textContent).toBe(
+      'לא נמצאו תוצאות בהיברובוקס. נסה לשנות את מילות החיפוש.',
+    );
+
+    const request: HostSearchRequest = { query: 'ברכה', mode: 'exact' };
+    screen.setSearch('ברכה', null, false, undefined, false, { source: 'otzaria', request });
+    screen.showNoResults();
+    expect(screen.root.querySelector('.source-label')?.textContent).toBe('אוצריא + היברובוקס');
+    expect(screen.root.querySelector('.informative-state p')?.textContent).toContain('באוצריא');
   });
 
   it('בלי פירוט אפשרויות מוצגת השאילתה כפי שהיא', () => {

@@ -84,6 +84,9 @@ export class ResultsScreen {
   private filterQuery = '';
   private sourceMenuOpen = false;
   private editable = false;
+  /// חיפוש מאוחד — רק בו מגיעות לכאן גם תוצאות אוצריא. חיפוש של התוסף עצמו
+  /// שואל את היברובוקס בלבד, והכותרות אינן רשאיות להבטיח יותר.
+  private unified = false;
   private loadingMore = false;
   private loadMoreButton: HTMLButtonElement | null = null;
   private pendingMessage: string | null = null;
@@ -116,6 +119,7 @@ export class ResultsScreen {
   ): void {
     this.query = query;
     this.editable = editable;
+    this.unified = searchTerms?.source === 'otzaria';
     this.center.replaceChildren(
       element('span', 'top-bar-count', 'מוצגות תוצאות של חיפוש: '),
       ...buildSearchTerms(query, searchTerms ?? null),
@@ -128,13 +132,13 @@ export class ResultsScreen {
         'span',
         'top-bar-count',
         count === null
-          ? 'מחפש בשני המאגרים…'
+          ? this.unified ? 'מחפש בשני המאגרים…' : 'מחפש בהיברובוקס…'
           : totalCount === undefined
             ? `${count} תוצאות מוצגות`
             : `${totalIsLowerBound ? 'לפחות ' : ''}${totalCount} תוצאות · ${count} פריטים מוצגים`,
       ),
       topBarDivider(),
-      element('span', 'source-label', 'אוצריא + היברובוקס'),
+      element('span', 'source-label', this.unified ? 'אוצריא + היברובוקס' : 'היברובוקס'),
     );
   }
 
@@ -149,7 +153,9 @@ export class ResultsScreen {
       informativeState({
         icon: 'document_search_24_regular',
         title: 'אין תוצאות',
-        message: 'לא נמצאו תוצאות באוצריא או בהיברובוקס. נסה לשנות את מילות החיפוש.',
+        message: this.unified
+          ? 'לא נמצאו תוצאות באוצריא או בהיברובוקס. נסה לשנות את מילות החיפוש.'
+          : 'לא נמצאו תוצאות בהיברובוקס. נסה לשנות את מילות החיפוש.',
         action: this.editable
           ? { text: 'ערוך חיפוש', icon: 'edit_24_regular', onClick: this.handlers.onEditSearch }
           : undefined,
