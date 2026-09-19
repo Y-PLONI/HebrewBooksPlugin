@@ -211,6 +211,32 @@ describe('HebrewBooksRepository search-stream-v2', () => {
     expect(page.results.map((r) => r.fileId)).toEqual(['41']);
   });
 
+  // אזהרה היא אירוע לא סופי: התוצאות שאחריה אמיתיות והחיפוש מסתיים כרגיל.
+  it('keeps the stream running through a warning event', async () => {
+    const host = v2Host([[
+      start,
+      { type: 'warning', code: 'partial-results', message: 'Otzraya reported $E 0001', indexes: ['Otzraya'] },
+      reset(1),
+      result(0, '41', 3),
+      complete(1),
+    ].map(line).join('')]);
+    const repository = new HebrewBooksRepository(host.bridge);
+    await repository.health();
+    const page = await repository.search(snapshot);
+    expect(page.results.map((r) => r.fileId)).toEqual(['41']);
+  });
+
+  it.each([
+    ['missing code', { type: 'warning', message: 'x', indexes: [] }],
+    ['empty message', { type: 'warning', code: 'partial-results', message: '  ', indexes: [] }],
+    ['indexes not a string array', { type: 'warning', code: 'partial-results', message: 'x', indexes: [7] }],
+  ])('rejects a malformed warning: %s', async (_name, warning) => {
+    const host = v2Host([[start, warning, reset(0), complete(0)].map(line).join('')]);
+    const repository = new HebrewBooksRepository(host.bridge);
+    await repository.health();
+    await expect(repository.search(snapshot)).rejects.toThrow('פרוטוקול');
+  });
+
   // הדילוג על סוג לא מוכר אינו מכשיר זרם משובש: בלי reset/complete תקינים
   // החיפוש עדיין נכשל.
   it('still fails a stream that is only unknown events', async () => {

@@ -49,6 +49,7 @@ export type SearchStreamV2Event =
   | { type: 'heartbeat' }
   | { type: 'provisional' | 'result'; result: HebrewBooksResult }
   | { type: 'reset' | 'complete' }
+  | { type: 'warning'; code: string; message: string; indexes: string[] }
   | { type: 'error'; message: string };
 
 /// הפרוטוקול מכיל שתי תקופות: תוצאות זמניות לפני reset, ותמונת דירוג סופית אחריו.
@@ -144,6 +145,22 @@ export class SearchStreamV2Decoder {
           this.phase = 'error';
           event = { type: 'error', message: value.message };
           break;
+        // אזהרה אינה סוף הזרם אלא דיווח על אינדקס שנכשל מאחורי תוצאות
+        // שכן הגיעו; לכן היא אינה נוגעת ב-phase, ו-reset/result/complete באים אחריה.
+        case 'warning':
+          if (
+            this.phase === 'beforeStart'
+            || !isNonemptyString(value.code)
+            || !isNonemptyString(value.message)
+            || !isStringArray(value.indexes)
+          ) this.invalid(lineNumber);
+          event = {
+            type: 'warning',
+            code: value.code,
+            message: value.message,
+            indexes: [...value.indexes],
+          };
+          break;
         default:
           // סוג אירוע לא מוכר הוא תוספת לפרוטוקול v2, לא הפרה שלו: שינוי
           // שחייבים להבין מקבל streamVersion חדש, שהתוסף ממילא דוחה.
@@ -162,6 +179,14 @@ export class SearchStreamV2Decoder {
 
 function isNonnegativeInteger(value: unknown): value is number {
   return Number.isSafeInteger(value) && Number(value) >= 0;
+}
+
+function isNonemptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.trim() !== '';
+}
+
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((entry) => typeof entry === 'string');
 }
 
 function parseResult(value: unknown, lineNumber: number): HebrewBooksResult {
