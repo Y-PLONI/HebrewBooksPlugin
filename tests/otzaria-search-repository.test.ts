@@ -120,7 +120,29 @@ describe('OtzariaSearchRepository', () => {
         {
           query: 'ברכת המזון',
           selectItems: ['include-hebrewbooks'],
-          settings: { distance: 1, options: { 'קידומות דקדוקיות': true, 'כתיב מלא/חסר': true } },
+          settings: {
+            mode: 'advanced',
+            distance: 1,
+            options: { 'קידומות דקדוקיות': true, 'כתיב מלא/חסר': true },
+          },
+        },
+      ]);
+    });
+
+    it('מקורב עובר כמצב fuzzy, ורמת הקירוב היא distance ולא המרווח', async () => {
+      const payloads: Record<string, unknown>[] = [];
+      await new OtzariaSearchRepository(bridgeRecording(payloads)).openSearchTab('ברכת המזון', {
+        ...defaultSearchOptions,
+        proximity: 10,
+        fuzziness: 2,
+        // אוצריא דוחה אפשרויות מילה במצב מקורב — אסור שיישלחו לצדו.
+        hybur: true,
+      });
+      expect(payloads).toEqual([
+        {
+          query: 'ברכת המזון',
+          selectItems: ['include-hebrewbooks'],
+          settings: { mode: 'fuzzy', distance: 2 },
         },
       ]);
     });
@@ -132,7 +154,11 @@ describe('OtzariaSearchRepository', () => {
       await repository.openSearchTab('ברכת המזון', defaultSearchOptions);
       expect(payloads).toEqual([
         { query: 'ברכת המזון', selectItems: ['include-hebrewbooks'] },
-        { query: 'ברכת המזון', selectItems: ['include-hebrewbooks'], settings: { distance: 29 } },
+        {
+          query: 'ברכת המזון',
+          selectItems: ['include-hebrewbooks'],
+          settings: { mode: 'exact', distance: 29 },
+        },
       ]);
     });
   });

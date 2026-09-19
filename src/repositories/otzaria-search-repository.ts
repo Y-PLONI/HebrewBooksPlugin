@@ -5,6 +5,7 @@ import type {
   ExternalSearchIndexEntry,
   ExternalSearchResultPayload,
   HostBookIdentity,
+  HostSearchMode,
   HostSearchRequest,
   OtzariaSearchChunk,
   OtzariaSearchHit,
@@ -254,15 +255,39 @@ function chunk<T>(items: T[], size: number): T[][] {
   return result;
 }
 
+/// מרחק העריכה המרבי של חיפוש מקורב באוצריא (kMaxFuzzyDistance).
+const maximumOtzariaFuzziness = 2;
+
+export interface OtzariaTabSettings {
+  mode: HostSearchMode;
+  distance: number;
+  options?: Record<string, boolean>;
+}
+
+/// מצב החיפוש של אוצריא המייצג את בחירת הדיאלוג: רמת קירוב גוברת על הכול,
+/// והרחבות מחייבות "מתקדם" — תרגום ארמי וראשי תיבות קיימים שם בלבד.
+export function otzariaSearchMode(options: SearchOptions): HostSearchMode {
+  if (options.fuzziness > 0) return 'fuzzy';
+  const expanded = options.hybur || options.spelling || options.aramaic || options.rashetevot;
+  return expanded ? 'advanced' : 'exact';
+}
+
 /// הגדרות הדיאלוג ביחידות של אוצריא: המרווח מתורגם כך שהמדור החיצוני יחזיר
 /// את אותו proximity, וההרחבות המשותפות לשני המנועים עוברות כאפשרויות גלובליות.
-export function otzariaTabSettings(options: SearchOptions): { distance: number; options?: Record<string, boolean> } {
+export function otzariaTabSettings(options: SearchOptions): OtzariaTabSettings {
+  const mode = otzariaSearchMode(options);
+  // במקורב distance הוא מרחק העריכה, ואוצריא דוחה שם כל אפשרות מילה.
+  if (mode === 'fuzzy') {
+    const fuzziness = Math.round(options.fuzziness);
+    return { mode, distance: Math.min(maximumOtzariaFuzziness, Math.max(1, fuzziness)) };
+  }
   const shared: Record<string, boolean> = {};
   if (options.hybur) shared['קידומות דקדוקיות'] = true;
   if (options.spelling) shared['כתיב מלא/חסר'] = true;
   if (options.aramaic) shared['תרגום ארמי'] = true;
   if (options.rashetevot) shared['ראשי תיבות'] = true;
   return {
+    mode,
     distance: otzariaDistanceForProximity(options.proximity),
     ...(Object.keys(shared).length > 0 ? { options: shared } : {}),
   };

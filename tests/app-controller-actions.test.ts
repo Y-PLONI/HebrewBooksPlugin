@@ -170,7 +170,7 @@ describe('דיאלוג החיפוש של התוסף', () => {
     expect(harness.host.lastPayload('reader.openSearchTab')).toEqual({
       query: 'ברכת המזון',
       selectItems: ['include-hebrewbooks'],
-      settings: { distance: 29 },
+      settings: { mode: 'exact', distance: 29 },
     });
     // המסך המובנה מציג את התוצאות — התוסף אינו מחפש בעצמו.
     expect(
