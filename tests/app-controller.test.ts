@@ -31,7 +31,7 @@ describe('AppController HebrewBooks path setting integration', () => {
         colorScheme: {},
         typography: { fontFamily: 'Roboto', fontSize: 14, lineHeight: 1.4 },
       },
-      permissions: ['settings.read', 'events.subscribe:settings.changed'],
+      permissions: ['events.subscribe:settings.changed'],
     });
 
     // מ-0.9.97 המפתח חסום ו-settings.get עליו נדחה ב-error.forbidden.
@@ -358,7 +358,7 @@ describe('AppController HebrewBooks path setting integration', () => {
         colorScheme: {},
         typography: { fontFamily: 'Roboto', fontSize: 14, lineHeight: 1.4 },
       },
-      permissions: ['settings.read', 'events.subscribe:settings.changed'],
+      permissions: ['events.subscribe:settings.changed'],
     });
 
     // המאזין נרשם לפני בדיקת השירות, ולכן אירוע באמצע boot אינו אובד —
