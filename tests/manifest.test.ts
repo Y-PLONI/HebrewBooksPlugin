@@ -75,11 +75,15 @@ describe('parallel edition manifest contributions', () => {
     expect(items[0]).not.toHaveProperty('openPluginOnSubmit');
   });
 
-  it('מנוע רקע מוער רק מבקשת חיפוש חיצוני, לא מלחיצות בסרגל', () => {
+  it('מנוע רקע מוער עם העלייה ומבקשת חיפוש חיצוני, לא מלחיצות בסרגל', () => {
     // בקשת חיפוש מהמסך המובנה מעירה מנוע רקע נסתר במקום לפתוח את טאב
     // התוסף ולגנוב פוקוס — דורש את ההרשאה הרגישה app.run_on_startup.
     expect(stringArrayAt(manifest, 'permissions')).toContain('app.run_on_startup');
+    // טאב PDF ששוחזר עם עם העלייה נושא externalMatches שמור, אבל שדה
+    // החיפוש שלו נפתח רק כשספק רשום, והאירוע שמעיר את התוסף לרישום
+    // מופעל רק דרך אותו שדה — לולאה סגורה שרק הערה עם העלייה שוברת.
     expect(stringArrayAt(startup, 'activationEvents')).toEqual([
+      'app.startup',
       'search.external.requested',
     ]);
     // המנוע הזה טוען דף כניסה משלו — לא index.html על מסכיו ועל pdf.js שבו.

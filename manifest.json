@@ -50,6 +50,7 @@
     ],
     "startup": {
       "activationEvents": [
+        "app.startup",
         "search.external.requested"
       ],
       "programs": [
