@@ -184,21 +184,16 @@ describe('ספק התוצאות החיצוני — אימות הבקשה', () =>
     expect(searchBody).toMatchObject({ proximity: 3, hybur: false, spelling: false });
   });
 
-  it('טווח "באותה פסקה" מהטאב מחפש בחלון המרבי בלי סדר מילים', async () => {
+  it('טווח "באותה פסקה" מהטאב מוחזר כשגיאה ואינו מתורגם לחלון מילים', async () => {
     const host = await bootController({ network: singleRowNetwork });
     host.emit(
       'search.external.requested',
       externalRequest({ mode: 'advanced', distance: 0, proximityScope: 'sameParagraph', wordMatchMode: 'all' }),
     );
-    await finalResponse(host);
-    const searchBody = JSON.parse(
-      String(
-        host
-          .payloadsOf('network.fetchStream')
-          .find((payload) => String(payload?.url).endsWith('/search'))?.body,
-      ),
-    );
-    expect(searchBody).toMatchObject({ proximity: 30, requireWordOrder: false });
+    const final = await finalResponse(host);
+
+    expect(String(final.error)).toContain('אינו נתמך בהיברובוקס');
+    expect(searchRequests(host)).toBe(0);
   });
 
   it('כשל של שירות החיפוש מוחזר כשגיאה למדור', async () => {

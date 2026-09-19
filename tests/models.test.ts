@@ -13,6 +13,7 @@ import {
   requiredWordCount,
   scopeProximity,
   sectionProximity,
+  unsupportedScope,
 } from '../src/models';
 
 describe('clampProximity', () => {
@@ -98,10 +99,21 @@ describe('hebrewBooksMatchQuery', () => {
     }
   });
 
-  it('"כל המילים" בכל טווח הוא השאילתה הרגילה, שהבנאי של hbsearch מרחיב', () => {
-    for (const proximityScope of ['wordDistance', 'sameParagraph', 'sameSection'] as const) {
-      expect(hebrewBooksMatchQuery(words.join(' '), { proximityScope })).toEqual({ query: '' });
+  it('"כל המילים" הוא השאילתה הרגילה, שהבנאי של hbsearch מרחיב', () => {
+    expect(hebrewBooksMatchQuery(words.join(' '), { proximityScope: 'wordDistance' })).toEqual({ query: '' });
+    expect(hebrewBooksMatchQuery(words.join(' '), {})).toEqual({ query: '' });
+  });
+
+  it('פסקה וכותרת נדחות בכל מצב — dtSearch אינו מכיר יחידה קטנה מהספר', () => {
+    for (const proximityScope of ['sameParagraph', 'sameSection'] as const) {
+      for (const wordMatchMode of ['all', 'anyWord', 'mostWords', 'atLeast'] as const) {
+        const translation = hebrewBooksMatchQuery(words.join(' '), { proximityScope, wordMatchMode });
+        expect(translation.query).toBe('');
+        expect(translation.unsupported).toContain('אינו נתמך בהיברובוקס');
+      }
     }
+    expect(unsupportedScope('wordDistance')).toBeUndefined();
+    expect(unsupportedScope(undefined)).toBeUndefined();
   });
 
   /// צורה חוקית: לכל w/N מילה בודדת מימינו, ומשמאלו מילה או ביטוי כזה.
@@ -112,7 +124,7 @@ describe('hebrewBooksMatchQuery', () => {
   }
 
   it('כל w/N מסוגר במפורש — שרשרת חשופה נדחית ב-dtSearch כתחביר שגוי', () => {
-    for (const proximityScope of ['sameParagraph', 'sameSection'] as const) {
+    for (const proximityScope of ['wordDistance', undefined] as const) {
       const proximity = scopeProximity(proximityScope);
       const groups = hebrewBooksMatchQuery(words.join(' '), {
         proximityScope,

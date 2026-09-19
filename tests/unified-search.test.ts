@@ -21,6 +21,7 @@ import {
   maximumMatchCombinations,
   otzariaDistanceForProximity,
   paragraphProximity,
+  scopeProximity,
   sectionProximity,
 } from '../src/models';
 
@@ -609,33 +610,23 @@ describe('Otzaria match policy as a hbsearch query', () => {
     expect(snapshot.options).toMatchObject({ proximity: 1, requireWordOrder: true });
   });
 
-  it('keeps "same paragraph" as the plain query in the widest unordered window', () => {
+  it('refuses "same paragraph" rather than searching a word window under its name', () => {
     const snapshot = toHebrewBooksSnapshot({ query, proximityScope: 'sameParagraph' });
 
-    expect(snapshot.query).toBe(query);
-    expect(snapshot.options).toMatchObject({ proximity: 30, requireWordOrder: false });
-  });
-
-  it('searches "same section" in a section-sized window, not across the whole book', () => {
-    const snapshot = toHebrewBooksSnapshot({ query, proximityScope: 'sameSection' });
-
-    // and על פני המסמך החזיר ספרים שהמילים בהם בפרקים שאינם קשורים זה לזה.
+    expect(snapshot.unsupportedPolicy).toContain('אינו נתמך בהיברובוקס');
     expect(snapshot.query).toBe(query);
     expect(snapshot.displayQuery).toBeUndefined();
-    expect(snapshot.options).toMatchObject({ proximity: sectionProximity, requireWordOrder: false });
   });
 
   it('keeps the section window wider than the paragraph window, and both under the book', () => {
     expect(sectionProximity).toBeGreaterThan(paragraphProximity);
-    expect(toHebrewBooksSnapshot({ query, proximityScope: 'sameParagraph' }).options.proximity)
-      .toBe(paragraphProximity);
+    expect(scopeProximity('wordDistance')).toBe(paragraphProximity);
   });
 
-  it('maps anyWord to a disjunction in every scope', () => {
+  it('maps anyWord to a disjunction', () => {
     const disjunction = 'ברוך or אתה or השם or אלוקינו';
     expect(queryOf({ wordMatchMode: 'anyWord' })).toBe(disjunction);
-    expect(queryOf({ wordMatchMode: 'anyWord', proximityScope: 'sameParagraph' })).toBe(disjunction);
-    expect(queryOf({ wordMatchMode: 'anyWord', proximityScope: 'sameSection' })).toBe(disjunction);
+    expect(queryOf({ wordMatchMode: 'anyWord', proximityScope: 'wordDistance' })).toBe(disjunction);
   });
 
   it('maps mostWords to the n/2+1 sized combinations', () => {
@@ -651,20 +642,15 @@ describe('Otzaria match policy as a hbsearch query', () => {
     );
   });
 
-  it('joins the combinations of "most words under the same heading" with the section window', () => {
-    expect(queryOf({ wordMatchMode: 'mostWords', proximityScope: 'sameSection' }, 'ברוך אתה השם')).toBe(
-      '(ברוך w/300 אתה) or (ברוך w/300 השם) or (אתה w/300 השם)',
-    );
-    // גם חלון הסעיף מסוגר במפורש, ונדחה באותה תקרה.
-    expect(queryOf({ wordMatchMode: 'mostWords', proximityScope: 'sameSection' }, 'א ב ג ד')).toBe(
-      '((א w/300 ב) w/300 ג) or ((א w/300 ב) w/300 ד)'
-        + ' or ((א w/300 ג) w/300 ד) or ((ב w/300 ג) w/300 ד)',
-    );
-    expect(toHebrewBooksSnapshot({
-      query: 'א ב ג ד ה ו ז ח',
-      wordMatchMode: 'mostWords',
-      proximityScope: 'sameSection',
-    }).unsupportedPolicy).toContain('5 מתוך 8');
+  it('refuses "under the same heading" instead of approximating it with a word window', () => {
+    // אוצריא מודדת סעיף בבלוק כותרת; מסמך של היברובוקס הוא ספר סרוק שלם.
+    for (const proximityScope of ['sameParagraph', 'sameSection'] as const) {
+      for (const wordMatchMode of ['all', 'anyWord', 'mostWords'] as const) {
+        const snapshot = toHebrewBooksSnapshot({ query, proximityScope, wordMatchMode });
+        expect(snapshot.unsupportedPolicy).toContain('אינו נתמך בהיברובוקס');
+        expect(snapshot.query).toBe(query);
+      }
+    }
   });
 
   it('counts distinct words for the threshold, as the Otzaria engine merges repeats', () => {

@@ -43,17 +43,28 @@ export interface SearchMatchPolicy {
   wordOptions?: Record<string, Record<string, boolean>>;
 }
 
-/// חלון "באותה פסקה": לאינדקס של dtSearch אין פסקה, והיחידה היחידה שקטנה
-/// מהספר היא חלון מילים — זה הרחב שבהם שעדיין נחשב "מרחק בין מילים".
+/// חלון ההתאמה החלקית: אין באינדקס של dtSearch יחידה שקטנה מהספר, ולכן
+/// זה החלון הרחב ביותר שעדיין נחשב "מרחק בין מילים".
 export const paragraphProximity = maximumProximity;
 
-/// חלון "תחת אותה כותרת": כעמוד דפוס — הרבה מעל פסקה, והרבה מתחת לספר.
+/// חלון טווח הסעיף; הטווח עצמו נדחה ([unsupportedScope]), והערך נשאר רק
+/// כדי שאפשרויות הבקשה יישארו מוגדרות.
 export const sectionProximity = 300;
 
-/// חלון המילים של טווח הקרבה; בהתאמה חלקית אוצריא מוותרת על המרווח ומתאימה
-/// ברזולוציית הפסקה, ולכן גם wordDistance מקבל שם את חלון הפסקה.
+/// חלון המילים של טווח הקרבה; בהתאמה חלקית אוצריא מוותרת על המרווח, ולכן
+/// גם wordDistance מקבל שם את החלון המלא.
 export function scopeProximity(scope: SearchProximityScope | undefined): number {
   return scope === 'sameSection' ? sectionProximity : paragraphProximity;
+}
+
+/// אוצריא מודדת את שני הטווחים האלה ביחידת טקסט אמיתית — פסקה היא מסמך
+/// אינדקס אחד, וסעיף הוא בלוק כותרת. בהיברובוקס מסמך אחד הוא ספר שלם.
+export function unsupportedScope(scope: SearchProximityScope | undefined): string | undefined {
+  if (scope !== 'sameParagraph' && scope !== 'sameSection') return undefined;
+  const name = scope === 'sameParagraph' ? 'באותה פסקה' : 'תחת אותה כותרת';
+  return `חיפוש "${name}" אינו נתמך בהיברובוקס: אוצריא מודדת פסקה וכותרת `
+    + 'ביחידות של טקסט מסודר, ובאינדקס של היברובוקס מסמך אחד הוא ספר סרוק '
+    + 'שלם בלי חלוקה כזו. אפשר לבחור "מרחק בין מילים".';
 }
 
 /// תקרת הפירוק של "לפחות k מתוך n" לצירופים; מעליה המדיניות נדחית, כי
@@ -100,6 +111,8 @@ export interface MatchQueryTranslation {
 /// ומתאים ברזולוציית הפסקה או הסעיף.
 export function hebrewBooksMatchQuery(query: string, policy: SearchMatchPolicy): MatchQueryTranslation {
   const mode = policy.wordMatchMode ?? 'all';
+  const scope = unsupportedScope(policy.proximityScope);
+  if (scope !== undefined) return { query: '', unsupported: scope };
   const metacharacter = metacharacterWord(query);
   if (metacharacter !== undefined) return { query: '', unsupported: metacharacterWordMessage(metacharacter) };
   const words = matchWords(query);
