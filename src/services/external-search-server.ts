@@ -34,9 +34,11 @@ const snippetsDeadlineMs = 25_000;
 const snippetFlushIntervalMs = 400;
 const snippetConcurrency = 2;
 
-/// חילוץ קטע טקסט מעמוד PDF. מופע הרקע אינו טוען את pdf.js ומגיש בלעדיו.
+/// חילוץ קטע טקסט מעמוד PDF. prepare מאפשר למחלץ שנטען בעצלתיים להודיע
+/// מראש שאינו זמין, לפני שמתחילים לאתר עבורו עמודים ב-/inbook.
 export interface SnippetSource {
   load(url: string, fileId: string, pageNumber: number | null, query: string): Promise<string | null>;
+  prepare?(): Promise<boolean>;
 }
 
 export interface ExternalSearchServerDeps {
@@ -490,8 +492,9 @@ export class ExternalSearchServer {
         ...totals,
         ...(index ? { index } : {}),
       });
-    // בלי מחלץ קטעים (מופע הרקע) אין מה להזרים, והעמוד נענה סופית מיד.
-    if (!this.snippets) {
+    // בלי מחלץ קטעים אין מה להזרים, והעמוד נענה סופית מיד.
+    const snippets = this.snippets;
+    if (!snippets) {
       await respondFinal();
       return;
     }
@@ -508,6 +511,12 @@ export class ExternalSearchServer {
         })
         .catch((error) => this.abandonIfHostDropped(requestId, error));
     await respondPartial(true);
+    // מחלץ שלא הצליח להיטען אינו מחלץ דבר, ואיתור עמוד עבורו הוא בקשת רשת
+    // לשווא — העמוד נענה סופית מיד, בדיוק כמו בלי מחלץ כלל.
+    if (snippets.prepare && !(await snippets.prepare())) {
+      if (!signal?.aborted) await respondFinal();
+      return;
+    }
 
     // עדכוני הקטעים נשלחים ברצף אחד (flushChain) ובקצב מרוסן, כדי שעדכון
     // מאחר לא יעקוף את הסופי ולא נציף את הגשר בעדכון לכל קטע בנפרד.

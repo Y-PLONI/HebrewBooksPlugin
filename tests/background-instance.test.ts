@@ -1,9 +1,9 @@
-/// מופע הרקע (contributes.background.entrypoint). כשהוא קיים, אוצריא משגרת
-/// אליו לבדו את אירועי החיפוש הממוקדים (preferBackground), ולכן הוא שחייב
-/// לענות עליהם. הקובץ רץ בסביבת node בכוונה: אין כאן DOM כלל, וכל נגיעה
-/// במסך, ב-styles.css או ב-pdf.js הייתה מפילה אותו.
+/// מופע הרקע (contributes.background.entrypoint). כשהוא חי, אוצריא משגרת
+/// אליו את אירועי החיפוש הממוקדים (preferBackground), ולכן הוא שחייב לענות
+/// עליהם. הקובץ רץ בסביבת node בכוונה: אין כאן DOM כלל, וכל נגיעה במסך,
+/// ב-styles.css או ב-pdf.js באתחול הייתה מפילה אותו.
 
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   bootPayload,
   createMockHost,
@@ -59,8 +59,16 @@ function pathCount(host: MockHost, path: string): number {
     .length;
 }
 
+/// כל בקשה כאן מנסה לטעון את חבילת הגזירים ונכשלת — ראו המבחן השלישי.
+let warn: ReturnType<typeof vi.spyOn>;
+
+beforeEach(() => {
+  warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+});
+
 afterEach(() => {
   delete (globalThis as { window?: unknown }).window;
+  vi.restoreAllMocks();
 });
 
 describe('מופע הרקע של התוסף', () => {
@@ -88,16 +96,19 @@ describe('מופע הרקע של התוסף', () => {
     expect(final.index).toEqual([[43558, 7, expect.any(String)]]);
   });
 
-  it('אינו מאתר עמודים לגזירי טקסט שאין לו במה לחלץ', async () => {
+  it('עונה בלי גזירים כשחבילת הגזירים אינה ניתנת לטעינה', async () => {
+    // אין כאן document, ולכן הזרקת <script> של assets/snippets.js נכשלת —
+    // בדיוק כמו התקנה פגומה שבה הקובץ חסר.
     const host = await startBackgroundInstance({ network: service });
 
     host.emit('search.external.requested', externalRequest());
     const final = await finalExternalResponse(host);
 
-    // בלי pdf.js אין גזיר, ולכן גם אין קריאת /inbook שכל תכליתה לאתר עמוד עבורו.
     expect((final.results as Array<Record<string, unknown>>)[0]).not.toHaveProperty('snippet');
+    // בלי מחלץ אין טעם לאתר עמודים: /inbook כאן היה בקשת רשת לשווא בלבד.
     expect(pathCount(host, '/inbook')).toBe(0);
     expect(pathCount(host, '/search')).toBe(1);
+    expect(warn).toHaveBeenCalledTimes(1);
   });
 
   it('עונה לקורא על חיפוש בתוך ספר', async () => {

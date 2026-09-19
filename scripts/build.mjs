@@ -27,6 +27,8 @@ await bundle('src/main.ts', 'assets/app.js');
 // מופע הרקע מגיש את אירועי החיפוש בלבד, ולכן חבילתו נבנית בנפרד: בלי
 // המסכים, בלי ה-CSS ובלי pdf.js שהם מושכים.
 await bundle('src/background.ts', 'assets/background.js');
+// חבילת הגזירים שמופע הרקע מזריק לעצמו בגזיר הראשון שנדרש, ולא באתחול.
+await bundle('src/snippets-entry.ts', 'assets/snippets.js');
 
 await cp(resolve(root, 'manifest.json'), resolve(dist, 'manifest.json'));
 await cp(resolve(root, 'index.html'), resolve(dist, 'index.html'));

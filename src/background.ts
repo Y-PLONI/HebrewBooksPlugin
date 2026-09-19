@@ -3,10 +3,11 @@ import { CatalogMappingRepository } from './repositories/catalog-mapping-reposit
 import { HebrewBooksRepository } from './repositories/hebrewbooks-repository';
 import { OtzariaSearchRepository } from './repositories/otzaria-search-repository';
 import { ExternalSearchServer } from './services/external-search-server';
+import { lazySnippetSource } from './services/lazy-snippet-source';
 
 /// מופע הרקע של התוסף (contributes.background.entrypoint). אוצריא משגרת אליו
 /// לבדו את search.external.requested ו-reader.inBookSearch.requested כשהוא
-/// קיים, ולכן הוא זה שחייב לענות עליהם — אין כאן מסך, ערכת נושא או pdf.js.
+/// קיים, ולכן הוא זה שחייב לענות עליהם — על קטעי הטקסט שלהם ועל הכל.
 const bridge = getHostBridge();
 
 if (bridge) {
@@ -14,6 +15,9 @@ if (bridge) {
     repository: new HebrewBooksRepository(bridge),
     otzaria: new OtzariaSearchRepository(bridge),
     catalogMapping: new CatalogMappingRepository(bridge),
+    // pdf.js אינו נטען כאן באתחול אלא בגזיר הראשון שנדרש, כדי שהחבילה
+    // שמופע הרקע עולה עליה תישאר קטנה.
+    snippets: lazySnippetSource('assets/snippets.js'),
   });
   // המאזינים נרשמים מיד: האירוע שמעיר את מופע הרקע עשוי להגיע לפני plugin.boot.
   server.listen(bridge);
