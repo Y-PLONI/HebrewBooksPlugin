@@ -268,6 +268,28 @@ export function otzariaTabCorpus(corpus: SearchOptions['corpus']): SearchOptions
   return corpus.filter((source) => otzariaOpenableCorpus.includes(source));
 }
 
+const corpusLabels: Record<SearchOptions['corpus'][number], string> = {
+  pdf: 'ספרים סרוקים',
+  otzraya: 'ספרי טקסט',
+  personal: 'אוסף אישי',
+};
+
+/// מה שטאב החיפוש של אוצריא אינו יכול לכבד כלל — הסבר בעברית, או null
+/// כשהטאב מסוגל להריץ את החיפוש. חיפוש חסום רץ במסך התוצאות של התוסף.
+export function otzariaTabBlocker(options: SearchOptions): string | null {
+  // שורת ההיברובוקס מוגדרת visibleInModes: exact/advanced, ולכן בטאב מקורב
+  // המדור החיצוני כלל אינו נשאל והמשתמש היה מקבל טאב בלי תוצאות היברובוקס.
+  if (options.fuzziness > 0) {
+    return 'חיפוש מקורב אינו זמין בטאב החיפוש של אוצריא; החיפוש רץ במסך התוסף.';
+  }
+  const dropped = options.corpus.filter((source) => !otzariaOpenableCorpus.includes(source));
+  if (dropped.length > 0) {
+    const names = dropped.map((source) => corpusLabels[source]).join(' ו');
+    return `${names} אינם נפתחים מטאב החיפוש של אוצריא; החיפוש רץ במסך התוסף.`;
+  }
+  return null;
+}
+
 export interface OtzariaTabSettings {
   mode: HostSearchMode;
   distance: number;

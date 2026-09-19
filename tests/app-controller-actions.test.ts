@@ -246,6 +246,30 @@ describe('דיאלוג החיפוש של התוסף', () => {
     });
   });
 
+  it('בחירת מקור שאוצריא אינה פותחת משאירה את החיפוש במסך התוסף, עם הסבר', async () => {
+    const harness = await bootHarness(pluginSearchConfig({ methods: emptyMapping }));
+    await submitFromDialog(harness, 'ברכת המזון', () => {
+      const personalRow = [...dialogRoot().querySelectorAll<HTMLLabelElement>('.checkbox-row')].find(
+        (row) => row.textContent?.includes('אוסף אישי'),
+      );
+      personalRow?.querySelector<HTMLInputElement>('input')?.click();
+    });
+    await vi.waitFor(() => expect(harness.shell.querySelectorAll('.result-card')).toHaveLength(1));
+    // הטאב לא נפתח כלל, והמשתמש קיבל את הסיבה במקום בחירה שנבלעת בשקט.
+    expect(harness.host.countOf('reader.openSearchTab')).toBe(0);
+    expect(String(harness.host.lastPayload('ui.showMessage')?.message)).toContain('אוסף אישי');
+  });
+
+  it('חיפוש מקורב נשאר במסך התוסף — שורת ההיברובוקס מוסתרת בטאב', async () => {
+    const harness = await bootHarness(pluginSearchConfig({ methods: emptyMapping }));
+    await submitFromDialog(harness, 'ברכת המזון', () => {
+      buttonByText(dialogRoot().querySelector('.mode-selector')!, 'מקורב').click();
+    });
+    await vi.waitFor(() => expect(harness.shell.querySelectorAll('.result-card')).toHaveLength(1));
+    expect(harness.host.countOf('reader.openSearchTab')).toBe(0);
+    expect(String(harness.host.lastPayload('ui.showMessage')?.message)).toContain('מקורב');
+  });
+
   it('ביטול כל מקורות החיפוש נחסם', async () => {
     const harness = await bootHarness({
       methods: {
@@ -519,7 +543,7 @@ describe('פתיחת תוצאה', () => {
 
     expect(harness.host.lastPayload('reader.openBook')).toMatchObject({
       external: { provider: 'hebrewbooks', id: 43559 },
-      index: 6,
+      index: 7,
     });
   });
 
@@ -573,7 +597,7 @@ describe('פתיחת תוצאה', () => {
       expect.objectContaining({ proximity: 30, requireWordOrder: false }),
     ]);
     expect(harness.host.lastPayload('reader.openBook')).toMatchObject({
-      index: 7,
+      index: 8,
       matchPages: [8, 12],
       matchedTerms: ['ברכת', 'המזון'],
     });
@@ -591,13 +615,34 @@ describe('פתיחת תוצאה', () => {
     await vi.waitFor(() => expect(harness.host.countOf('reader.openBook')).toBe(1));
     expect(harness.host.lastPayload('reader.openBook')).toEqual({
       external: { provider: 'hebrewbooks', id: 43558 },
-      index: 2,
+      index: 3,
       searchQuery: 'ברכת המזון',
       navigateToPositionIfReused: true,
       matchPages: [3, 5],
       matchedTerms: ['ברכת'],
     });
     expect(inBookBodies(harness)).toHaveLength(1);
+  });
+
+  it('העמוד הנפתח הוא מספר עמוד מבוסס-1, כמו עמודי ההתאמה שנשלחים איתו', async () => {
+    // /inbook מחזיר עמודי PDF מבוססי-1, ואוצריא מוסרת את index ל-PdfBookTab
+    // כ-pageNumber — גם הוא מבוסס-1. הקטנה ב-1 פתחה את הספר עמוד אחד מוקדם.
+    const harness = await bootHarness(
+      pluginSearchConfig({
+        network: {
+          '/inbook': () => ({
+            body: JSON.stringify({ hitCount: 3, pages: [12, 40], matchedTerms: ['ברכת'] }),
+          }),
+        },
+      }),
+    );
+    await runPluginSearch(harness);
+    [...harness.shell.querySelectorAll<HTMLElement>('.result-card-body')].at(-1)?.click();
+
+    await vi.waitFor(() => expect(harness.host.countOf('reader.openBook')).toBe(1));
+    const payload = harness.host.lastPayload('reader.openBook');
+    expect(payload).toMatchObject({ index: 12, matchPages: [12, 40] });
+    expect(payload?.index).toBe((payload?.matchPages as number[])[0]);
   });
 
   it('ספר שאינו בקטלוג ההיברובוקס של אוצריא מוצג כשגיאה', async () => {
