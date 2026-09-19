@@ -107,8 +107,8 @@ export interface MatchQueryTranslation {
   unsupported?: string;
 }
 
-/// שאילתת dtSearch למדיניות שהמנוע של אוצריא מוותר בה על הסדר ועל המרווח
-/// ומתאים ברזולוציית הפסקה או הסעיף.
+/// שאילתת dtSearch למדיניות שהמנוע של אוצריא מוותר בה על הסדר ועל המרווח,
+/// או ההודעה שבה המדיניות נדחית כשאין לה תרגום.
 export function hebrewBooksMatchQuery(query: string, policy: SearchMatchPolicy): MatchQueryTranslation {
   const mode = policy.wordMatchMode ?? 'all';
   const scope = unsupportedScope(policy.proximityScope);
