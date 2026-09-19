@@ -126,6 +126,23 @@ describe('hebrewBooksMatchQuery', () => {
     expect(isLeftLeaning('(אלף w/30 (בית w/30 גימל))')).toBe(false);
   });
 
+  it('מילה שהמנוע קורא כאופרטור נדחית — היא הופכת את הצירופים לתחביר שגוי', () => {
+    // נמדד חי מול hbsearch: כל אחת מהן מחזירה אפס תוצאות בלי אירוע שגיאה.
+    for (const operator of ['and', 'OR', 'Not', 'contains', 'xfilter', 'w/5', 'PRE/3']) {
+      for (const wordMatchMode of ['anyWord', 'mostWords', 'atLeast'] as const) {
+        const translation = hebrewBooksMatchQuery(`ברוך ${operator} אתה מלך`, { wordMatchMode });
+        expect(translation.query).toBe('');
+        expect(translation.unsupported).toContain('אופרטור של מנוע החיפוש');
+      }
+    }
+    // טוקנים שנמדדו כתקינים נשארים מילים רגילות, ו"כל המילים" עובר כמות שהוא.
+    for (const plain of ['to', 'xfirstword', 'andalusia']) {
+      expect(hebrewBooksMatchQuery(`ברוך ${plain} אתה`, { wordMatchMode: 'mostWords' }).unsupported)
+        .toBeUndefined();
+    }
+    expect(hebrewBooksMatchQuery('ברוך w/5 אתה', { wordMatchMode: 'all' })).toEqual({ query: '' });
+  });
+
   it('התקרה היא גבול מדוד: עשרה צירופים נשלחים, חמישה־עשר נדחים', () => {
     const atLeastTwo = (text: string): MatchQueryTranslation =>
       hebrewBooksMatchQuery(text, { wordMatchMode: 'atLeast', wordMatchCount: 2 });

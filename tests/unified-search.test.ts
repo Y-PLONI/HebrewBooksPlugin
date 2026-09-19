@@ -736,6 +736,15 @@ describe('Otzaria match policy as a hbsearch query', () => {
       .toBeUndefined();
   });
 
+  it('refuses a partial match whose words include a search-engine operator', () => {
+    const snapshot = toHebrewBooksSnapshot({ query: 'ברוך w/5 אתה מלך', wordMatchMode: 'mostWords' });
+
+    expect(snapshot.unsupportedPolicy).toContain('אופרטור של מנוע החיפוש');
+    expect(snapshot.query).toBe('ברוך w/5 אתה מלך');
+    // "כל המילים" עדיין שולח את טקסט המשתמש — הבנאי של hbsearch מטפל באופרטורים.
+    expect(toHebrewBooksSnapshot({ query: 'ברוך w/5 אתה' }).unsupportedPolicy).toBeUndefined();
+  });
+
   it('strips gershayim like the hbsearch query builder does, and never splits one word', () => {
     expect(queryOf({ wordMatchMode: 'anyWord' }, 'רמב"ם הלכות')).toBe('רמבם or הלכות');
     for (const mode of ['anyWord', 'mostWords', 'atLeast'] as const) {

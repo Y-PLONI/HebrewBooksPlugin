@@ -102,6 +102,8 @@ export function hebrewBooksMatchQuery(query: string, policy: SearchMatchPolicy):
   if (words.length < 2 || mode === 'all') return withinSizeBudget('', plain);
   const required = requiredWordCount(words.length, mode, policy.wordMatchCount);
   if (required >= words.length) return withinSizeBudget('', plain);
+  const operator = words.find((word) => dtSearchOperator.test(word));
+  if (operator !== undefined) return { query: '', unsupported: operatorWordMessage(operator) };
   if (required <= 1) return withinSizeBudget(words.join(' or '));
   if (combinationCount(words.length, required) > maximumMatchCombinations) {
     return { query: '', unsupported: unsupportedMatchMessage(required, words.length) };
@@ -116,6 +118,15 @@ export function hebrewBooksMatchQuery(query: string, policy: SearchMatchPolicy):
 /// ביטויי טווח, והבנאי שלו מאזן שרשרת ארוכה בדיוק לצורה האסורה הזו.
 function proximityGroup(group: string[], proximity: number): string {
   return group.reduce((left, word) => (left === '' ? word : `(${left} w/${proximity} ${word})`), '');
+}
+
+/// טוקן שהמנוע קורא כאופרטור הופך את שאילתת הצירופים לתחביר שגוי, והוא
+/// מוחזר כאפס תוצאות בלי שגיאה. נמדד חי: and/or/not/contains/xfilter ו-w/N.
+const dtSearchOperator = /^(?:and|or|not|contains|xfilter|(?:w|pre)\/\d+)$/i;
+
+function operatorWordMessage(word: string): string {
+  return `המילה "${word}" היא אופרטור של מנוע החיפוש, ולכן אי אפשר לכלול אותה `
+    + 'בהתאמה חלקית בהיברובוקס. אפשר להסיר אותה או לבחור "כל המילים".';
 }
 
 /// בקשה גדולה מדי מוחזרת מ-dtSearch כאפס תוצאות בלי שגיאה, ולכן עדיף
