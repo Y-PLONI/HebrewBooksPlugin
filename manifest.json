@@ -22,7 +22,6 @@
     "ui.feedback",
     "app.open_url",
     "events.subscribe:theme.changed",
-    "settings.read",
     "events.subscribe:settings.changed"
   ],
   "network": {
