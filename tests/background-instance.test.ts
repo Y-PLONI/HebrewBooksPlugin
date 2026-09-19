@@ -3,6 +3,7 @@
 /// עליהם. הקובץ רץ בסביבת node בכוונה: אין כאן DOM כלל, וכל נגיעה במסך,
 /// ב-styles.css או ב-pdf.js באתחול הייתה מפילה אותו.
 
+import { build } from 'esbuild';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   bootPayload,
@@ -81,6 +82,24 @@ describe('מופע הרקע של התוסף', () => {
     expect(host.countOf('network.fetchStream')).toBe(0);
     expect(host.hasListener('theme.changed')).toBe(false);
     expect(typeof document).toBe('undefined');
+  });
+
+  it('אינו מושך מסכים ואת pdf.js לחבילה שהוא עולה עליה', async () => {
+    // גרף הייבוא ולא היעדר ה-DOM: מסך נטען בלי לגעת ב-document בזמן הייבוא,
+    // ולכן הסביבה כאן לבדה לא הייתה מרגישה בו — רק החבילה שנבנית מעידה.
+    const bundle = await build({
+      entryPoints: ['src/background.ts'],
+      bundle: true,
+      write: false,
+      metafile: true,
+      format: 'iife',
+      platform: 'browser',
+      logLevel: 'silent',
+    });
+
+    const graph = Object.keys(bundle.metafile.inputs);
+    expect(graph.filter((file) => /src\/screens\/|src\/viewer\/|pdfjs-dist/.test(file))).toEqual([]);
+    expect(graph).toContain('src/services/lazy-snippet-source.ts');
   });
 
   it('מגיש בקשת חיפוש חיצוני עד לתשובה סופית עם אינדקס', async () => {
