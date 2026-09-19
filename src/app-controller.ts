@@ -294,7 +294,8 @@ export class AppController {
       if (externalId === null) throw new Error('מזהה הספר בהיברובוקס אינו תקין');
       const opened = await this.otzariaRepository.openBook(
         { external: { provider: 'hebrewbooks', id: externalId } },
-        Math.max(0, page - 1),
+        // ב-PDF אוצריא מונה עמודים מ-1 (PdfBookTab.pageNumber), כמו matchPages.
+        Math.max(1, page),
         displayQueryOf(snapshot),
         anchored
           ? undefined
