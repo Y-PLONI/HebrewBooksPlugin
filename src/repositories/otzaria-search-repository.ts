@@ -1,6 +1,7 @@
 import type { HostBridge } from '../bridge';
 import { requireHostData } from '../bridge';
 import { hebrewBooksProvider, otzariaDistanceForProximity } from '../models';
+import { honouredExpansions } from '../search-option-support';
 import type {
   ExternalSearchIndexEntry,
   ExternalSearchResultPayload,
@@ -300,8 +301,7 @@ export interface OtzariaTabSettings {
 /// והרחבות מחייבות "מתקדם" — תרגום ארמי וראשי תיבות קיימים שם בלבד.
 export function otzariaSearchMode(options: SearchOptions): HostSearchMode {
   if (options.fuzziness > 0) return 'fuzzy';
-  const expanded = options.hybur || options.spelling || options.aramaic || options.rashetevot;
-  return expanded ? 'advanced' : 'exact';
+  return honouredExpansions.some((option) => options[option.key]) ? 'advanced' : 'exact';
 }
 
 /// הגדרות הדיאלוג ביחידות של אוצריא: המרווח מתורגם כך שהמדור החיצוני יחזיר
@@ -314,10 +314,9 @@ export function otzariaTabSettings(options: SearchOptions): OtzariaTabSettings {
     return { mode, distance: Math.min(maximumOtzariaFuzziness, Math.max(1, fuzziness)) };
   }
   const shared: Record<string, boolean> = {};
-  if (options.hybur) shared['קידומות דקדוקיות'] = true;
-  if (options.spelling) shared['כתיב מלא/חסר'] = true;
-  if (options.aramaic) shared['תרגום ארמי'] = true;
-  if (options.rashetevot) shared['ראשי תיבות'] = true;
+  for (const option of honouredExpansions) {
+    if (options[option.key]) shared[option.hostKey] = true;
+  }
   return {
     mode,
     distance: otzariaDistanceForProximity(options.proximity),
