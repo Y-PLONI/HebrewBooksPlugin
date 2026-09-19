@@ -9,6 +9,7 @@ import {
   maximumQueryCharacters,
   minimumProximity,
   paragraphProximity,
+  requiredWordCount,
   scopeProximity,
   sectionProximity,
 } from '../src/models';
@@ -166,6 +167,38 @@ describe('hebrewBooksMatchQuery', () => {
       expect(hebrewBooksMatchQuery(`ברוך ${punctuation} אתה`, { wordMatchMode: 'mostWords' }).unsupported)
         .toBeUndefined();
     }
+  });
+
+  /// המילים שהתרגום בנה מ-[text], לפי סדר הופעתן בצירוף הראשון.
+  function tokens(text: string): string[] {
+    const first = hebrewBooksMatchQuery(text, { wordMatchMode: 'atLeast', wordMatchCount: 2 })
+      .query.split(' or ');
+    return [...new Set(first.flatMap((group) => group.replace(/[()]/g, '').split(' w/30 ')))];
+  }
+
+  it('מקף שובר מילה כמו בטוקנייזר של אוצריא — הסף נמדד על אותן מילים', () => {
+    expect(tokens('בית-דין שלום עולם')).toEqual(['בית', 'דין', 'שלום', 'עולם']);
+    expect(tokens('וַיֹּאמֶר־לוֹ אתה')).toEqual(['וַיֹּאמֶר', 'לוֹ', 'אתה']);
+    // כך גם `mostWords` דורש 3 מתוך 4, בדיוק כמו אוצריא — לא 2 מתוך 3.
+    expect(requiredWordCount(tokens('בית-דין שלום עולם').length, 'mostWords', undefined)).toBe(3);
+  });
+
+  it('גרשיים בתוך מילה אינן שוברות אותה — ראשי תיבות נשארים מילה אחת', () => {
+    for (const acronym of ['רמב"ם', 'רמב״ם', "רמב''ם"]) {
+      expect(tokens(`${acronym} אתה מלך`)).toEqual(['רמבם', 'אתה', 'מלך']);
+    }
+    expect(tokens("תוס' אתה מלך")).toEqual(['תוס', 'אתה', 'מלך']);
+    expect(tokens('פ.ב.י אתה מלך')).toEqual(['פבי', 'אתה', 'מלך']);
+  });
+
+  it('פיסוק דבוק מפריד, ותו מיוחד שאינו תו כללי נושר מהמילה', () => {
+    expect(tokens('שלום, עולם! ומה?')).toEqual(['שלום', 'עולם', 'ומה']);
+    expect(tokens('א|ב ג ד')).toEqual(['א', 'ב', 'ג', 'ד']);
+    for (const word of ['בראשית%', '=בראשית', 'בראשית~', 'בראשית::']) {
+      expect(tokens(`${word} אתה מלך`)).toEqual(['בראשית', 'אתה', 'מלך']);
+    }
+    // `*` נשאר, כי גם "כל המילים" שולחת אותו כתו כללי של dtSearch.
+    expect(tokens('שלו* אתה מלך')).toEqual(['שלו*', 'אתה', 'מלך']);
   });
 
   it('התקרה היא גבול מדוד: עשרה צירופים נשלחים, חמישה־עשר נדחים', () => {

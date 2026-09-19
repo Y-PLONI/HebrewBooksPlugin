@@ -104,7 +104,7 @@ export function hebrewBooksMatchQuery(query: string, policy: SearchMatchPolicy):
   if (words.length < 2 || mode === 'all') return withinSizeBudget('', plain);
   const required = requiredWordCount(words.length, mode, policy.wordMatchCount);
   if (required >= words.length) return withinSizeBudget('', plain);
-  const operator = words.find((word) => dtSearchOperator.test(word));
+  const operator = operatorWord(query);
   if (operator !== undefined) return { query: '', unsupported: operatorWordMessage(operator) };
   if (required <= 1) return withinSizeBudget(words.join(' or '));
   if (combinationCount(words.length, required) > maximumMatchCombinations) {
@@ -143,6 +143,16 @@ function metacharacterWordMessage(word: string): string {
     + 'בהיברובוקס יחזיר בגללו תוצאות שגויות או ייתקע. אפשר להסיר אותו מהשאילתה.';
 }
 
+/// נבדק על המילים כפי שהמשתמש הפריד אותן ברווח: הטוקנייזר שובר `w/5`
+/// לשתי מילים, ואז האופרטור היה חומק מהבדיקה.
+function operatorWord(query: string): string | undefined {
+  return query
+    .trim()
+    .split(/\s+/)
+    .map((word) => word.replace(/["'׳״()]/g, ''))
+    .find((word) => dtSearchOperator.test(word));
+}
+
 function operatorWordMessage(word: string): string {
   return `המילה "${word}" היא אופרטור של מנוע החיפוש, ולכן אי אפשר לכלול אותה `
     + 'בהתאמה חלקית בהיברובוקס. אפשר להסיר אותה או לבחור "כל המילים".';
@@ -173,12 +183,76 @@ function unsupportedMatchMessage(required: number, words: number): string {
 /// מתמזגת, כי גם אוצריא מודדת את הסף במילים ייחודיות.
 function matchWords(query: string): string[] {
   return [...new Set(
-    query
-      .trim()
-      .split(/\s+/)
-      .map((word) => word.replace(/["'׳״()]/g, ''))
+    splitQueryWords(sanitizeQuery(query))
+      .map((word) => word.replace(/["']/g, ''))
       .filter(Boolean),
   )];
+}
+
+/// מפרידי המילה של `sanitize_query` באוצריא — מקף עברי, מקף, קו אנכי
+/// ופיסוק דבוק; מכאן ש`בית-דין` נספר כשתי מילים, כמו במנוע של אוצריא.
+const wordSeparators = /[־\-|,;:!?(){}]/g;
+
+/// תווים "שקופים" באוצריא: נבלעים בלי לשבור מילה ובלי להיכלל בה. `*` אינו
+/// כאן — באוצריא הוא נמחק, ובהיברובוקס הוא תו כללי שגם "כל המילים" שולחת.
+const transparentCharacters = /[[\]^$\+.~`​-‏‪-‮⁦-⁩﻿]/g;
+
+/// סימן צמוד (ניקוד, טעם, combining) — ממשיך מילה אך אינו פותח אותה.
+/// הטווח העברי בלי המפרידים שבתוכו: מקף, פסק, סוף-פסוק ונו"ן הפוכה.
+const combiningMark = /[̀-֑ͯ-ֽֿ-ׇׂﬞׅׄ]/u;
+const alphanumeric = /[\p{Alphabetic}\p{N}]/u;
+
+function sanitizeQuery(query: string): string {
+  return query
+    .replace(/[״“”]/g, '"')
+    .replace(/[׳‘’]/g, "'")
+    .replace(wordSeparators, ' ')
+    .replace(transparentCharacters, '');
+}
+
+function startsWord(character: string): boolean {
+  return alphanumeric.test(character) && !combiningMark.test(character);
+}
+
+function continuesWord(character: string): boolean {
+  return alphanumeric.test(character) || combiningMark.test(character) || character === '*';
+}
+
+/// חלוקת המילים של `split_query_words` באוצריא: מילה נפתחת באות או בספרה,
+/// וגרש/גרשיים בין אותיות נשארים בתוכה — `רמב"ם` היא מילה אחת, לא שתיים.
+function splitQueryWords(text: string): string[] {
+  const characters = [...text];
+  const words: string[] = [];
+  let start = 0;
+  while (start < characters.length) {
+    while (start < characters.length && !startsWord(characters[start] as string)) start += 1;
+    if (start >= characters.length) break;
+    let end = start;
+    for (;;) {
+      while (end < characters.length && continuesWord(characters[end] as string)) end += 1;
+      const quoted = quoteRunEnd(characters, end);
+      if (quoted === end || !continuesWord(characters[quoted] ?? '')) break;
+      end = quoted;
+    }
+    words.push(characters.slice(start, end).join(''));
+    start = end;
+  }
+  return words;
+}
+
+/// סוף רצף הגרשים שאחרי [end] כשהוא רצף פנימי — גרש בודד, זוג גרשים או
+/// גרשיים בודדות; כל צירוף אחר מפריד, ואז מוחזר [end] עצמו.
+function quoteRunEnd(characters: string[], end: number): number {
+  let geresh = 0;
+  let gershayim = 0;
+  let position = end;
+  while (position < characters.length && (characters[position] === '"' || characters[position] === "'")) {
+    if (characters[position] === "'") geresh += 1;
+    else gershayim += 1;
+    position += 1;
+  }
+  const internal = (geresh <= 2 && gershayim === 0) || (geresh === 0 && gershayim === 1);
+  return internal && position > end ? position : end;
 }
 
 function combinationCount(words: number, size: number): number {
