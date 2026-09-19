@@ -221,6 +221,11 @@
             "advanced"
           ],
           "disabledSearchOptions": {
+            "exact": [
+              "word.grammatical-suffixes",
+              "word.partial",
+              "word.typo-tolerance"
+            ],
             "advanced": [
               "word.grammatical-suffixes",
               "word.prefixes",
