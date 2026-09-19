@@ -15,6 +15,7 @@ import type {
 } from '../models';
 import { hebrewBooksMatchQuery, proximityForOtzariaDistance, scopeProximity } from '../models';
 import { otzariaOpenableCorpus } from '../repositories/otzaria-search-repository';
+import { expansionsHonoured } from '../search-option-support';
 
 const hebrewBooksFallbackCategory = 'ספרי היברובוקס';
 const otzariaFallbackCategory = 'ספרי אוצריא';
@@ -258,6 +259,9 @@ export function toHebrewBooksSnapshot(request: HostSearchRequest): SearchSnapsho
   const displayQuery = request.query.trim();
   // התאמה חלקית אינה ניתנת לביטוי באפשרויות — רק בשאילתת אופרטורים.
   const match = hebrewBooksMatchQuery(displayQuery, request);
+  // QueryBuilder של hbsearch מחזיר שאילתת אופרטורים כמות שהיא ואינו מרחיב
+  // אותה; סימון ההרחבות שם היה מבטיח למשתמש מה שהמנוע לא מבצע.
+  const expansions = expansionsHonoured(match.query !== '');
   const options: SearchOptions = {
     // במקורב distance הוא מרחק עריכה, והמילים עצמן צמודות.
     proximity: wideMatch
@@ -271,13 +275,13 @@ export function toHebrewBooksSnapshot(request: HostSearchRequest): SearchSnapsho
     corpus: [...otzariaOpenableCorpus],
     compactCharClass: true,
     // רק אפשרויות שקיימות בשני המנועים מועברות ל-HebrewBooks.
-    hybur: sharedOptionEnabled(request, 'קידומות דקדוקיות'),
+    hybur: expansions && sharedOptionEnabled(request, 'קידומות דקדוקיות'),
     roots: false,
     gematria: false,
-    spelling: sharedOptionEnabled(request, 'כתיב מלא/חסר'),
+    spelling: expansions && sharedOptionEnabled(request, 'כתיב מלא/חסר'),
     numberGender: false,
-    aramaic: sharedOptionEnabled(request, 'תרגום ארמי'),
-    rashetevot: sharedOptionEnabled(request, 'ראשי תיבות'),
+    aramaic: expansions && sharedOptionEnabled(request, 'תרגום ארמי'),
+    rashetevot: expansions && sharedOptionEnabled(request, 'ראשי תיבות'),
     firstWord: false,
     lastWord: false,
     requireWordOrder: !wideMatch,

@@ -156,6 +156,39 @@ describe('toHebrewBooksSnapshot', () => {
     expect(toHebrewBooksSnapshot({ query: 'א', mode: 'advanced', distance: 2 }).options.fuzziness).toBe(0);
   });
 
+  it('חיפוש רגיל מעביר את ההרחבות המשותפות', () => {
+    const snapshot = toHebrewBooksSnapshot({
+      query: 'ברכת המזון',
+      mode: 'advanced',
+      options: { 'קידומות דקדוקיות': true, 'תרגום ארמי': true },
+    });
+    expect(snapshot.query).toBe('ברכת המזון');
+    expect(snapshot.options.hybur).toBe(true);
+    expect(snapshot.options.aramaic).toBe(true);
+  });
+
+  it('שאילתת אופרטורים אינה מסמנת הרחבות — המנוע אינו מרחיב אותה', () => {
+    const snapshot = toHebrewBooksSnapshot({
+      query: 'ברכת המזון בציבור',
+      mode: 'advanced',
+      wordMatchMode: 'anyWord',
+    });
+    expect(snapshot.displayQuery).toBe('ברכת המזון בציבור');
+    expect(snapshot.query).toContain(' or ');
+    expect(snapshot.options.hybur).toBe(false);
+    expect(snapshot.options.aramaic).toBe(false);
+  });
+
+  it('התאמה חלקית שנבחרה יחד עם הרחבה נדחית, ולא רצה בלי ההרחבה', () => {
+    const snapshot = toHebrewBooksSnapshot({
+      query: 'ברכת המזון בציבור',
+      mode: 'advanced',
+      wordMatchMode: 'anyWord',
+      options: { 'קידומות דקדוקיות': true },
+    });
+    expect(snapshot.unsupportedPolicy).toBeDefined();
+  });
+
   it('תקרת התוצאות שנאספות היא 10,000 ספרים', () => {
     expect(toHebrewBooksSnapshot({ query: 'א' }).options.max).toBe(10_000);
   });
