@@ -158,6 +158,28 @@ function metacharacterWord(query: string): string | undefined {
     .find((word) => !letterOrDigit.test(word) && dtSearchMetacharacter.test(word));
 }
 
+/// השאילתה כפי שמסלול "כל המילים" שולח אותה. תו מיוחד שדבוק למילה נשאר
+/// אופרטור של dtSearch: נמדד חי שב-`טלגרף` (174 תוצאות, 83ms) `%` החזיר 416
+/// ו-`#` החזיר 290, `?` ארך 10.1 שניות, ו-`*` בתחילת מילה לא חזר כלל.
+/// היוצא מן הכלל: `*` בסוף מילה נושאת-אות הוא תחילית עובדת (`טלגרף*` —
+/// 174 תוצאות ב-41ms), והוא נשלח בכוונה.
+export function plainSearchQuery(query: string): string {
+  return query
+    .trim()
+    .split(/\s+/)
+    .map(plainSearchWord)
+    .filter(Boolean)
+    .join(' ');
+}
+
+/// מוחלף ברווח ולא נמחק: מחיקה הייתה מדביקה שתי מילים למילה שאינה קיימת.
+function plainSearchWord(word: string): string {
+  const prefixWildcard = /\*+$/.test(word) && letterOrDigit.test(word);
+  const cleaned = word.replace(/\*+$/, '').replace(/[*?%#&=:~]/g, ' ').trim();
+  if (cleaned === '') return '';
+  return prefixWildcard ? `${cleaned}*` : cleaned;
+}
+
 function metacharacterWordMessage(word: string): string {
   return `"${word}" אינו מילת חיפוש אלא תו מיוחד של מנוע החיפוש, ולכן חיפוש `
     + 'בהיברובוקס יחזיר בגללו תוצאות שגויות או ייתקע. אפשר להסיר אותו מהשאילתה.';

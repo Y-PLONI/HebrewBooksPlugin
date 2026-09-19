@@ -13,7 +13,12 @@ import type {
   UnifiedSearchResponse,
   UnifiedSearchResult,
 } from '../models';
-import { hebrewBooksMatchQuery, proximityForOtzariaDistance, scopeProximity } from '../models';
+import {
+  hebrewBooksMatchQuery,
+  plainSearchQuery,
+  proximityForOtzariaDistance,
+  scopeProximity,
+} from '../models';
 import { otzariaOpenableCorpus } from '../repositories/otzaria-search-repository';
 import { expansionsHonoured } from '../search-option-support';
 
@@ -291,10 +296,11 @@ export function toHebrewBooksSnapshot(request: HostSearchRequest): SearchSnapsho
     requireWordOrder: !wideMatch,
     rashiOcr: false,
   };
-  const query = match.query === '' ? displayQuery : match.query;
+  // ב"כל המילים" הטקסט עצמו נשלח, ותו מיוחד דבוק בו נשאר אופרטור.
+  const query = match.query === '' ? plainSearchQuery(displayQuery) : match.query;
   return {
     query,
-    ...(match.query === '' ? {} : { displayQuery }),
+    ...(query === displayQuery ? {} : { displayQuery }),
     ...(match.unsupported === undefined ? {} : { unsupportedPolicy: match.unsupported }),
     options,
     fingerprint: `${query}\u0000${JSON.stringify(options)}`,

@@ -10,6 +10,7 @@ import {
   maximumQueryCharacters,
   minimumProximity,
   paragraphProximity,
+  plainSearchQuery,
   requiredWordCount,
   scopeProximity,
   sectionProximity,
@@ -284,5 +285,40 @@ describe('hebrewBooksMatchQuery', () => {
     expect(translation.query).toBe('');
     expect(translation.unsupported).toContain(String(maximumMatchCombinations));
     expect(translation.unsupported).toContain('אינו נתמך');
+  });
+});
+
+describe('plainSearchQuery', () => {
+  /// נמדד חי מול השירות: `טלגרף` מחזיר 174 תוצאות ב-80ms, אבל
+  /// `טלגרף%` החזיר 416, `#טלגרף` החזיר 290, ו-`*טלגרף` לא חזר כלל.
+  it('מנטרל תו פעולה שדבוק למילה', () => {
+    expect(plainSearchQuery('*טלגרף')).toBe('טלגרף');
+    expect(plainSearchQuery('טלגר%')).toBe('טלגר');
+    expect(plainSearchQuery('#טלגרף')).toBe('טלגרף');
+    expect(plainSearchQuery('=בראשית')).toBe('בראשית');
+    expect(plainSearchQuery('בראשית&')).toBe('בראשית');
+    expect(plainSearchQuery('בראשית~')).toBe('בראשית');
+    expect(plainSearchQuery('בראשית?')).toBe('בראשית');
+    expect(plainSearchQuery('בראשית::')).toBe('בראשית');
+  });
+
+  /// `בראשית*` הוא תחילית עובדת — אותן 174 תוצאות ב-38ms — ונשלח בכוונה.
+  it('משאיר כוכבית שבסוף מילה נושאת-אות', () => {
+    expect(plainSearchQuery('בראשית*')).toBe('בראשית*');
+    expect(plainSearchQuery('שלו* עולם')).toBe('שלו* עולם');
+    expect(plainSearchQuery('בראשית**')).toBe('בראשית*');
+  });
+
+  it('אינו מדביק שתי מילים, ומחזיר ריק כשאין טקסט', () => {
+    expect(plainSearchQuery('א*ב')).toBe('א ב');
+    expect(plainSearchQuery('%%% ???')).toBe('');
+    expect(plainSearchQuery('  שלום   עולם  ')).toBe('שלום עולם');
+  });
+
+  /// אופרטורים שהשירות מעביר בכוונה ב"כל המילים" אינם נפגעים.
+  it('אינו נוגע בשאילתת אופרטורים לגיטימית', () => {
+    expect(plainSearchQuery('בראשית w/5 ברא')).toBe('בראשית w/5 ברא');
+    expect(plainSearchQuery('(א or ב) and ג')).toBe('(א or ב) and ג');
+    expect(plainSearchQuery('בית-דין')).toBe('בית-דין');
   });
 });

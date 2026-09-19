@@ -8,6 +8,7 @@ import type {
   SearchSnapshot,
   UnifiedSearchResult,
 } from './models';
+import { plainSearchQuery } from './models';
 import { CatalogMappingRepository } from './repositories/catalog-mapping-repository';
 import { HebrewBooksRepository } from './repositories/hebrewbooks-repository';
 import { HebrewBooksSnippetRepository } from './repositories/hebrewbooks-snippet-repository';
@@ -183,7 +184,18 @@ export class AppController {
     this.invalidateResultOpen();
     const cancellation = this.replaceSearchCancellation();
     const requestId = this.latestSearch.begin();
-    this.snapshot = { query, options, fingerprint: createFingerprint(query, options) };
+    // הטקסט שנשלח למנוע נקי מתווי הפעולה שלו; המשתמש ממשיך לראות את שלו.
+    const sent = plainSearchQuery(query);
+    if (sent === '') {
+      await this.showHostError('החיפוש מכיל תווים מיוחדים של מנוע החיפוש בלבד; יש להזין מילות חיפוש');
+      return;
+    }
+    this.snapshot = {
+      query: sent,
+      ...(sent === query ? {} : { displayQuery: query }),
+      options,
+      fingerprint: createFingerprint(sent, options),
+    };
     this.showScreen('results');
     this.results.setSearch(query, null, true, undefined, false, hebrewBooksSearchTerms(options));
     this.results.showLoading();
