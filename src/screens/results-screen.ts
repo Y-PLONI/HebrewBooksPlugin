@@ -266,7 +266,7 @@ export class ResultsScreen {
         this.filterQuery = '';
         this.renderTree();
       },
-      trailing: [this.buildSourceFilterButton()],
+      trailing: this.buildSourceFilter(),
     });
     fieldWrap.append(field.root);
     navigation.append(fieldWrap);
@@ -351,9 +351,24 @@ export class ResultsScreen {
     return matches.map((book) => navTreeGroup([this.buildBookRow(book, 0)]));
   }
 
+  /// רק מקורות שיש להם תוצאות בתשובה הנוכחית ניתנים לסינון: מקור שאינו על
+  /// המסך אינו פריט בתפריט, ואינו נספר בכלל "אי אפשר לכבות את האחרון".
+  private availableSources(): ReadonlyArray<{ source: ResultSource; label: string }> {
+    const present = new Set(this.response?.results.map((result) => result.source));
+    return sourceLabels.filter(({ source }) => present.has(source));
+  }
+
   /// כפתור הסינון שבתוך שדה האיתור — כאן הוא מסנן לפי מקור התוצאה, המקבילה
-  /// של סינון המאפיינים (ספרי יסוד/תקופה) שבאוצריא.
-  private buildSourceFilterButton(): HTMLElement {
+  /// של סינון המאפיינים (ספרי יסוד/תקופה) שבאוצריא. עם מקור יחיד אין מה
+  /// לסנן, והכפתור אינו מוצג.
+  private buildSourceFilter(): HTMLElement[] {
+    const available = this.availableSources();
+    return available.length > 1 ? [this.buildSourceFilterButton(available)] : [];
+  }
+
+  private buildSourceFilterButton(
+    available: ReadonlyArray<{ source: ResultSource; label: string }>,
+  ): HTMLElement {
     const anchor = element('div', 'nav-filter-anchor');
     const button = element('button', 'nav-filter-button');
     button.type = 'button';
@@ -363,7 +378,7 @@ export class ResultsScreen {
     if (this.hiddenSources.size > 0) button.classList.add('active');
     button.append(iconElement('filter_24_regular', 20));
     if (this.hiddenSources.size > 0) {
-      button.append(element('span', 'nav-filter-badge', String(sourceLabels.length - this.hiddenSources.size)));
+      button.append(element('span', 'nav-filter-badge', String(available.length - this.hiddenSources.size)));
     }
     button.addEventListener('click', (event) => {
       event.stopPropagation();
@@ -376,7 +391,7 @@ export class ResultsScreen {
       const menu = element('div', 'nav-filter-menu');
       menu.setAttribute('role', 'menu');
       menu.addEventListener('click', (event) => event.stopPropagation());
-      for (const { source, label } of sourceLabels) {
+      for (const { source, label } of available) {
         const active = !this.hiddenSources.has(source);
         const item = element('button', 'nav-filter-menu-item');
         item.type = 'button';
@@ -412,7 +427,7 @@ export class ResultsScreen {
   private toggleSource(source: ResultSource): void {
     const hidden = new Set(this.hiddenSources);
     if (hidden.has(source)) hidden.delete(source);
-    else if (hidden.size + 1 < sourceLabels.length) hidden.add(source);
+    else if (hidden.size + 1 < this.availableSources().length) hidden.add(source);
     else return;
     this.hiddenSources = hidden;
     if (this.selectedFacet !== null && !this.facetStillExists()) this.selectedFacet = null;

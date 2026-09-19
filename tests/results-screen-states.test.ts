@@ -235,6 +235,18 @@ describe('ResultsScreen — סינון לפי מקור', () => {
     screen.root.remove();
   });
 
+  /// מסך התוסף נושא תוצאות היברובוקס בלבד. תפריט עם "אוצריא" היה מבטיח
+  /// מקור שאינו שם, וכיבוי היברובוקס היה מרוקן את המסך בלי חיווי.
+  it('מקור יחיד — אין כפתור סינון כלל', () => {
+    const { screen } = createScreen();
+    document.body.append(screen.root);
+    screen.showResults(response({ results: [hebrewBooksResult()], otzariaTotal: 0 }));
+
+    expect(screen.root.querySelector('.nav-filter-button')).toBeNull();
+    expect(screen.root.querySelectorAll('.result-card')).toHaveLength(1);
+    screen.root.remove();
+  });
+
   it('לחיצה מחוץ לתפריט סוגרת אותו', () => {
     const { screen } = createScreen();
     document.body.append(screen.root);
