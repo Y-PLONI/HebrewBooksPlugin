@@ -214,6 +214,18 @@ describe('hebrewBooksMatchQuery', () => {
     expect(tokens('שלו* אתה מלך')).toEqual(['שלו*', 'אתה', 'מלך']);
   });
 
+  // שני התווים האלה נבדלו מאוצריא והזיזו את הסף בלי שהמשתמש ידע: לוכסן
+  // הפוך שקוף שם, ופסק (U+05C0) שובר מילה ואינו סימן צמוד.
+  it('לוכסן הפוך שקוף ופסק שובר מילה, כמו באוצריא', () => {
+    expect(tokens('שלום\\עולם אתה מלך')).toEqual(['שלוםעולם', 'אתה', 'מלך']);
+    expect(tokens('שלום׀עולם אתה')).toEqual(['שלום', 'עולם', 'אתה']);
+    expect(requiredWordCount(tokens('שלום׀עולם אתה').length, 'mostWords', undefined)).toBe(2);
+    // סוף-פסוק ונו"ן הפוכה שוברים גם הם; ניקוד וטעם ממשיכים את המילה.
+    expect(tokens('שלום׃עולם אתה')).toEqual(['שלום', 'עולם', 'אתה']);
+    expect(tokens('שלום׆עולם אתה')).toEqual(['שלום', 'עולם', 'אתה']);
+    expect(tokens('בראשית֑ ברא אלהים')).toEqual(['בראשית֑', 'ברא', 'אלהים']);
+  });
+
   it('הרחבה שהטאב ביקש נדחית — שאילתת האופרטורים עוקפת את הבנאי של המנוע', () => {
     expect(partialMatchHonoursExpansions).toBe(false);
     for (const option of honouredExpansions) {

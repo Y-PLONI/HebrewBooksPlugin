@@ -232,11 +232,11 @@ const wordSeparators = /[־\-|,;:!?(){}]/g;
 
 /// תווים "שקופים" באוצריא: נבלעים בלי לשבור מילה ובלי להיכלל בה. `*` אינו
 /// כאן — באוצריא הוא נמחק, ובהיברובוקס הוא תו כללי שגם "כל המילים" שולחת.
-const transparentCharacters = /[[\]^$\+.~`​-‏‪-‮⁦-⁩﻿]/g;
+const transparentCharacters = /[[\]^$\\\+.~`\u200B-\u200F\u202A-\u202E\u2066-\u2069\uFEFF]/g;
 
-/// סימן צמוד (ניקוד, טעם, combining) — ממשיך מילה אך אינו פותח אותה.
-/// הטווח העברי בלי המפרידים שבתוכו: מקף, פסק, סוף-פסוק ונו"ן הפוכה.
-const combiningMark = /[̀-֑ͯ-ֽֿ-ׇׂﬞׅׄ]/u;
+/// סימן צמוד (ניקוד, טעם, combining) — ממשיך מילה אך אינו פותח אותה;
+/// מקף, פסק, סוף-פסוק ונו"ן הפוכה הם פיסוק ושוברים מילה, ולכן אינם כאן.
+const combiningMark = /[\u0300-\u036F\u0591-\u05BD\u05BF\u05C1\u05C2\u05C4\u05C5\u05C7\uFB1E]/u;
 const alphanumeric = /[\p{Alphabetic}\p{N}]/u;
 
 function sanitizeQuery(query: string): string {
