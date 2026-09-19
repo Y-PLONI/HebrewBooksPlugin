@@ -9,8 +9,9 @@ export function isBackgroundBoot(payload: OtzariaBootPayload): boolean {
   return payload?.app?.runMode === 'background';
 }
 
-/// אתחול מופע הרקע: רק רישום ספקי החיפוש, כדי שהאירועים הממוקדים יגיעו
-/// אליו. אין מסך, ולכן אין ערכת נושא, קריאת הגדרות ובדיקת /health.
+/// מופע רקע שנחת בכל זאת על index.html — מארח שאינו מכיר את
+/// contributes.background, או מצב פיתוח localhost שמגיש תמיד את הדף המלא.
+/// רק רישום הספקים: אין מסך, ולכן אין ערכת נושא ואין בדיקת /health.
 export async function bootBackgroundInstance(bridge: HostBridge): Promise<void> {
   const repository = new OtzariaSearchRepository(bridge);
   await repository.registerInBookSearchProvider().catch(() => undefined);

@@ -31,6 +31,9 @@
     ]
   },
   "contributes": {
+    "background": {
+      "entrypoint": "background.html"
+    },
     "toolTab": {
       "title": "היברובוקס",
       "order": 900,

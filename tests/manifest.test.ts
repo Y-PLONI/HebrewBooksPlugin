@@ -82,7 +82,8 @@ describe('parallel edition manifest contributions', () => {
     expect(stringArrayAt(startup, 'activationEvents')).toEqual([
       'search.external.requested',
     ]);
-    expect(manifest).not.toHaveProperty('background');
+    // המנוע הזה טוען דף כניסה משלו — לא index.html על מסכיו ועל pdf.js שבו.
+    expect(objectAt(contributes, 'background')).toEqual({ entrypoint: 'background.html' });
     // לחיצות בסרגל נשארות דקלרטיביות ואינן מדליקות מנוע.
     expect(toolbarItems).not.toEqual(
       expect.arrayContaining([expect.objectContaining({ openPlugin: true })]),

@@ -11,19 +11,26 @@ await mkdir(resolve(dist, 'assets'), { recursive: true });
 await mkdir(resolve(dist, 'assets/fonts'), { recursive: true });
 await mkdir(resolve(dist, 'vendor'), { recursive: true });
 
-await build({
-  entryPoints: [resolve(root, 'src/main.ts')],
-  outfile: resolve(dist, 'assets/app.js'),
-  bundle: true,
-  format: 'iife',
-  platform: 'browser',
-  target: ['chrome120'],
-  minify: true,
-  legalComments: 'none',
-});
+const bundle = (entry, outfile) =>
+  build({
+    entryPoints: [resolve(root, entry)],
+    outfile: resolve(dist, outfile),
+    bundle: true,
+    format: 'iife',
+    platform: 'browser',
+    target: ['chrome120'],
+    minify: true,
+    legalComments: 'none',
+  });
+
+await bundle('src/main.ts', 'assets/app.js');
+// מופע הרקע מגיש את אירועי החיפוש בלבד, ולכן חבילתו נבנית בנפרד: בלי
+// המסכים, בלי ה-CSS ובלי pdf.js שהם מושכים.
+await bundle('src/background.ts', 'assets/background.js');
 
 await cp(resolve(root, 'manifest.json'), resolve(dist, 'manifest.json'));
 await cp(resolve(root, 'index.html'), resolve(dist, 'index.html'));
+await cp(resolve(root, 'background.html'), resolve(dist, 'background.html'));
 await cp(resolve(root, 'src/styles.css'), resolve(dist, 'styles.css'));
 await cp(resolve(root, 'assets/fonts'), resolve(dist, 'assets/fonts'), { recursive: true });
 await cp(
