@@ -290,6 +290,63 @@ describe('דיאלוג החיפוש של התוסף', () => {
     });
   });
 
+  it('תוצאה מהאוסף האישי נפתחת במציג של התוסף ולא דרך הקורא של אוצריא', async () => {
+    const openBook = vi.spyOn(ViewerScreen.prototype, 'openBook').mockResolvedValue(undefined);
+    try {
+      const harness = await bootHarness(
+        pluginSearchConfig({
+          methods: emptyMapping,
+          network: {
+            '/search': () => ({
+              body: hebrewBooksNdjson([
+                hebrewBooksRow({ fileId: '1000000000042', sourceType: 'Personal' }),
+              ]),
+            }),
+          },
+        }),
+      );
+      await submitFromDialog(harness, 'ברכת המזון', () => {
+        const personalRow = [
+          ...dialogRoot().querySelectorAll<HTMLLabelElement>('.checkbox-row'),
+        ].find((row) => row.textContent?.includes('אוסף אישי'));
+        personalRow?.querySelector<HTMLInputElement>('input')?.click();
+      });
+      await vi.waitFor(() => expect(harness.shell.querySelectorAll('.result-card')).toHaveLength(1));
+      harness.shell.querySelector<HTMLElement>('.result-card-body')?.click();
+      await vi.waitFor(() => expect(openBook).toHaveBeenCalledTimes(1));
+      // הקורא של אוצריא אינו יודע לפתוח מזהה אישי סינתטי — לא פונים אליו.
+      expect(harness.host.countOf('reader.openBook')).toBe(0);
+      expect(String(openBook.mock.calls[0]?.[1])).toContain('/pdf/1000000000042');
+    } finally {
+      openBook.mockRestore();
+    }
+  });
+
+  it('שרת ישן בלי מזהה מספרי לספר אישי נכשל בהודעה ברורה', async () => {
+    const harness = await bootHarness(
+      pluginSearchConfig({
+        methods: emptyMapping,
+        network: {
+          '/search': () => ({
+            body: hebrewBooksNdjson([
+              hebrewBooksRow({ fileId: 'אא רמב"ם\א מדע.pdf', sourceType: 'Personal' }),
+            ]),
+          }),
+        },
+      }),
+    );
+    await submitFromDialog(harness, 'ברכת המזון', () => {
+      const personalRow = [...dialogRoot().querySelectorAll<HTMLLabelElement>('.checkbox-row')].find(
+        (row) => row.textContent?.includes('אוסף אישי'),
+      );
+      personalRow?.querySelector<HTMLInputElement>('input')?.click();
+    });
+    await vi.waitFor(() => expect(harness.shell.querySelectorAll('.result-card')).toHaveLength(1));
+    harness.shell.querySelector<HTMLElement>('.result-card-body')?.click();
+    await vi.waitFor(() => expect(harness.host.countOf('ui.showError')).toBe(1));
+    expect(String(harness.host.lastPayload('ui.showError')?.message)).toContain('אוסף אישי');
+  });
+
   it('"ערוך חיפוש" פותח מחדש את הדיאלוג עם השאילתה הקודמת', async () => {
     const harness = await bootHarness({
       methods: {

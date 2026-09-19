@@ -280,6 +280,12 @@ export class AppController {
   /// בטאב החיפוש המובנה, לצד המדור החיצוני שלנו.
   private async openResult(result: UnifiedSearchResult): Promise<void> {
     if (result.source !== 'hebrewbooks') return;
+    // ספר מהאוסף האישי אינו בקטלוג היברובוקס, ולכן טוען הספקים של אוצריא
+    // אינו יודע לפתוח את מזההו הסינתטי — התוסף מציג אותו במציג שלו.
+    if (result.hit.sourceType === 'Personal') {
+      await this.openBook(result.hit);
+      return;
+    }
     const openRequestId = this.latestResultOpen.begin();
     try {
       const snapshot = this.snapshot;
@@ -337,6 +343,10 @@ export class AppController {
     this.showScreen('viewer');
     this.viewer.setSearchQuery(displayQueryOf(snapshot));
     try {
+      // בלי מזהה מספרי אין כתובת PDF להגיש למציג.
+      if (externalIdOf(result.fileId) === null) {
+        throw new Error('שירות היברובוקס המותקן אינו מספק מזהה לספר זה; עדכן אותו כדי לפתוח ספרי אוסף אישי');
+      }
       const locations = await this.server.locateOpeningInBook(snapshot, result.fileId);
       if (!this.isCurrentResultOpen(openRequestId) || this.snapshot !== snapshot) return;
       // כשהחיפוש מוגבל למילה ראשונה/אחרונה בעמוד, מספרי העמודים אינם מיקומי
