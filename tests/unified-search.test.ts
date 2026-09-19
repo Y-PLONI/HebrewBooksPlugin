@@ -634,9 +634,10 @@ describe('Otzaria match policy as a hbsearch query', () => {
   });
 
   it('maps mostWords to the n/2+1 sized combinations', () => {
+    // כל w/30 מסוגר במפורש עם מילה בודדת מימינו — שרשרת חשופה נדחית.
     expect(queryOf({ wordMatchMode: 'mostWords' })).toBe(
-      '(ברוך w/30 אתה w/30 השם) or (ברוך w/30 אתה w/30 אלוקינו)'
-        + ' or (ברוך w/30 השם w/30 אלוקינו) or (אתה w/30 השם w/30 אלוקינו)',
+      '((ברוך w/30 אתה) w/30 השם) or ((ברוך w/30 אתה) w/30 אלוקינו)'
+        + ' or ((ברוך w/30 השם) w/30 אלוקינו) or ((אתה w/30 השם) w/30 אלוקינו)',
     );
     // שתי מילים: רוב = שתיהן, ואין צורך באופרטורים.
     expect(queryOf({ wordMatchMode: 'mostWords' }, 'ברכת המזון')).toBe('ברכת המזון');
@@ -648,6 +649,11 @@ describe('Otzaria match policy as a hbsearch query', () => {
   it('joins the combinations of "most words under the same heading" with the section window', () => {
     expect(queryOf({ wordMatchMode: 'mostWords', proximityScope: 'sameSection' }, 'ברוך אתה השם')).toBe(
       '(ברוך w/300 אתה) or (ברוך w/300 השם) or (אתה w/300 השם)',
+    );
+    // גם חלון הסעיף מסוגר במפורש.
+    expect(queryOf({ wordMatchMode: 'mostWords', proximityScope: 'sameSection' }, 'א ב ג ד')).toBe(
+      '((א w/300 ב) w/300 ג) or ((א w/300 ב) w/300 ד)'
+        + ' or ((א w/300 ג) w/300 ד) or ((ב w/300 ג) w/300 ד)',
     );
   });
 

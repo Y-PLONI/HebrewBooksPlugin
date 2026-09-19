@@ -100,6 +100,30 @@ describe('hebrewBooksMatchQuery', () => {
     }
   });
 
+  /// צורה חוקית: לכל w/N מילה בודדת מימינו, ומשמאלו מילה או ביטוי כזה.
+  /// dtSearch דוחה w/N ששני צדדיו ביטויי טווח.
+  function isLeftLeaning(group: string): boolean {
+    const match = /^\((.+) w\/\d+ ([^\s()]+)\)$/.exec(group);
+    return match === null ? /^[^\s()]+$/.test(group) : isLeftLeaning(match[1] as string);
+  }
+
+  it('כל w/N מסוגר במפורש — שרשרת חשופה נדחית ב-dtSearch כתחביר שגוי', () => {
+    for (const proximityScope of ['sameParagraph', 'sameSection'] as const) {
+      const proximity = scopeProximity(proximityScope);
+      const groups = hebrewBooksMatchQuery(words.join(' '), {
+        proximityScope,
+        wordMatchMode: 'atLeast',
+        wordMatchCount: 3,
+      }).query.split(' or ');
+
+      expect(groups).toHaveLength(10);
+      expect(groups.filter(isLeftLeaning)).toEqual(groups);
+      expect(groups[0]).toBe(`((אלף w/${proximity} בית) w/${proximity} גימל)`);
+    }
+    expect(isLeftLeaning('(אלף w/30 בית w/30 גימל)')).toBe(false);
+    expect(isLeftLeaning('(אלף w/30 (בית w/30 גימל))')).toBe(false);
+  });
+
   it('מעל התקרה המדיניות נדחית, ואינה מתורגמת לחיפוש רחב יותר', () => {
     const many = [...words, 'וו', 'זין', 'חית', 'טית', 'יוד', 'כף', 'למד'];
     const translation = hebrewBooksMatchQuery(many.join(' '), { wordMatchMode: 'mostWords' });

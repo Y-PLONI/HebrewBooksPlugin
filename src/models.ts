@@ -95,10 +95,16 @@ export function hebrewBooksMatchQuery(query: string, policy: SearchMatchPolicy):
   if (combinationCount(words.length, required) > maximumMatchCombinations) {
     return { query: '', unsupported: unsupportedMatchMessage(required, words.length) };
   }
-  const join = ` w/${scopeProximity(policy.proximityScope)} `;
+  const proximity = scopeProximity(policy.proximityScope);
   return {
-    query: combinations(words, required).map((group) => `(${group.join(join)})`).join(' or '),
+    query: combinations(words, required).map((group) => proximityGroup(group, proximity)).join(' or '),
   };
+}
+
+/// כל w/N נבנה במפורש עם מילה בודדת מימינו. dtSearch דוחה w/N ששני צדדיו
+/// ביטויי טווח, והבנאי שלו מאזן שרשרת ארוכה בדיוק לצורה האסורה הזו.
+function proximityGroup(group: string[], proximity: number): string {
+  return group.reduce((left, word) => (left === '' ? word : `(${left} w/${proximity} ${word})`), '');
 }
 
 /// ל-dtSearch אין "לפחות k מתוך n", ופירוק לצירופים הוא הביטוי המדויק
