@@ -14,6 +14,7 @@ import type {
   UnifiedSearchResult,
 } from '../models';
 import { hebrewBooksMatchQuery, proximityForOtzariaDistance, scopeProximity } from '../models';
+import { otzariaOpenableCorpus } from '../repositories/otzaria-search-repository';
 
 const hebrewBooksFallbackCategory = 'ספרי היברובוקס';
 const otzariaFallbackCategory = 'ספרי אוצריא';
@@ -266,7 +267,8 @@ export function toHebrewBooksSnapshot(request: HostSearchRequest): SearchSnapsho
     max: maximumHebrewBooksResults,
     limit: Math.min(500, Math.max(1, request.limit ?? 100)),
     sort: 'hitcount',
-    corpus: ['pdf'],
+    // הבקשה מהטאב אינה נושאת מקור; מחפשים רק במה שהמדור החיצוני יודע לפתוח.
+    corpus: [...otzariaOpenableCorpus],
     compactCharClass: true,
     // רק אפשרויות שקיימות בשני המנועים מועברות ל-HebrewBooks.
     hybur: sharedOptionEnabled(request, 'קידומות דקדוקיות'),

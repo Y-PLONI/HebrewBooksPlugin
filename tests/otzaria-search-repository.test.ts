@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { HostBridge } from '../src/bridge';
 import type { OtzariaSearchChunk } from '../src/models';
 import { defaultSearchOptions } from '../src/models';
-import { OtzariaSearchRepository } from '../src/repositories/otzaria-search-repository';
+import { OtzariaSearchRepository, otzariaTabCorpus } from '../src/repositories/otzaria-search-repository';
 
 describe('OtzariaSearchRepository', () => {
   it('consumes search.query as an async stream without awaiting one response envelope', async () => {
@@ -160,6 +160,17 @@ describe('OtzariaSearchRepository', () => {
           settings: { mode: 'exact', distance: 29 },
         },
       ]);
+    });
+  });
+
+  describe('otzariaTabCorpus', () => {
+    it('משאיר רק מקורות שהמדור החיצוני יודע לפתוח', () => {
+      expect(otzariaTabCorpus(['pdf'])).toEqual(['pdf']);
+      expect(otzariaTabCorpus(['pdf', 'otzraya', 'personal'])).toEqual(['pdf']);
+    });
+
+    it('בחירה שכולה ספרי טקסט או מאגר אישי אינה משאירה מה לחפש בטאב', () => {
+      expect(otzariaTabCorpus(['otzraya', 'personal'])).toEqual([]);
     });
   });
 

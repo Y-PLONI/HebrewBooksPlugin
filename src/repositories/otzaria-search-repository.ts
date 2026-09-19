@@ -258,6 +258,16 @@ function chunk<T>(items: T[], size: number): T[][] {
 /// מרחק העריכה המרבי של חיפוש מקורב באוצריא (kMaxFuzzyDistance).
 const maximumOtzariaFuzziness = 2;
 
+/// המקורות שתוצאותיהם ניתנות לפתיחה בטאב החיפוש של אוצריא. המדור החיצוני
+/// פותח ספר לפי מזהה היברובוקס מספרי, וב"ספרי טקסט" ובמאגר האישי ה-fileId
+/// הוא נתיב יחסי — הוא נושר מהאינדקס ומהעמוד, והספר לעולם אינו מוצג.
+export const otzariaOpenableCorpus: SearchOptions['corpus'] = ['pdf'];
+
+/// בחירת המקורות של המשתמש מצומצמת למה שהטאב יודע לפתוח.
+export function otzariaTabCorpus(corpus: SearchOptions['corpus']): SearchOptions['corpus'] {
+  return corpus.filter((source) => otzariaOpenableCorpus.includes(source));
+}
+
 export interface OtzariaTabSettings {
   mode: HostSearchMode;
   distance: number;
