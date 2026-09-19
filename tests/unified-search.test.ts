@@ -113,7 +113,7 @@ function hebrewBooksPage(
   totalHits = results.reduce((total, result) => total + result.hitCount, 0),
   truncated = false,
 ): HebrewBooksSearchPage {
-  return { results, totalBooks, totalHits, truncated };
+  return { results, totalBooks, totalHits, truncated, warnings: [] };
 }
 
 describe('UnifiedSearchService', () => {

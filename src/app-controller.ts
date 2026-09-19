@@ -203,7 +203,7 @@ export class AppController {
             otzariaTotal: 0,
             hebrewBooksTotal: partial.totalHits,
             truncated: partial.truncated,
-            warnings: [],
+            warnings: partial.warnings,
             nextCursor: null,
           }, 'מוצגות תוצאות שהתקבלו; החיפוש ממשיך…');
           return true;
@@ -234,7 +234,7 @@ export class AppController {
           otzariaTotal: 0,
           hebrewBooksTotal: searchPage.totalHits,
           truncated: searchPage.truncated,
-          warnings: [],
+          warnings: searchPage.warnings,
           nextCursor: null,
         });
       }

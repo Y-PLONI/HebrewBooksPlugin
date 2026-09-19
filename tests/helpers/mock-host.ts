@@ -19,6 +19,7 @@ export interface NetworkReply {
   readonly bodies?: readonly string[];
   /// השהיה לפני כל מקטע; מאפשרת לבדוק תוצאות שמגיעות כשהזרם עוד פתוח.
   readonly bodyDelaysMs?: readonly number[];
+  readonly headers?: Readonly<Record<string, string>>;
 }
 
 export type NetworkHandler = (
@@ -100,7 +101,7 @@ export function createMockHost(config: MockHostConfig = {}): MockHost {
       type: 'response',
       status,
       ok: reply.ok ?? (status >= 200 && status < 300),
-      headers: { 'content-type': 'application/x-ndjson' },
+      headers: { 'content-type': 'application/x-ndjson', ...reply.headers },
     };
     const bodies = reply.bodies ?? (reply.body === undefined ? [] : [reply.body]);
     for (const [index, body] of bodies.entries()) {

@@ -210,7 +210,7 @@ function sources(options: {
   const hebrewBooks = {
     search: vi.fn(async () => {
       if (options.hebrewBooksError) throw options.hebrewBooksError;
-      return options.hebrewBooksPage ?? { results: [], totalBooks: 0, totalHits: 0, truncated: false };
+      return options.hebrewBooksPage ?? { results: [], totalBooks: 0, totalHits: 0, truncated: false, warnings: [] };
     }),
   };
   const otzaria = {
@@ -273,7 +273,7 @@ describe('UnifiedSearchService — קטגוריות וסמן ההמשך', () => 
 
   it('ספר היברובוקס שהושווה מקבל את קטגוריית מהדורת אוצריא', async () => {
     const { service, resolveBooks } = sources({
-      hebrewBooksPage: { results: [hebrewBooksHit('10')], totalBooks: 1, totalHits: 1, truncated: false },
+      hebrewBooksPage: { results: [hebrewBooksHit('10')], totalBooks: 1, totalHits: 1, truncated: false, warnings: [] },
       mapping: new Map([['10', 501]]),
       books: [{ id: 501, title: 'מהדורת אוצריא', categoryPath: '/הלכה/שולחן ערוך' }],
     });
@@ -285,7 +285,7 @@ describe('UnifiedSearchService — קטגוריות וסמן ההמשך', () => 
   it('סמן ההמשך מתאפס כששני המנועים מיצו את התוצאות', async () => {
     const { service } = sources({
       otzariaChunks: [otzariaChunk({ total: 1, results: [otzariaHit(1)] })],
-      hebrewBooksPage: { results: [hebrewBooksHit('10')], totalBooks: 1, totalHits: 1, truncated: false },
+      hebrewBooksPage: { results: [hebrewBooksHit('10')], totalBooks: 1, totalHits: 1, truncated: false, warnings: [] },
     });
     const response = await service.search(baseRequest);
     expect(response.nextCursor).toBeNull();
@@ -305,7 +305,7 @@ describe('UnifiedSearchService — קטגוריות וסמן ההמשך', () => 
   it('מנוע שנכשל מסומן כמוצה, והשני ממשיך להתקדם', async () => {
     const { service } = sources({
       otzariaError: new Error('האינדקס אינו בנוי'),
-      hebrewBooksPage: { results: [hebrewBooksHit('10')], totalBooks: 5, totalHits: 5, truncated: false },
+      hebrewBooksPage: { results: [hebrewBooksHit('10')], totalBooks: 5, totalHits: 5, truncated: false, warnings: [] },
     });
     const response = await service.search({ ...baseRequest, limit: 1 });
     expect(response.warnings).toEqual(['החיפוש באוצריא נכשל: האינדקס אינו בנוי']);
@@ -328,7 +328,7 @@ describe('UnifiedSearchService — קטגוריות וסמן ההמשך', () => 
 
   it('מנוע שכבר סומן כמוצה בסמן אינו נשאל שוב', async () => {
     const { service, otzaria, hebrewBooks } = sources({
-      hebrewBooksPage: { results: [hebrewBooksHit('11')], totalBooks: 2, totalHits: 2, truncated: false },
+      hebrewBooksPage: { results: [hebrewBooksHit('11')], totalBooks: 2, totalHits: 2, truncated: false, warnings: [] },
     });
     await service.search(baseRequest, {
       otzariaOffset: 3,
@@ -347,6 +347,7 @@ describe('UnifiedSearchService — קטגוריות וסמן ההמשך', () => 
         totalBooks: 10_000,
         totalHits: 40_000,
         truncated: true,
+        warnings: [],
       },
     });
     const response = await service.search(baseRequest);

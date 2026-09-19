@@ -32,6 +32,7 @@ interface CachedSearch {
   results: HebrewBooksResult[];
   totalHits: number;
   truncated: boolean;
+  warnings: string[];
 }
 
 /// יכולות פרוטוקול החיפוש כפי שהשירות הצהיר עליהן ב-/health.
@@ -215,6 +216,7 @@ export class HebrewBooksRepository {
     let abandoned = false;
     let streamId: string | null = null;
     let cancelSent = false;
+    const warnings: string[] = [];
     let closing: Promise<IteratorResult<NetworkFetchStreamChunk>> | undefined;
     const provisionalIds = new Set<string>();
     let revision = 0;
@@ -224,7 +226,7 @@ export class HebrewBooksRepository {
     /// נקרא אצל הקורא כחיפוש שהסתיים בלי תוצאות, ומוחק מהמסך ספרים שכבר
     /// הוצגו. מי שביטל הוא זה שיחליט אם התשובה עוד מעניינת אותו.
     const abortedPage = (): HebrewBooksSearchPage =>
-      pageFromResults(results, offset, snapshot.options);
+      pageFromResults(results, offset, snapshot.options, warnings);
     const requestCancel = (): void => {
       if (!useCancelV2 || !abandoned || completed || cancelSent || streamId === null) return;
       cancelSent = true;
@@ -249,7 +251,7 @@ export class HebrewBooksRepository {
       // start מגיע לפני נעילת מנוע החיפוש; heartbeat נשלח גם בעת המתנה בתור.
       // שניהם שומרים על בקשת אוצריא פעילה בלי לשנות את הרשימה המוצגת.
       if (!onUpdate) return true;
-      if (onUpdate(pageFromResults(results, offset, snapshot.options)) === false) {
+      if (onUpdate(pageFromResults(results, offset, snapshot.options, warnings)) === false) {
         abandon();
         return false;
       }
@@ -264,7 +266,7 @@ export class HebrewBooksRepository {
         publishedRevision = revision;
         lastPublishedAt = Date.now();
       }
-      if (onUpdate?.(pageFromResults(results, offset, snapshot.options)) === false) {
+      if (onUpdate?.(pageFromResults(results, offset, snapshot.options, warnings)) === false) {
         abandon();
         return false;
       }
@@ -309,6 +311,12 @@ export class HebrewBooksRepository {
             completed = true;
             if (!publish(true)) return false;
             break;
+          // אזהרה אינה עוצרת את הזרם: היא נאספת ומוצגת לצד התוצאות.
+          case 'warning':
+            for (const warning of [partialResultsWarning(event.indexes)]) {
+              if (!warnings.includes(warning)) warnings.push(warning);
+            }
+            break;
           case 'error':
             throw new Error(event.message);
         }
@@ -334,6 +342,9 @@ export class HebrewBooksRepository {
         if (chunk.type === 'response') {
           if (response !== null) throw new Error('השרת החזיר כותרות תגובה כפולות');
           response = { status: chunk.status, ok: chunk.ok };
+          for (const warning of warningsFromHeaders(chunk.headers)) {
+            if (!warnings.includes(warning)) warnings.push(warning);
+          }
           continue;
         }
         if (response === null) throw new Error('השרת החזיר גוף לפני כותרות התגובה');
@@ -347,12 +358,12 @@ export class HebrewBooksRepository {
             shouldContinue = processV2([event]);
             return shouldContinue;
           });
-          if (!shouldContinue) return pageFromResults(results, offset, snapshot.options);
+          if (!shouldContinue) return pageFromResults(results, offset, snapshot.options, warnings);
         } else {
           const batch = legacyDecoder!.push(chunk.body);
           if (batch.length === 0) continue;
           results.push(...batch);
-          if (!publish()) return pageFromResults(results, offset, snapshot.options);
+          if (!publish()) return pageFromResults(results, offset, snapshot.options, warnings);
         }
       }
       if (signal?.aborted) return abortedPage();
@@ -364,7 +375,7 @@ export class HebrewBooksRepository {
           shouldContinue = processV2([event]);
           return shouldContinue;
         });
-        if (!shouldContinue) return pageFromResults(results, offset, snapshot.options);
+        if (!shouldContinue) return pageFromResults(results, offset, snapshot.options, warnings);
         if (!completed) throw new Error('זרם החיפוש הסתיים ללא אישור תוצאות סופיות');
       } else {
         const tail = legacyDecoder!.finish();
@@ -379,6 +390,7 @@ export class HebrewBooksRepository {
         results,
         totalHits,
         truncated: results.length >= snapshot.options.max,
+        warnings,
       };
       return pageFromCache(this.cachedSearch, offset, snapshot.options.limit);
     } catch (error) {
@@ -576,12 +588,14 @@ function pageFromResults(
   results: HebrewBooksResult[],
   offset: number,
   options: SearchSnapshot['options'],
+  warnings: readonly string[] = [],
 ): HebrewBooksSearchPage {
   return {
     results: results.slice(offset, offset + options.limit),
     totalBooks: results.length,
     totalHits: countHits(results),
     truncated: results.length >= options.max,
+    warnings: [...warnings],
   };
 }
 
@@ -595,11 +609,44 @@ function pageFromCache(
     totalBooks: cached.results.length,
     totalHits: cached.totalHits,
     truncated: cached.truncated,
+    warnings: [...cached.warnings],
   };
 }
 
 function emptySearchPage(): HebrewBooksSearchPage {
-  return { results: [], totalBooks: 0, totalHits: 0, truncated: false };
+  return { results: [], totalBooks: 0, totalHits: 0, truncated: false, warnings: [] };
+}
+
+/// שמות האוספים שהשירות מדווח עליהם באנגלית, בשמות שהדיאלוג מציג.
+const warningCorpusLabels: Record<string, string> = {
+  pdf: 'ספרים סרוקים',
+  otzraya: 'ספרי טקסט',
+  personal: 'אוסף אישי',
+};
+
+/// אזהרת `partial-results` בעברית: המשתמש רואה תוצאות קצרות ולא יודע
+/// שאוסף שלם נשמט מהן. שם האוסף חשוב יותר מנוסח השגיאה של dtSearch.
+export function partialResultsWarning(indexes: readonly string[]): string {
+  const named = indexes
+    .map((index) => warningCorpusLabels[index.trim().toLowerCase()] ?? index.trim())
+    .filter(Boolean);
+  const where = named.length > 0 ? ` באוסף ${named.join(', ')}` : '';
+  return `תוצאות היברובוקס עשויות להיות חלקיות: החיפוש${where} לא הושלם.`;
+}
+
+/// אותה רשימת אוספים מגיעה במסלול הישן ככותרת תגובה, כמערך JSON.
+function warningsFromHeaders(headers: Record<string, string>): string[] {
+  const raw = Object.entries(headers)
+    .find(([name]) => name.toLowerCase() === 'x-search-warnings')?.[1];
+  if (raw === undefined || raw.trim() === '') return [];
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    const indexes = parsed.filter((entry): entry is string => typeof entry === 'string');
+    return indexes.length > 0 ? [partialResultsWarning(indexes)] : [];
+  } catch {
+    return [];
+  }
 }
 
 function countHits(results: readonly HebrewBooksResult[]): number {

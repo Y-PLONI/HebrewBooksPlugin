@@ -49,6 +49,7 @@ function hebrewBooksPage(results: HebrewBooksResult[]): HebrewBooksSearchPage {
     totalBooks: results.length,
     totalHits: results.reduce((total, result) => total + result.hitCount, 0),
     truncated: false,
+    warnings: [],
   };
 }
 
@@ -179,7 +180,7 @@ describe('UnifiedSearchService partial results outliving a failure', () => {
           _snapshot: SearchSnapshot,
           onUpdate?: (page: HebrewBooksSearchPage) => boolean | void,
         ): Promise<HebrewBooksSearchPage> {
-          onUpdate?.({ results: [hebrewBooksHit], totalBooks: 400, totalHits: 9999, truncated: false });
+          onUpdate?.({ results: [hebrewBooksHit], totalBooks: 400, totalHits: 9999, truncated: false, warnings: [] });
           throw new Error('שרת היברובוקס נפל');
         },
       },

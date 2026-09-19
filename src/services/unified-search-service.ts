@@ -110,6 +110,10 @@ export class UnifiedSearchService {
     if (hebrewBooksResult.status === 'rejected') {
       warnings.push(`החיפוש בהיברובוקס נכשל: ${messageOf(hebrewBooksResult.reason)}`);
     }
+    // אזהרות לא חוסמות של השירות מגיעות לצד תוצאות אמיתיות, ולא במקומן.
+    for (const warning of externalPage.warnings) {
+      if (!warnings.includes(warning)) warnings.push(warning);
+    }
     // שני המקורות נפלו: זורקים רק כשאין שורה אחת להציג.
     if (
       otzariaResult.status === 'rejected'
@@ -389,13 +393,13 @@ function partialUnifiedResponse(
     hebrewBooksTotal: hebrewBooks.totalHits,
     totalIsLowerBound: hebrewBooks.truncated,
     truncated: hebrewBooks.truncated,
-    warnings: [],
+    warnings: [...hebrewBooks.warnings],
     nextCursor: null,
   };
 }
 
 function emptyHebrewBooksPage(): HebrewBooksSearchPage {
-  return { results: [], totalBooks: 0, totalHits: 0, truncated: false };
+  return { results: [], totalBooks: 0, totalHits: 0, truncated: false, warnings: [] };
 }
 
 function messageOf(error: unknown): string {

@@ -361,6 +361,8 @@ export interface HebrewBooksSearchPage {
   totalBooks: number;
   totalHits: number;
   truncated: boolean;
+  /// אזהרות לא חוסמות מהשירות — אינדקס שנכשל מאחורי תוצאות שכן הגיעו.
+  warnings: string[];
 }
 
 export interface InBookLocations {

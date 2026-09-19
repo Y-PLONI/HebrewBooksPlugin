@@ -212,7 +212,7 @@ describe('HebrewBooksRepository search-stream-v2', () => {
   });
 
   // אזהרה היא אירוע לא סופי: התוצאות שאחריה אמיתיות והחיפוש מסתיים כרגיל.
-  it('keeps the stream running through a warning event', async () => {
+  it('keeps the stream running through a warning event and reports it beside the results', async () => {
     const host = v2Host([[
       start,
       { type: 'warning', code: 'partial-results', message: 'Otzraya reported $E 0001', indexes: ['Otzraya'] },
@@ -224,6 +224,28 @@ describe('HebrewBooksRepository search-stream-v2', () => {
     await repository.health();
     const page = await repository.search(snapshot);
     expect(page.results.map((r) => r.fileId)).toEqual(['41']);
+    expect(page.warnings).toEqual(['תוצאות היברובוקס עשויות להיות חלקיות: החיפוש באוסף ספרי טקסט לא הושלם.']);
+    // גם העמוד שמגיע מהמטמון נושא את האזהרה, ולא רק ההרצה הראשונה.
+    expect((await repository.search(snapshot)).warnings).toEqual(page.warnings);
+  });
+
+  it('reads the same warning from the legacy response header', async () => {
+    const host = createMockHost({ network: {
+      '/health': () => ({ body: JSON.stringify({
+        ok: true, service: 'hbsearch', apiVersion: 2, capabilities: ['pdf-range'],
+      }) }),
+      '/search': () => ({
+        body: `${hebrewBooksRow({ fileId: '41' })}\n`,
+        headers: { 'X-Search-Warnings': JSON.stringify(['PDF', 'Personal']) },
+      }),
+    } });
+    const repository = new HebrewBooksRepository(host.bridge);
+    await repository.health();
+    const page = await repository.search(snapshot);
+    expect(page.results.map((r) => r.fileId)).toEqual(['41']);
+    expect(page.warnings).toEqual([
+      'תוצאות היברובוקס עשויות להיות חלקיות: החיפוש באוסף ספרים סרוקים, אוסף אישי לא הושלם.',
+    ]);
   });
 
   it.each([
