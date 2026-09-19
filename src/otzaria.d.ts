@@ -79,7 +79,15 @@ interface OtzariaTheme {
 }
 
 interface OtzariaBootPayload {
-  app: { platform: string; version: string; locale: string; textDirection: string; devMode?: boolean };
+  app: {
+    platform: string;
+    version: string;
+    locale: string;
+    textDirection: string;
+    devMode?: boolean;
+    /// 'background' = מופע רקע ללא דף נראה. מארח שקדם לשדה אינו שולח אותו.
+    runMode?: 'background' | 'foreground';
+  };
   plugin: { id: string; version: string };
   theme: OtzariaTheme;
   permissions: string[];

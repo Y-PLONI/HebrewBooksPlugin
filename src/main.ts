@@ -1,4 +1,4 @@
-import { AppController } from './app-controller';
+import { installBoot } from './boot';
 import { getHostBridge } from './bridge';
 
 const bridge = getHostBridge();
@@ -9,10 +9,7 @@ if (!shell) {
 }
 
 if (bridge) {
-  const controller = new AppController(bridge, shell);
-  bridge.on('plugin.boot', ((payload: OtzariaBootPayload) => {
-    void controller.boot(payload);
-  }) as (payload: never) => void);
+  installBoot(bridge, shell);
 } else {
   const message = document.createElement('p');
   message.className = 'browser-notice';
