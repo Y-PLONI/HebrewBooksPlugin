@@ -1,4 +1,4 @@
-import { readFile } from 'node:fs/promises';
+import { readFile, stat } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -17,7 +17,8 @@ const dependencies = JSON.parse(dependenciesText);
 // Otzaria refuses to install a plugin whose version already sits in its plugin
 // folder — "התוסף כבר מותקן בגרסה זו". Shipping a fix under the version it
 // fixes leaves the broken copy installed and looks like the fix did nothing.
-const manifestVersion = JSON.parse(manifestText).version;
+const manifest = JSON.parse(manifestText);
+const manifestVersion = manifest.version;
 assert(
   /^[0-9]+\.[0-9]+\.[0-9]+$/.test(manifestVersion),
   'manifest.json must carry an X.Y.Z version — the release takes its tag from it.',
@@ -26,6 +27,39 @@ assert(
   JSON.parse(packageText).version === manifestVersion,
   'package.json and manifest.json must agree on the version.',
 );
+
+// קובץ כניסה מוצהר שאינו בפלט הבנייה עוצר את אוצריא באריזה עצמה ("קובץ הרקע
+// ... לא נמצא בתיקייה", plugin_packager.dart:209-211) — אחרי שהבנייה כבר עברה.
+const dist = resolve(root, 'dist');
+assert(await exists(dist), 'The packaging check reads the build output — run npm run build first.');
+for (const entrypoint of [manifest.entrypoint, manifest.contributes?.background?.entrypoint]) {
+  if (!entrypoint) continue;
+  const page = await readOptional(resolve(dist, entrypoint));
+  assert(page !== null, `The declared entrypoint ${entrypoint} is missing from the build output.`);
+  for (const reference of localReferences(page)) {
+    assert(
+      await exists(resolve(dist, reference)),
+      `${entrypoint} loads ${reference}, which the build does not emit.`,
+    );
+  }
+}
+
+// מופע הרקע שווה את קיומו רק בזכות מה שאינו נטען בו: pdf.js הוא 92% מחבילת
+// המסך, וכל import של מסך או של מחלץ הגזירים היה גורר אותו לכאן בשקט.
+const backgroundEntrypoint = manifest.contributes?.background?.entrypoint;
+if (backgroundEntrypoint) {
+  const references = localReferences(await readFile(resolve(dist, backgroundEntrypoint), 'utf8'));
+  assert(
+    references.every((reference) => reference.endsWith('.js')),
+    `The background entry must load its own bundle and nothing else, not ${references.join(', ')}.`,
+  );
+  for (const script of references) {
+    assert(
+      !/pdfjs|pdf\.worker|GlobalWorkerOptions/.test(await readFile(resolve(dist, script), 'utf8')),
+      `${script} carries pdf.js — the background instance would load 1.7MB it never uses.`,
+    );
+  }
+}
 
 assert(
   dependencies.runtime.release?.repo === 'Y-PLONI/hbsearch' &&
@@ -196,6 +230,27 @@ function isLoopbackAddress(address) {
   if (mapped) host = mapped[1];
   return host === 'localhost' || /^127(?:\.[0-9]{1,3}){0,3}$/.test(host) ||
     /^(?:::1|(?:0:){7}1)$/.test(host);
+}
+
+/// הקבצים שדף כניסה טוען מתוך התוסף עצמו (src/href יחסיים).
+function localReferences(html) {
+  return [...html.matchAll(/(?:src|href)="([^"]+)"/g)]
+    .map(([, value]) => value)
+    .filter((value) => !/^[a-z]+:/i.test(value) && !value.startsWith('//'));
+}
+
+async function exists(path) {
+  return stat(path).then(
+    () => true,
+    () => false,
+  );
+}
+
+async function readOptional(path) {
+  return readFile(path, 'utf8').then(
+    (text) => text,
+    () => null,
+  );
 }
 
 function assertSha256(value, label) {
