@@ -1456,6 +1456,14 @@ ul {
   accent-color: var(--color-primary);
 }
 
+/* הערת הסבר בתחתית כרטיס אפשרויות — SearchDialog._buildExpansionsCard */
+.card-note {
+  margin-top: 10px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--color-on-surface-variant);
+}
+
 .fuzzy-hint {
   display: flex;
   align-items: flex-start;

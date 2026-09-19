@@ -89,6 +89,17 @@ describe('SearchDialog — בחירת סוג החיפוש', () => {
     });
   });
 
+  it('מצב מתקדם מסביר שההרחבות אינן חלות בהתאמה חלקית, ונועל את מה שאינו נתמך', () => {
+    const { dialog } = createDialog();
+    segment(dialog, 'מתקדם').click();
+
+    const note = dialog.root.querySelector('.card-note')?.textContent ?? '';
+    expect(note).toContain('התאמה חלקית');
+    expect(checkbox(dialog, 'אותיות שימוש').disabled).toBe(false);
+    expect(checkbox(dialog, 'גימטריה').disabled).toBe(true);
+    expect(checkbox(dialog, 'שמירת סדר המילים').disabled).toBe(true);
+  });
+
   it('חזרה למצב מדויק מכבה את ההרחבות שנבחרו', () => {
     const { dialog, submitted } = createDialog();
     segment(dialog, 'מתקדם').click();

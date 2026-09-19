@@ -8,6 +8,11 @@ import {
   type SearchOptions,
 } from '../models';
 import type { IconName } from '../icons.generated';
+import {
+  honouredExpansions,
+  partialMatchHonoursExpansions,
+  type ExpansionKey,
+} from '../search-option-support';
 import { actionButton, element, iconElement } from '../ui/widgets';
 
 /// דיאלוג החיפוש — שיקוף של SearchDialog (lib/search/view/search_dialog.dart):
@@ -46,32 +51,31 @@ const corpusEntries: ReadonlyArray<{ value: SearchOptions['corpus'][number]; lab
   { value: 'personal', label: 'אוסף אישי' },
 ];
 
-/// מפתחות ההרחבה הבוליאניים של אפשרויות החיפוש — כל מה ש"מתקדם" חושף.
-type ExpansionKey = {
-  [K in keyof SearchOptions]: SearchOptions[K] extends boolean ? K : never;
-}[keyof SearchOptions];
+/// ההרחבות שאוצריא מכירה — מקור האמת היחיד לאילו תיבות פעילות כאן.
+const otzariaExpansionKeys = new Set<ExpansionKey>(honouredExpansions.map((option) => option.key));
 
-const expansionEntries: ReadonlyArray<{
-  key: ExpansionKey;
-  label: string;
-  readonly disabled?: boolean;
-  readonly disabledReason?: string;
-}> = [
+const expansionEntries: ReadonlyArray<{ key: ExpansionKey; label: string }> = [
   { key: 'hybur', label: 'אותיות שימוש' },
   { key: 'spelling', label: 'כתיב מלא וחסר' },
   { key: 'aramaic', label: 'עברית וארמית' },
   { key: 'rashetevot', label: 'ראשי תיבות' },
-  { key: 'requireWordOrder', label: 'שמירת סדר המילים', disabled: true, disabledReason: 'מופעל תמיד בחיפוש זה' },
-  { key: 'roots', label: 'שורשים ונטיות', disabled: true, disabledReason: 'אינו נתמך באוצריא' },
-  { key: 'gematria', label: 'גימטריה', disabled: true, disabledReason: 'אינו נתמך באוצריא' },
-  { key: 'numberGender', label: 'זכר ונקבה במספרים', disabled: true, disabledReason: 'אינו נתמך באוצריא' },
-  { key: 'rashiOcr', label: 'שגיאות OCR בכתב רש״י', disabled: true, disabledReason: 'אינו נתמך באוצריא' },
-  { key: 'firstWord', label: 'מילה ראשונה בעמוד', disabled: true, disabledReason: 'אינו נתמך באוצריא' },
-  { key: 'lastWord', label: 'מילה אחרונה בעמוד', disabled: true, disabledReason: 'אינו נתמך באוצריא' },
+  { key: 'requireWordOrder', label: 'שמירת סדר המילים' },
+  { key: 'roots', label: 'שורשים ונטיות' },
+  { key: 'gematria', label: 'גימטריה' },
+  { key: 'numberGender', label: 'זכר ונקבה במספרים' },
+  { key: 'rashiOcr', label: 'שגיאות OCR בכתב רש״י' },
+  { key: 'firstWord', label: 'מילה ראשונה בעמוד' },
+  { key: 'lastWord', label: 'מילה אחרונה בעמוד' },
 ];
 
+/// undefined = התיבה פעילה. סדר המילים נכפה כאן תמיד, ולכן נעול בנפרד.
+function expansionDisabledReason(key: ExpansionKey): string | undefined {
+  if (key === 'requireWordOrder') return 'מופעל תמיד בחיפוש זה';
+  return otzariaExpansionKeys.has(key) ? undefined : 'אינו נתמך באוצריא';
+}
+
 const unsupportedExpansionKeys: readonly ExpansionKey[] = expansionEntries
-  .filter((entry) => entry.disabled && entry.key !== 'requireWordOrder')
+  .filter((entry) => entry.key !== 'requireWordOrder' && !otzariaExpansionKeys.has(entry.key))
   .map((entry) => entry.key);
 
 export interface SearchRequest {
@@ -123,7 +127,9 @@ export class SearchDialog {
     this.options = compatibleOptions(options);
     this.mode = this.options.fuzziness > 0
       ? 'fuzzy'
-      : expansionEntries.some(({ key, disabled }) => !disabled && this.options[key] === true)
+      : expansionEntries.some(
+          ({ key }) => expansionDisabledReason(key) === undefined && this.options[key] === true,
+        )
         ? 'advanced'
         : 'exact';
     this.renderModeSelector();
@@ -178,8 +184,8 @@ export class SearchDialog {
           this.mode = mode.id;
           if (mode.id !== 'fuzzy') this.options.fuzziness = 0;
           if (mode.id === 'exact') {
-            for (const { key, disabled } of expansionEntries) {
-              if (!disabled) this.options[key] = false;
+            for (const { key } of expansionEntries) {
+              if (expansionDisabledReason(key) === undefined) this.options[key] = false;
             }
           }
           this.options.requireWordOrder = true;
@@ -245,13 +251,24 @@ export class SearchDialog {
     card.append(element('div', 'section-label', 'הרחבות החיפוש'));
     const grid = element('div', 'checkbox-grid');
     for (const entry of expansionEntries) {
+      const reason = expansionDisabledReason(entry.key);
       grid.append(
         this.buildCheckbox(entry.label, this.options[entry.key], (checked) => {
           this.options[entry.key] = checked;
-        }, entry.disabled, entry.disabledReason),
+        }, reason !== undefined, reason),
       );
     }
     card.append(grid);
+    // המנוע מוותר על ההרחבות בשאילתת האופרטורים של התאמה חלקית.
+    if (!partialMatchHonoursExpansions) {
+      card.append(
+        element(
+          'p',
+          'card-note',
+          'ההרחבות אינן חלות כשבטאב החיפוש של אוצריא נבחרת התאמה חלקית (לא "כל המילים").',
+        ),
+      );
+    }
     return card;
   }
 
