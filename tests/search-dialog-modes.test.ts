@@ -89,12 +89,18 @@ describe('SearchDialog — בחירת סוג החיפוש', () => {
     });
   });
 
+  it('מספר התוצאות מוצג כמה שחל על מסך התוסף בלבד', () => {
+    const { dialog } = createDialog();
+
+    // המעבר לטאב שולח שבעה מפתחות בלבד, ואין בהם מספר תוצאות.
+    expect(cardNote(dialog, 'היקף החיפוש')).toContain('מסך התוסף');
+  });
+
   it('מצב מתקדם מסביר שההרחבות אינן חלות בהתאמה חלקית, ונועל את מה שאינו נתמך', () => {
     const { dialog } = createDialog();
     segment(dialog, 'מתקדם').click();
 
-    const note = dialog.root.querySelector('.card-note')?.textContent ?? '';
-    expect(note).toContain('התאמה חלקית');
+    expect(cardNote(dialog, 'הרחבות החיפוש')).toContain('התאמה חלקית');
     expect(checkbox(dialog, 'אותיות שימוש').disabled).toBe(false);
     expect(checkbox(dialog, 'גימטריה').disabled).toBe(true);
     expect(checkbox(dialog, 'שמירת סדר המילים').disabled).toBe(true);
@@ -258,3 +264,11 @@ describe('SearchDialog — פתיחה, עריכה וסגירה', () => {
     close.mockRestore();
   });
 });
+
+/// ההערה של כרטיס מסוים, לפי כותרת המקטע שלו.
+function cardNote(dialog: { root: HTMLElement }, sectionLabel: string): string {
+  const card = [...dialog.root.querySelectorAll('.dialog-card')].find(
+    (node) => node.querySelector('.section-label')?.textContent === sectionLabel,
+  );
+  return card?.querySelector('.card-note')?.textContent ?? '';
+}

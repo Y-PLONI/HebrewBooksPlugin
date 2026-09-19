@@ -243,6 +243,14 @@ export class SearchDialog {
       ),
     );
     card.append(grid);
+    // הטאב של אוצריא מדפדף בקצב שלו, והמספר שכאן אינו חל עליו.
+    card.append(
+      element(
+        'p',
+        'card-note',
+        'מספר התוצאות חל על מסך התוסף. טאב החיפוש של אוצריא מדפדף בקצב משלו.',
+      ),
+    );
     return card;
   }
 
