@@ -55,6 +55,17 @@ assert(
   prepare.includes('VersionInfo') && prepare.includes('Runtime too old'),
   'The installer must reject a staged runtime older than the declared runtime.version.',
 );
+// מספר הגרסה של המנוע אינו זז בכל קומיט: שתי בניות שנבדלות בתיקונים אמיתיים
+// מדווחות אותה X.Y.Z, ולכן הצמדה ל-SemVer build metadata היא הדרישה היחידה שמזהה בנייה.
+assert(
+  dependencies.runtime.commit === undefined ||
+    /^[0-9a-fA-F]{7,40}$/.test(dependencies.runtime.commit),
+  'dependencies.json runtime.commit, when present, must be an engine commit SHA of 7 to 40 hex characters.',
+);
+assert(
+  prepare.includes('runtime.commit') && prepare.includes('Runtime commit mismatch'),
+  'The installer must reject a staged runtime built from a commit other than the declared runtime.commit.',
+);
 // דילוג שקט על הבדיקה כשאין digest הופך אותה לחסרת ערך בדיוק ברגע שהיא נחוצה.
 assert(
   /IsNullOrWhiteSpace\(\$digest\)\)\s*\{[\s\S]{0,400}?throw/.test(prepare) &&

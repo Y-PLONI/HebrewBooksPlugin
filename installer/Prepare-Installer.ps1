@@ -123,14 +123,29 @@ foreach ($required in @(
 # Accepts '3.0.115', '3.0.115.0' and '3.0.115-beta2+<sha>'; $null when unparseable.
 function ConvertTo-RuntimeVersion([string] $text) {
   if ([string]::IsNullOrWhiteSpace($text) -or
-    $text.Trim() -notmatch '^(\d+(?:\.\d+){0,3})(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$') {
+    $text.Trim() -notmatch '^(\d+(?:\.\d+){0,3})(?:-([0-9A-Za-z.-]+))?(?:\+([0-9A-Za-z.-]+))?$') {
     return $null
   }
   $parts = @($Matches[1] -split '\.') + @('0', '0', '0', '0')
   [pscustomobject] @{
     Version    = [version] ($parts[0..3] -join '.')
     Prerelease = if ($Matches.ContainsKey(2)) { $Matches[2] } else { '' }
+    # SemVer build metadata; the engine stamps its full commit SHA here.
+    Build      = if ($Matches.ContainsKey(3)) { $Matches[3] } else { '' }
   }
+}
+
+# Newer than declared is fine; older is the failure. A prerelease of the declared
+# version is not the declared version.
+function Test-RuntimeOlder($staged, $declared) {
+  ($staged.Version -lt $declared.Version) -or
+    (($staged.Version -eq $declared.Version) -and $staged.Prerelease -and (-not $declared.Prerelease))
+}
+
+# A short SHA in dependencies.json matches the stamped full one as a prefix.
+function Test-RuntimeCommit($staged, [string] $declared) {
+  (-not [string]::IsNullOrWhiteSpace($staged.Build)) -and
+    $staged.Build.StartsWith($declared, [System.StringComparison]::OrdinalIgnoreCase)
 }
 
 # The runtime comes from a rolling tag, so a plugin pushed before the service has
@@ -141,6 +156,15 @@ $declaredText = if ($dependencies.runtime.PSObject.Properties.Name -contains 've
 $declared = ConvertTo-RuntimeVersion $declaredText
 if ($null -eq $declared) {
   throw "dependencies.json declares no usable runtime.version (found '$declaredText')."
+}
+
+# The engine's version number does not move with every commit: two builds that
+# differ by real fixes both report 3.0.115. runtime.commit demands one of them.
+$declaredCommit = if ($dependencies.runtime.PSObject.Properties.Name -contains 'commit') {
+  ([string] $dependencies.runtime.commit).Trim()
+} else { '' }
+if ($declaredCommit -and $declaredCommit -notmatch '^[0-9A-Fa-f]{7,40}$') {
+  throw "dependencies.json declares an unusable runtime.commit (found '$declaredCommit'). It must be the engine commit SHA, 7 to 40 hexadecimal characters."
 }
 
 $stampedInfo = (Get-Item (Join-Path $runtimeRoot 'hbsearch.exe')).VersionInfo
@@ -160,14 +184,27 @@ if ($null -eq $staged) {
   Write-Warning "The staged hbsearch.exe carries no readable version; building unverified because -AllowUnverifiedRuntime was given."
 }
 else {
-  # Newer than declared is fine; older is the failure. A prerelease of the
-  # declared version is not the declared version.
-  $isOlder = ($staged.Version -lt $declared.Version) -or
-    (($staged.Version -eq $declared.Version) -and $staged.Prerelease -and (-not $declared.Prerelease))
-  if ($isOlder) {
+  if (Test-RuntimeOlder $staged $declared) {
     throw "Runtime too old. dependencies.json declares runtime.version $declaredText, but the staged hbsearch.exe reports $stampedText. $($dependencies.runtime.release.repo)@$($dependencies.runtime.release.tag) has probably not been republished yet; rebuild once it has, or pass -RuntimeArchive with an engine that is $declaredText or newer."
   }
   Write-Host "Runtime version: $stampedText (declared: $declaredText or newer)"
+
+  if ($declaredCommit) {
+    if ([string]::IsNullOrWhiteSpace($staged.Build)) {
+      # No build metadata is "cannot verify", which is what the switch waives.
+      if (-not $AllowUnverifiedRuntime) {
+        throw "The staged hbsearch.exe reports $stampedText, with no build metadata, so the engine commit $declaredCommit that dependencies.json demands cannot be confirmed. Pass -RuntimeArchive with an engine built from that commit, or -AllowUnverifiedRuntime to build anyway."
+      }
+      Write-Warning "The staged hbsearch.exe carries no build metadata; runtime.commit $declaredCommit was not verified because -AllowUnverifiedRuntime was given."
+    }
+    elseif (-not (Test-RuntimeCommit $staged $declaredCommit)) {
+      # A known-wrong engine, not an unverifiable one, so no switch waives it.
+      throw "Runtime commit mismatch. dependencies.json demands engine commit $declaredCommit, but the staged hbsearch.exe was built from $($staged.Build). The engine's version number does not change per commit, so $($dependencies.runtime.release.repo)@$($dependencies.runtime.release.tag) can serve a different build under the same $stampedText; rebuild once that tag has caught up, point runtime.release.tag at the build-<short sha> release for the demanded commit, or pass -RuntimeArchive with that build."
+    }
+    else {
+      Write-Host "Runtime commit: $($staged.Build) (demanded: $declaredCommit)"
+    }
+  }
 }
 
 Write-Host "Runtime staged: $((Get-ChildItem $runtimeRoot -Recurse -File).Count) files"
