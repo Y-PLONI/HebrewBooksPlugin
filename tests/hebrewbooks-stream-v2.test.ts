@@ -186,7 +186,6 @@ describe('HebrewBooksRepository search-stream-v2', () => {
     ['duplicate reset', [start, reset(0), reset(0), complete(0)], 'פרוטוקול'],
     ['missing reset', [start, complete(0)], 'פרוטוקול'],
     ['event after complete', [start, reset(0), complete(0), { type: 'heartbeat' }], 'פרוטוקול'],
-    ['unknown event', [start, { type: 'other' }, reset(0), complete(0)], 'פרוטוקול'],
     ['malformed result', [start, reset(1), { type: 'result', rank: 0, result: { fileId: '41' } }, complete(1)], 'שדות חובה'],
   ])('rejects %s', async (_name, events, expectedError) => {
     const host = v2Host([(events as Array<Record<string, unknown>>).map(line).join('')]);
@@ -194,5 +193,30 @@ describe('HebrewBooksRepository search-stream-v2', () => {
     await repository.health();
     await expect(repository.search(snapshot)).rejects.toThrow(expectedError);
     expect(repository.cachedResultsFor(snapshot.fingerprint)).toBeNull();
+  });
+
+  // אירוע לא מוכר אינו הפרה: שירות חדש יותר שמוסיף סוג אירוע לא אמור
+  // להפיל חיפוש שכל שאר שורותיו תקינות.
+  it('skips an unknown event type and keeps the results around it', async () => {
+    const host = v2Host([[
+      start,
+      { type: 'other', detail: 'from a newer service' },
+      reset(1),
+      result(0, '41', 3),
+      complete(1),
+    ].map(line).join('')]);
+    const repository = new HebrewBooksRepository(host.bridge);
+    await repository.health();
+    const page = await repository.search(snapshot);
+    expect(page.results.map((r) => r.fileId)).toEqual(['41']);
+  });
+
+  // הדילוג על סוג לא מוכר אינו מכשיר זרם משובש: בלי reset/complete תקינים
+  // החיפוש עדיין נכשל.
+  it('still fails a stream that is only unknown events', async () => {
+    const host = v2Host([[start, { type: 'other' }, { type: 'other' }].map(line).join('')]);
+    const repository = new HebrewBooksRepository(host.bridge);
+    await repository.health();
+    await expect(repository.search(snapshot)).rejects.toThrow('ללא אישור תוצאות סופיות');
   });
 });

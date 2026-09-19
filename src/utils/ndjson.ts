@@ -145,7 +145,9 @@ export class SearchStreamV2Decoder {
           event = { type: 'error', message: value.message };
           break;
         default:
-          this.invalid(lineNumber);
+          // סוג אירוע לא מוכר הוא תוספת לפרוטוקול v2, לא הפרה שלו: שינוי
+          // שחייבים להבין מקבל streamVersion חדש, שהתוסף ממילא דוחה.
+          continue;
       }
       events.push(event);
       if (onEvent?.(event) === false) break;
