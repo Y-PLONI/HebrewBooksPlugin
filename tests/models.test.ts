@@ -143,6 +143,31 @@ describe('hebrewBooksMatchQuery', () => {
     expect(hebrewBooksMatchQuery('ברוך w/5 אתה', { wordMatchMode: 'all' })).toEqual({ query: '' });
   });
 
+  it('טוקן שכולו תו מיוחד של dtSearch נדחה בכל מצב — הוא אינו מילת חיפוש', () => {
+    // נמדד חי מול hbsearch: `*` החזיר חמש תוצאות שווא, `?`/`%`/`=` לא הסתיימו
+    // בעשרים שניות, ו-`~`/`#`/`&`/`::` חזרו כאפס תוצאות בלי אירוע שגיאה.
+    for (const metacharacter of ['*', '?', '~', '%', '#', '&', '=', '::']) {
+      for (const wordMatchMode of ['all', 'anyWord', 'mostWords', 'atLeast'] as const) {
+        const translation = hebrewBooksMatchQuery(`זזזזזזזז ${metacharacter} שלום`, { wordMatchMode });
+        expect(translation.query).toBe('');
+        expect(translation.unsupported).toContain(metacharacter);
+      }
+    }
+  });
+
+  it('תו מיוחד שדבוק למילה נשאר — כך בדיוק נשלחת אותה מילה ב"כל המילים"', () => {
+    // `(שלום w/30 בראש*)` נמדד חי: 560 אלפיות ותוצאות אמיתיות.
+    for (const word of ['בראש*', 'שלו*']) {
+      expect(hebrewBooksMatchQuery(`ברוך ${word} אתה`, { wordMatchMode: 'mostWords' }).unsupported)
+        .toBeUndefined();
+    }
+    // פיסוק שאינו תו מיוחד אינו עילה לדחייה — הבנאי של hbsearch מתעלם ממנו.
+    for (const punctuation of ['-', ',', '"', '(']) {
+      expect(hebrewBooksMatchQuery(`ברוך ${punctuation} אתה`, { wordMatchMode: 'mostWords' }).unsupported)
+        .toBeUndefined();
+    }
+  });
+
   it('התקרה היא גבול מדוד: עשרה צירופים נשלחים, חמישה־עשר נדחים', () => {
     const atLeastTwo = (text: string): MatchQueryTranslation =>
       hebrewBooksMatchQuery(text, { wordMatchMode: 'atLeast', wordMatchCount: 2 });

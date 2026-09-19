@@ -95,6 +95,8 @@ export interface MatchQueryTranslation {
 /// ומתאים ברזולוציית הפסקה או הסעיף.
 export function hebrewBooksMatchQuery(query: string, policy: SearchMatchPolicy): MatchQueryTranslation {
   const mode = policy.wordMatchMode ?? 'all';
+  const metacharacter = metacharacterWord(query);
+  if (metacharacter !== undefined) return { query: '', unsupported: metacharacterWordMessage(metacharacter) };
   const words = matchWords(query);
   // "כל המילים" הוא השאילתה הרגילה בחלון של הטווח, עם ההרחבות שהבנאי של
   // hbsearch מוסיף לה — שאילתת אופרטורים הייתה מוותרת עליהן.
@@ -123,6 +125,23 @@ function proximityGroup(group: string[], proximity: number): string {
 /// טוקן שהמנוע קורא כאופרטור הופך את שאילתת הצירופים לתחביר שגוי, והוא
 /// מוחזר כאפס תוצאות בלי שגיאה. נמדד חי: and/or/not/contains/xfilter ו-w/N.
 const dtSearchOperator = /^(?:and|or|not|contains|xfilter|(?:w|pre)\/\d+)$/i;
+
+/// טוקן בלי אות וספרה שנושא תו מיוחד של dtSearch. נמדד חי: `*` נפתח כתו
+/// כללי ומחזיר התאמות שווא, `?`/`%`/`=` תוקעים, והשאר חוזר כאפס בלי שגיאה.
+const dtSearchMetacharacter = /[*?~%#&=:]/;
+const letterOrDigit = /[\p{Alphabetic}\p{N}]/u;
+
+function metacharacterWord(query: string): string | undefined {
+  return query
+    .trim()
+    .split(/\s+/)
+    .find((word) => !letterOrDigit.test(word) && dtSearchMetacharacter.test(word));
+}
+
+function metacharacterWordMessage(word: string): string {
+  return `"${word}" אינו מילת חיפוש אלא תו מיוחד של מנוע החיפוש, ולכן חיפוש `
+    + 'בהיברובוקס יחזיר בגללו תוצאות שגויות או ייתקע. אפשר להסיר אותו מהשאילתה.';
+}
 
 function operatorWordMessage(word: string): string {
   return `המילה "${word}" היא אופרטור של מנוע החיפוש, ולכן אי אפשר לכלול אותה `
