@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import type { MatchQueryTranslation } from '../src/models';
 import {
   clampProximity,
   defaultSearchOptions,
@@ -122,6 +123,15 @@ describe('hebrewBooksMatchQuery', () => {
     }
     expect(isLeftLeaning('(אלף w/30 בית w/30 גימל)')).toBe(false);
     expect(isLeftLeaning('(אלף w/30 (בית w/30 גימל))')).toBe(false);
+  });
+
+  it('התקרה היא גבול מדוד: עשרה צירופים נשלחים, חמישה־עשר נדחים', () => {
+    const atLeastTwo = (text: string): MatchQueryTranslation =>
+      hebrewBooksMatchQuery(text, { wordMatchMode: 'atLeast', wordMatchCount: 2 });
+
+    // C(5,2)=10 בדיוק בתקרה, C(6,2)=15 מעליה.
+    expect(atLeastTwo(words.join(' ')).unsupported).toBeUndefined();
+    expect(atLeastTwo([...words, 'וו'].join(' ')).unsupported).toContain('אינו נתמך');
   });
 
   it('מעל התקרה המדיניות נדחית, ואינה מתורגמת לחיפוש רחב יותר', () => {

@@ -17,7 +17,12 @@ import {
   toHebrewBooksSnapshot,
 } from '../src/services/unified-search-service';
 import { buildCategoryTree, collectBooks, facetMatches } from '../src/screens/results-screen';
-import { otzariaDistanceForProximity, paragraphProximity, sectionProximity } from '../src/models';
+import {
+  maximumMatchCombinations,
+  otzariaDistanceForProximity,
+  paragraphProximity,
+  sectionProximity,
+} from '../src/models';
 
 const request: HostSearchRequest = {
   query: 'חכמה בינה',
@@ -655,6 +660,11 @@ describe('Otzaria match policy as a hbsearch query', () => {
       '((א w/300 ב) w/300 ג) or ((א w/300 ב) w/300 ד)'
         + ' or ((א w/300 ג) w/300 ד) or ((ב w/300 ג) w/300 ד)',
     );
+    expect(toHebrewBooksSnapshot({
+      query: 'א ב ג ד ה ו ז ח',
+      wordMatchMode: 'mostWords',
+      proximityScope: 'sameSection',
+    }).unsupportedPolicy).toContain('5 מתוך 8');
   });
 
   it('counts distinct words for the threshold, as the Otzaria engine merges repeats', () => {
@@ -678,12 +688,20 @@ describe('Otzaria match policy as a hbsearch query', () => {
     expect(queryOf({ wordMatchMode: 'atLeast', wordMatchCount: 9, proximityScope: 'sameSection' })).toBe(query);
   });
 
-  it('expands "most of eight words" instead of degrading it to a disjunction', () => {
-    const groups = queryOf({ wordMatchMode: 'mostWords' }, 'א ב ג ד ה ו ז ח').split(' or ');
+  it('refuses "most of eight words": C(8,5)=56 combinations are too slow to finish', () => {
+    const snapshot = toHebrewBooksSnapshot({ query: 'א ב ג ד ה ו ז ח', wordMatchMode: 'mostWords' });
 
-    // רוב מתוך שמונה = חמש מילים ב-C(8,5)=56 צירופים.
-    expect(groups).toHaveLength(56);
-    expect(new Set(groups.map((group) => group.split(' w/30 ').length))).toEqual(new Set([5]));
+    // 56 צירופים נמדדו מול השירות הרבה מעבר לתקרת הזמן של בקשת החיפוש.
+    expect(snapshot.unsupportedPolicy).toContain('5 מתוך 8');
+    expect(snapshot.query).toBe('א ב ג ד ה ו ז ח');
+  });
+
+  it('expands "most of five words" — the largest partial match that still fits', () => {
+    const groups = queryOf({ wordMatchMode: 'mostWords' }, 'א ב ג ד ה').split(' or ');
+
+    // רוב מתוך חמש = שלוש מילים ב-C(5,3)=10 צירופים, בדיוק בתקרה.
+    expect(groups).toHaveLength(maximumMatchCombinations);
+    expect(groups.every((group) => /^\(\(\S+ w\/30 \S+\) w\/30 \S+\)$/.test(group))).toBe(true);
   });
 
   it('refuses a partial match too large to express, instead of searching for any word', () => {
@@ -701,8 +719,9 @@ describe('Otzaria match policy as a hbsearch query', () => {
     const cap = (words: string, count: number): string | undefined =>
       toHebrewBooksSnapshot({ query: words, wordMatchMode: 'atLeast', wordMatchCount: count }).unsupportedPolicy;
 
-    expect(cap('א ב ג ד ה ו ז ח ט י כ ל ם מ ן נ', 2)).toBeUndefined();
-    expect(cap('א ב ג ד ה ו ז ח ט י כ ל ם מ ן נ ס', 2)).toContain('אינו נתמך');
+    // C(5,2)=10 עוד נכנס בתקרה, C(6,2)=15 כבר לא.
+    expect(cap('א ב ג ד ה', 2)).toBeUndefined();
+    expect(cap('א ב ג ד ה ו', 2)).toContain('אינו נתמך');
   });
 
   it('strips gershayim like the hbsearch query builder does, and never splits one word', () => {
