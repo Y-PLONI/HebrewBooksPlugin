@@ -378,7 +378,11 @@ export class AppController {
     const result = this.selectedResult;
     if (!snapshot || !result) return;
     try {
-      const locations = await this.repository.inBook({ ...snapshot, query }, result.fileId);
+      // displayQuery של החיפוש המקורי היה גובר כאן ומדגיש מילים אחרות.
+      const locations = await this.repository.inBook(
+        { ...snapshot, query: plainSearchQuery(query), displayQuery: query },
+        result.fileId,
+      );
       this.viewer.setMatchPages(locations.pages);
     } catch (error) {
       await this.showHostError(messageOf(error));

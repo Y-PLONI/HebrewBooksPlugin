@@ -64,6 +64,33 @@ describe('/inbook — displayQuery', () => {
     });
   });
 
+  /// חיפוש בתוך הספר הוא טקסט חדש של המשתמש: displayQuery של החיפוש
+  /// הקודם היה גובר עליו, ותו פעולה דבוק היה נשלח כאופרטור.
+  it('חיפוש בתוך הספר נושא את הטקסט שלו ושולח אותו נקי', async () => {
+    const host = createMockHost({ network: { '/inbook': () => inBookReply } });
+    const shell = document.createElement('div');
+    document.body.append(shell);
+    const controller = new AppController(host.bridge, shell);
+    await controller.boot(bootPayload());
+    const internals = controller as unknown as {
+      snapshot: SearchSnapshot;
+      selectedResult: { fileId: string };
+      searchInBook(query: string): Promise<void>;
+    };
+    internals.snapshot = {
+      query: 'ברכת or המזון',
+      displayQuery: 'ברכת המזון',
+      options: defaultSearchOptions,
+      fingerprint: 'f',
+    };
+    internals.selectedResult = { fileId: '43558' };
+    await internals.searchInBook('*טלגרף%');
+    expect(inBookBodies(host).at(-1)).toMatchObject({
+      q: 'טלגרף',
+      displayQuery: '*טלגרף%',
+    });
+  });
+
   it('גם ניסיון הפתיחה החוזר בהגדרות ברירת המחדל שומר עליו', async () => {
     const host = createMockHost({
       methods: {
