@@ -44,8 +44,8 @@ for (const entrypoint of [manifest.entrypoint, manifest.contributes?.background?
   }
 }
 
-// מופע הרקע שווה את קיומו רק בזכות מה שאינו נטען בו: pdf.js הוא 92% מחבילת
-// המסך, וכל import של מסך או של מחלץ הגזירים היה גורר אותו לכאן בשקט.
+// מופע הרקע שווה את קיומו רק בזכות מה שאינו נטען בו באתחול: pdf.js הוא 92%
+// מחבילת המסך, וכל import של מסך או של מחלץ הגזירים היה גורר אותו לכאן בשקט.
 const backgroundEntrypoint = manifest.contributes?.background?.entrypoint;
 if (backgroundEntrypoint) {
   const references = localReferences(await readFile(resolve(dist, backgroundEntrypoint), 'utf8'));
@@ -54,10 +54,25 @@ if (backgroundEntrypoint) {
     `The background entry must load its own bundle and nothing else, not ${references.join(', ')}.`,
   );
   for (const script of references) {
+    const bundle = await readFile(resolve(dist, script), 'utf8');
     assert(
-      !/pdfjs|pdf\.worker|GlobalWorkerOptions/.test(await readFile(resolve(dist, script), 'utf8')),
-      `${script} carries pdf.js — the background instance would load 1.7MB it never uses.`,
+      !/pdfjs|pdf\.worker|GlobalWorkerOptions/.test(bundle),
+      `${script} carries pdf.js — the background instance would load 1.7MB before it needs it.`,
     );
+    // חבילת הגזירים נטענת בהזרקת <script> ואינה מוזכרת בשום HTML, ולכן רק הקוד
+    // עצמו מעיד עליה: נתיב שהבנייה אינה פולטת מפיל את קטעי הטקסט בשקט בזמן ריצה.
+    const lazy = [...bundle.matchAll(/["'](assets\/[\w.-]+\.js)["']/g)].map(([, path]) => path);
+    assert(
+      lazy.length > 0,
+      `${script} loads no snippet bundle — background results would carry no preview text.`,
+    );
+    for (const path of lazy) {
+      assert(await exists(resolve(dist, path)), `${script} loads ${path}, which the build does not emit.`);
+      assert(
+        /pdfjs|GlobalWorkerOptions/.test(await readFile(resolve(dist, path), 'utf8')),
+        `${path} carries no pdf.js — the background would load it and still extract nothing.`,
+      );
+    }
   }
 }
 
