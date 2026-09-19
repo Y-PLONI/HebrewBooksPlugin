@@ -846,21 +846,12 @@ export class AppController {
     if (this.activeSearchCancellation === cancellation) this.activeSearchCancellation = null;
   }
 
+  /// מסך התוסף מציג תוצאות היברובוקס בלבד; תוצאות אוצריא מוצגות
+  /// בטאב החיפוש המובנה, לצד המדור החיצוני שלנו.
   private async openResult(result: UnifiedSearchResult): Promise<void> {
+    if (result.source !== 'hebrewbooks') return;
     const openRequestId = this.latestResultOpen.begin();
     try {
-      if (result.source === 'otzaria') {
-        const { id, bookId, type, source } = result.hit;
-        const opened = await this.otzariaRepository.openBook(
-          { id, bookId, type, source },
-          result.hit.index,
-          displayQueryOf(this.snapshot),
-        );
-        if (!this.isCurrentResultOpen(openRequestId)) return;
-        if (!opened) throw new Error('לא ניתן היה לפתוח את הספר באוצריא');
-        return;
-      }
-
       const snapshot = this.snapshot;
       if (!snapshot) return;
       const locations = await this.locateOpeningInBook(snapshot, result.hit.fileId);
