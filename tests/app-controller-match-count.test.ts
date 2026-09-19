@@ -59,7 +59,7 @@ function request(overrides: Record<string, unknown>): Record<string, unknown> {
 
 /// כמה מילים יש בכל צירוף של שאילתת האופרטורים שנבנתה.
 function wordsPerGroup(query: string): number[] {
-  return [...query.matchAll(/\(([^)]*)\)/g)].map((group) => (group[1] ?? '').split(' w/').length);
+  return query.split(' or ').map((group) => group.split(' w/').length);
 }
 
 describe('"לפחות N מילים" במדור התוצאות החיצוני', () => {
