@@ -304,6 +304,18 @@ export function otzariaSearchMode(options: SearchOptions): HostSearchMode {
   return honouredExpansions.some((option) => options[option.key]) ? 'advanced' : 'exact';
 }
 
+/// המפתחות שאוצריא מקבלת ב-`settings`; כל מפתח אחר נדחה ב-error.invalid_params.
+/// מספר התוצאות והמיון אינם ביניהם — הטאב מדפדף בקצב שלו ואין להם ייצוג.
+export const otzariaTabSettingKeys: readonly string[] = [
+  'mode',
+  'distance',
+  'proximityScope',
+  'wordMatchMode',
+  'wordMatchCount',
+  'options',
+  'wordOptions',
+];
+
 /// הגדרות הדיאלוג ביחידות של אוצריא: המרווח מתורגם כך שהמדור החיצוני יחזיר
 /// את אותו proximity, וההרחבות המשותפות לשני המנועים עוברות כאפשרויות גלובליות.
 export function otzariaTabSettings(options: SearchOptions): OtzariaTabSettings {

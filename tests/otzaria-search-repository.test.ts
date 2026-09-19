@@ -2,7 +2,12 @@ import { describe, expect, it } from 'vitest';
 import type { HostBridge } from '../src/bridge';
 import type { OtzariaSearchChunk } from '../src/models';
 import { defaultSearchOptions } from '../src/models';
-import { OtzariaSearchRepository, otzariaTabCorpus } from '../src/repositories/otzaria-search-repository';
+import {
+  OtzariaSearchRepository,
+  otzariaTabCorpus,
+  otzariaTabSettingKeys,
+  otzariaTabSettings,
+} from '../src/repositories/otzaria-search-repository';
 
 describe('OtzariaSearchRepository', () => {
   it('consumes search.query as an async stream without awaiting one response envelope', async () => {
@@ -160,6 +165,23 @@ describe('OtzariaSearchRepository', () => {
           settings: { mode: 'exact', distance: 29 },
         },
       ]);
+    });
+  });
+
+  describe('otzariaTabSettings', () => {
+    /// מפתח שאוצריא אינה מכירה מפיל את פתיחת הטאב כולה; בחירה שאין לה מפתח
+    /// מטופלת ב-otzariaTabBlocker ולא בהברחתה לתוך settings.
+    it('אינו פולט מפתח שאוצריא דוחה, בכל מצב', () => {
+      const variants = [
+        defaultSearchOptions,
+        { ...defaultSearchOptions, hybur: true, aramaic: true },
+        { ...defaultSearchOptions, fuzziness: 2 },
+      ];
+      for (const options of variants) {
+        for (const key of Object.keys(otzariaTabSettings(options))) {
+          expect(otzariaTabSettingKeys).toContain(key);
+        }
+      }
     });
   });
 
