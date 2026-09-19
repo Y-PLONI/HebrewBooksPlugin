@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import manifestJson from '../manifest.json';
-import { unsupportedOptionIds } from '../src/search-option-support';
+import {
+  expansionsHonoured,
+  honouredExpansions,
+  partialMatchHonoursExpansions,
+  unsupportedOptionIds,
+} from '../src/search-option-support';
 
 const item = manifestJson.contributes.startup.searchDialogItems[0]!;
 const disabled = item.disabledSearchOptions as Record<string, string[] | undefined>;
@@ -23,6 +28,21 @@ describe('חוזה אפשרויות המילה של טאב החיפוש', () => 
 
   it('שורת התוסף אינה מוצגת במצב מקורב, שבו אוצריא מסננת כל אפשרות מילה', () => {
     expect(item.visibleInModes).toEqual(['exact', 'advanced']);
+  });
+
+  it('ארבע ההרחבות הנתמכות ממופות למפתחות שאוצריא שולחת', () => {
+    expect(honouredExpansions.map((option) => [option.hostKey, option.key])).toEqual([
+      ['קידומות דקדוקיות', 'hybur'],
+      ['כתיב מלא/חסר', 'spelling'],
+      ['תרגום ארמי', 'aramaic'],
+      ['ראשי תיבות', 'rashetevot'],
+    ]);
+  });
+
+  it('שאילתת אופרטורים של התאמה חלקית אינה נושאת הרחבות', () => {
+    expect(expansionsHonoured(false)).toBe(true);
+    expect(expansionsHonoured(true)).toBe(partialMatchHonoursExpansions);
+    expect(partialMatchHonoursExpansions).toBe(false);
   });
 
   it('רשימת ההשבתות של כל מצב נשארת מתחת לתקרת אוצריא', () => {
