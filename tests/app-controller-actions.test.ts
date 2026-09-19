@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
-/// המסלולים שהמשתמש מפעיל במסכי התוסף: דיאלוג החיפוש, חיפוש מאוחד מתוך
-/// אוצריא, פתיחת תוצאה, טעינת עוד תוצאות והפעולות שבכרטיס התוצאה.
+/// המסלולים שהמשתמש מפעיל במסכי התוסף: דיאלוג החיפוש, מסך
+/// התוצאות של התוסף, פתיחת תוצאה והפעולות שבכרטיס התוצאה.
 
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -16,6 +16,9 @@ const { bootPayload, createMockHost, hebrewBooksNdjson, hebrewBooksRow } = await
   './helpers/mock-host'
 );
 const { requiredServiceVersion } = await import('../src/utils/service-version');
+const { defaultSearchOptions } = await import('../src/models');
+
+type SearchOptions = import('../src/models').SearchOptions;
 
 type MockHost = ReturnType<typeof createMockHost>;
 type MockHostConfig = import('./helpers/mock-host').MockHostConfig;
@@ -60,41 +63,6 @@ async function submitFromDialog(harness: Harness, query: string, before?: () => 
   await Promise.resolve();
 }
 
-function otzariaChunk(
-  payload: Record<string, unknown> | undefined,
-  hits: Array<Record<string, unknown>>,
-  total: number,
-): readonly unknown[] {
-  return [
-    {
-      sequence: 0,
-      results: hits,
-      total,
-      groupCount: null,
-      truncated: false,
-      limit: Number(payload?.limit ?? 1),
-      offset: Number(payload?.offset ?? 0),
-      facets: [],
-    },
-  ];
-}
-
-function otzariaHit(overrides: Record<string, unknown> = {}): Record<string, unknown> {
-  return {
-    id: 77,
-    bookId: 'bereshit',
-    type: 'text',
-    source: 'library',
-    book: 'בראשית',
-    categoryPath: '/תנ"ך/תורה',
-    reference: 'פרק א',
-    text: 'בראשית ברא',
-    index: 12,
-    mergedCount: 1,
-    ...overrides,
-  };
-}
-
 const emptyMapping: MockHostConfig['methods'] = {
   'database.batchQuery': () => ({ results: [{ rows: [] }] }),
 };
@@ -129,9 +97,17 @@ async function settledResults(harness: Harness): Promise<void> {
   );
 }
 
-function unifiedConfig(overrides: MockHostConfig = {}): MockHostConfig {
+/// מארח בלי טאב חיפוש מובנה — המסלול היחיד שבו התוסף מציג
+/// תוצאות במסך שלו.
+function pluginSearchConfig(overrides: MockHostConfig = {}): MockHostConfig {
   return {
-    methods: { ...emptyMapping, ...overrides.methods },
+    methods: {
+      ...emptyMapping,
+      'reader.openSearchTab': () => {
+        throw new Error('unknown method');
+      },
+      ...overrides.methods,
+    },
     network: {
       '/search': () => ({ body: hebrewBooksNdjson([hebrewBooksRow({ firstHitPage: undefined })]) }),
       '/inbook': () => ({
@@ -139,15 +115,19 @@ function unifiedConfig(overrides: MockHostConfig = {}): MockHostConfig {
       }),
       ...overrides.network,
     },
-    searchQuery: overrides.searchQuery ?? ((payload) => otzariaChunk(payload, [otzariaHit()], 1)),
   };
 }
 
-async function runUnifiedSearch(
+async function runPluginSearch(
   harness: Harness,
-  request: Record<string, unknown> = { query: 'ברכת המזון', mode: 'exact' },
+  query = 'ברכת המזון',
+  options: Partial<SearchOptions> = {},
 ): Promise<void> {
-  harness.host.emit('search.requested', { itemId: 'tab-1', request });
+  void (
+    harness.controller as unknown as {
+      performSearch(query: string, options: SearchOptions): Promise<void>;
+    }
+  ).performSearch(query, { ...defaultSearchOptions, ...options });
   await vi.waitFor(() =>
     expect(harness.shell.querySelectorAll('.result-card').length).toBeGreaterThan(0),
   );
@@ -354,151 +334,101 @@ describe('דיאלוג החיפוש של התוסף', () => {
   });
 });
 
-describe('חיפוש מאוחד מאוצריא', () => {
-  it('מציג תוצאות משני המנועים עם הספירה הכוללת', async () => {
-    const harness = await bootHarness(unifiedConfig());
-    await runUnifiedSearch(harness);
-    expect(cardTitles(harness.shell)).toEqual(['בראשית', 'קובץ שיטות קמאי']);
+describe('מסך התוצאות של התוסף', () => {
+  it('מציג את תוצאות ההיברובוקס עם הספירה, ומאפשר לערוך את החיפוש', async () => {
+    const harness = await bootHarness(pluginSearchConfig());
+    await runPluginSearch(harness);
+    expect(cardTitles(harness.shell)).toEqual(['קובץ שיטות קמאי']);
     expect(harness.shell.querySelector('.top-bar-trailing .top-bar-count')?.textContent).toContain(
-      '2 פריטים מוצגים',
+      '1 פריטים מוצגים',
     );
-    // חיפוש שהגיע מאוצריא אינו ניתן לעריכה במסך התוסף.
-    expect(harness.shell.querySelector('[aria-label="ערוך חיפוש"]')).toBeNull();
+    // החיפוש רץ בתוסף עצמו, ולכן ניתן לערוך אותו מהמסך.
+    expect(harness.shell.querySelector('[aria-label="ערוך חיפוש"]')).not.toBeNull();
   });
 
-  it('בקשת חיפוש לא תקינה מוצגת כשגיאה', async () => {
-    const harness = await bootHarness(unifiedConfig());
-    harness.host.emit('search.requested', { itemId: 'tab-1', request: { query: '', mode: 'exact' } });
-    await vi.waitFor(() => expect(harness.host.countOf('ui.showError')).toBe(1));
-    expect(harness.host.lastPayload('ui.showError')).toEqual({
-      message: 'בקשת החיפוש מאוצריא אינה תקינה',
+  /// שורת הדיאלוג include-hebrewbooks מצהירה resultsProvider, ואוצריא
+  /// מנתבת אותה לחוזה הספק החיצוני — search.requested נשלח רק לשורה
+  /// שמצהירה openPluginOnSubmit, שסותר את resultsProvider.
+  it('אירוע search.requested אינו מפעיל דבר — אין לו מאזין', async () => {
+    const harness = await bootHarness(pluginSearchConfig());
+    harness.host.emit('search.requested', {
+      itemId: 'tab-1',
+      request: { query: 'ברכות', mode: 'exact' },
     });
+    await new Promise((resolve) => setTimeout(resolve, 25));
+
+    expect(
+      harness.host
+        .payloadsOf('network.fetchStream')
+        .some((payload) => String(payload?.url).endsWith('/search')),
+    ).toBe(false);
+    expect(harness.shell.querySelector('.library-screen')?.classList.contains('hidden')).toBe(false);
+    expect(harness.shell.querySelector('.results-screen')?.classList.contains('hidden')).toBe(true);
+    expect(harness.host.countOf('ui.showError')).toBe(0);
   });
 
-  it('כשל בשני המנועים מוצג כשגיאה במסך התוצאות', async () => {
+  it('כשל החיפוש מוצג כשגיאה במסך התוצאות', async () => {
     const harness = await bootHarness(
-      unifiedConfig({
+      pluginSearchConfig({
         network: {
           '/search': () => ({ status: 500, ok: false, body: JSON.stringify({ error: 'השרת נפל' }) }),
         },
-        searchQuery: () =>
-          (async function* () {
-            throw new Error('האינדקס אינו בנוי');
-          })(),
       }),
     );
-    harness.host.emit('search.requested', { itemId: 'tab-1', request: { query: 'ברכות', mode: 'exact' } });
+    void (
+      harness.controller as unknown as {
+        performSearch(query: string, options: SearchOptions): Promise<void>;
+      }
+    ).performSearch('ברכות', defaultSearchOptions);
     await vi.waitFor(() =>
       expect(harness.shell.querySelector('.informative-state h3')?.textContent).toBe(
         'לא ניתן להשלים את החיפוש',
       ),
     );
-    const message = harness.shell.querySelector('.informative-state p')?.textContent ?? '';
-    expect(message).toContain('האינדקס אינו בנוי');
-    expect(message).toContain('השרת נפל');
-  });
-
-  /// דיווח המשתמש: "בהתחלה היו תוצאות, ואז לאחר מכן — התוצאות נעלמו והיה
-  /// כתוב שאין תוצאות". זרם ההיברובוקס שנפל מחק את הספרים שכבר נמצאו,
-  /// והתשובה הריקה שנותרה הוצגה כחיפוש שלא מצא דבר.
-  it('כשל בזרם ההיברובוקס אינו מוצג כחיפוש בלי תוצאות', async () => {
-    const harness = await bootHarness(
-      unifiedConfig({ network: discoveryThenStreamFailure, searchQuery: () => [] }),
-    );
-    harness.host.emit('search.requested', {
-      itemId: 'tab-1',
-      request: { query: 'ברכת המזון', mode: 'exact' },
-    });
-    await settledResults(harness);
-    expect(harness.shell.querySelector('.informative-state h3')?.textContent).not.toBe('אין תוצאות');
-    expect(cardTitles(harness.shell)).toEqual(['קובץ שיטות קמאי']);
-    expect(harness.shell.querySelector('.source-warning-banner')?.textContent).toContain(
-      'החיפוש בהיברובוקס נכשל: dtSearch failed',
+    expect(harness.shell.querySelector('.informative-state p')?.textContent ?? '').toContain(
+      'השרת נפל',
     );
   });
 
   it('חיפוש שהושלם בלי אף התאמה עדיין מוצג כ"אין תוצאות"', async () => {
     const harness = await bootHarness(
-      unifiedConfig({ network: { '/search': () => ({ body: '' }) }, searchQuery: () => [] }),
+      pluginSearchConfig({ network: { '/search': () => ({ body: '' }) } }),
     );
-    harness.host.emit('search.requested', {
-      itemId: 'tab-1',
-      request: { query: 'ברכת המזון', mode: 'exact' },
-    });
+    void (
+      harness.controller as unknown as {
+        performSearch(query: string, options: SearchOptions): Promise<void>;
+      }
+    ).performSearch('ברכת המזון', defaultSearchOptions);
     await vi.waitFor(() =>
       expect(harness.shell.querySelector('.informative-state h3')?.textContent).toBe('אין תוצאות'),
     );
   });
 
-  it('כשל בשיוך הקטגוריות מוצג כאזהרה בלי לבטל את התוצאות', async () => {
-    const harness = await bootHarness(
-      unifiedConfig({
-        methods: {
-          'database.batchQuery': () => {
-            throw new Error('אין הרשאה למסד');
-          },
-        },
-      }),
-    );
-    await runUnifiedSearch(harness);
-    expect(harness.shell.querySelector('.source-warning-banner')?.textContent).toContain(
-      'שיוך הקטגוריות של היברובוקס נכשל',
-    );
-    expect(harness.shell.querySelectorAll('.result-card')).toHaveLength(2);
-  });
-
-  it('טוען עמוד נוסף מהמנוע שלא הסתיים ומאחד בלי כפילויות', async () => {
-    const harness = await bootHarness(
-      unifiedConfig({
-        searchQuery: (payload) => {
-          const offset = Number(payload?.offset ?? 0);
-          return otzariaChunk(
-            payload,
-            [offset === 0 ? otzariaHit() : otzariaHit({ book: 'שמות', bookId: 'shemot', index: 40 })],
-            3,
-          );
-        },
-      }),
-    );
-    await runUnifiedSearch(harness, { query: 'ברכת המזון', mode: 'exact', limit: 1 });
-    expect(harness.shell.querySelectorAll('.result-card')).toHaveLength(2);
-
-    const searchesBefore = harness.host
-      .payloadsOf('network.fetchStream')
-      .filter((payload) => String(payload?.url).endsWith('/search')).length;
-    buttonByText(harness.shell, 'טען עוד תוצאות').click();
-    await vi.waitFor(() => expect(harness.shell.querySelectorAll('.result-card')).toHaveLength(3));
-    // התוצאות החדשות נוספות בסוף, מתחת לאלה שכבר מוצגות.
-    expect(cardTitles(harness.shell)).toEqual(['בראשית', 'קובץ שיטות קמאי', 'שמות']);
-    // היברובוקס הסתיים בעמוד הראשון — הוא אינו נשאל שוב.
-    expect(
-      harness.host
-        .payloadsOf('network.fetchStream')
-        .filter((payload) => String(payload?.url).endsWith('/search')).length,
-    ).toBe(searchesBefore);
-    expect(harness.host.payloadsOf('search.query').at(-1)).toMatchObject({ offset: 1, limit: 1 });
+  /// הדפדוף היה שייך לחיפוש המאוחד: התוסף שואל את שירות
+  /// ההיברובוקס פעם אחת ומקבל את כל התוצאות, ואין מה לטעון.
+  it('אינו מציג כפתור "טען עוד תוצאות"', async () => {
+    const harness = await bootHarness(pluginSearchConfig());
+    await runPluginSearch(harness);
+    expect(harness.shell.querySelector('.load-more-row')).toBeNull();
   });
 });
 
 describe('פתיחת תוצאה', () => {
-  it('פתיחה מאוחדת שהתעכבה באיתור עמוד אינה פותחת ספר מהחיפוש הקודם', async () => {
+  it('פתיחה שהתעכבה באיתור עמוד אינה פותחת ספר מהחיפוש הקודם', async () => {
     let releaseInBook!: (reply: { body: string }) => void;
     const harness = await bootHarness(
-      unifiedConfig({
+      pluginSearchConfig({
         network: {
           '/inbook': () => new Promise((resolve) => { releaseInBook = resolve; }),
         },
       }),
     );
-    await runUnifiedSearch(harness);
+    await runPluginSearch(harness);
     [...harness.shell.querySelectorAll<HTMLElement>('.result-card-body')].at(-1)?.click();
     await vi.waitFor(() => expect(inBookBodies(harness)).toHaveLength(1));
 
-    // אוצריא שולחת חיפוש חדש עוד לפני שתשובת /inbook של הכרטיס הקודם הגיעה.
-    harness.host.emit('search.requested', {
-      itemId: 'tab-2',
-      request: { query: 'תפילה', mode: 'exact' },
-    });
+    // המשתמש מריץ חיפוש חדש עוד לפני שתשובת /inbook של הכרטיס הקודם הגיעה.
+    await runPluginSearch(harness, 'תפילה');
     await vi.waitFor(() =>
       expect(harness.shell.querySelector('.search-terms')?.textContent).toContain('תפילה'),
     );
@@ -554,7 +484,7 @@ describe('פתיחת תוצאה', () => {
   it('לחיצה שנייה על תוצאה מחליפה פתיחה ראשונה שעדיין ממתינה ל-/inbook', async () => {
     const releases = new Map<string, (reply: { body: string }) => void>();
     const harness = await bootHarness(
-      unifiedConfig({
+      pluginSearchConfig({
         network: {
           '/search': () => ({
             body: hebrewBooksNdjson([
@@ -569,8 +499,8 @@ describe('פתיחת תוצאה', () => {
         },
       }),
     );
-    await runUnifiedSearch(harness, { query: 'ברכת המזון', mode: 'exact', limit: 2 });
-    await vi.waitFor(() => expect(harness.shell.querySelectorAll('.result-card')).toHaveLength(3));
+    await runPluginSearch(harness);
+    await vi.waitFor(() => expect(harness.shell.querySelectorAll('.result-card')).toHaveLength(2));
     const cards = [...harness.shell.querySelectorAll<HTMLElement>('.result-card-body')];
     expect(cards.at(-2)?.textContent).toContain('ספר ראשון');
     expect(cards.at(-1)?.textContent).toContain('ספר שני');
@@ -593,23 +523,20 @@ describe('פתיחת תוצאה', () => {
     });
   });
 
-  it('כשל פתיחה ישן של תוצאת אוצריא אינו מוצג אחרי חיפוש חדש', async () => {
+  it('כשל פתיחה ישן אינו מוצג אחרי חיפוש חדש', async () => {
     let resolveOpen!: (opened: boolean) => void;
     const harness = await bootHarness(
-      unifiedConfig({
+      pluginSearchConfig({
         methods: {
           'reader.openBook': () => new Promise((resolve) => { resolveOpen = resolve; }),
         },
       }),
     );
-    await runUnifiedSearch(harness);
+    await runPluginSearch(harness);
     harness.shell.querySelector<HTMLElement>('.result-card-body')?.click();
     await vi.waitFor(() => expect(harness.host.countOf('reader.openBook')).toBe(1));
 
-    harness.host.emit('search.requested', {
-      itemId: 'tab-2',
-      request: { query: 'תפילה', mode: 'exact' },
-    });
+    await runPluginSearch(harness, 'תפילה');
     await vi.waitFor(() =>
       expect(harness.shell.querySelector('.search-terms')?.textContent).toContain('תפילה'),
     );
@@ -622,7 +549,7 @@ describe('פתיחת תוצאה', () => {
 
   it('פתיחת תוצאת היברובוקס בחיפוש הדוק חוזרת לברירת המחדל כשהאיתור ההדוק ריק', async () => {
     const harness = await bootHarness(
-      unifiedConfig({
+      pluginSearchConfig({
         network: {
           '/inbook': (payload) => {
             const body = JSON.parse(String(payload.body)) as Record<string, unknown>;
@@ -637,7 +564,7 @@ describe('פתיחת תוצאה', () => {
         },
       }),
     );
-    await runUnifiedSearch(harness, { query: 'ברכת המזון', mode: 'exact', distance: 0 });
+    await runPluginSearch(harness, 'ברכת המזון', { proximity: 1, requireWordOrder: true });
     [...harness.shell.querySelectorAll<HTMLElement>('.result-card-body')].at(-1)?.click();
 
     await vi.waitFor(() => expect(harness.host.countOf('reader.openBook')).toBe(1));
@@ -657,8 +584,8 @@ describe('פתיחת תוצאה', () => {
   });
 
   it('ספר היברובוקס נפתח בקורא של אוצריא בעמוד ההתאמה הראשון', async () => {
-    const harness = await bootHarness(unifiedConfig());
-    await runUnifiedSearch(harness);
+    const harness = await bootHarness(pluginSearchConfig());
+    await runPluginSearch(harness);
     [...harness.shell.querySelectorAll<HTMLElement>('.result-card-body')].at(-1)?.click();
 
     await vi.waitFor(() => expect(harness.host.countOf('reader.openBook')).toBe(1));
@@ -673,28 +600,11 @@ describe('פתיחת תוצאה', () => {
     expect(inBookBodies(harness)).toHaveLength(1);
   });
 
-  it('תוצאת אוצריא נפתחת לפי זהות הספר והמיקום שבאינדקס', async () => {
-    const harness = await bootHarness(unifiedConfig());
-    await runUnifiedSearch(harness);
-    harness.shell.querySelector<HTMLElement>('.result-card-body')?.click();
-
-    await vi.waitFor(() => expect(harness.host.countOf('reader.openBook')).toBe(1));
-    expect(harness.host.lastPayload('reader.openBook')).toEqual({
-      id: 77,
-      bookId: 'bereshit',
-      type: 'text',
-      source: 'library',
-      index: 12,
-      searchQuery: 'ברכת המזון',
-      navigateToPositionIfReused: true,
-    });
-  });
-
   it('ספר שאינו בקטלוג ההיברובוקס של אוצריא מוצג כשגיאה', async () => {
     const harness = await bootHarness(
-      unifiedConfig({ methods: { 'reader.openBook': () => false } }),
+      pluginSearchConfig({ methods: { 'reader.openBook': () => false } }),
     );
-    await runUnifiedSearch(harness);
+    await runPluginSearch(harness);
     [...harness.shell.querySelectorAll<HTMLElement>('.result-card-body')].at(-1)?.click();
     await vi.waitFor(() => expect(harness.host.countOf('ui.showError')).toBe(1));
     expect(harness.host.lastPayload('ui.showError')).toEqual({
@@ -702,27 +612,15 @@ describe('פתיחת תוצאה', () => {
     });
   });
 
-  it('תוצאת אוצריא שלא נפתחה מוצגת כשגיאה', async () => {
-    const harness = await bootHarness(
-      unifiedConfig({ methods: { 'reader.openBook': () => false } }),
-    );
-    await runUnifiedSearch(harness);
-    harness.shell.querySelector<HTMLElement>('.result-card-body')?.click();
-    await vi.waitFor(() => expect(harness.host.countOf('ui.showError')).toBe(1));
-    expect(harness.host.lastPayload('ui.showError')).toEqual({
-      message: 'לא ניתן היה לפתוח את הספר באוצריא',
-    });
-  });
-
   it('כשל באיתור העמודים מוצג כשגיאה', async () => {
     const harness = await bootHarness(
-      unifiedConfig({
+      pluginSearchConfig({
         network: {
           '/inbook': () => ({ status: 500, ok: false, body: JSON.stringify({ error: 'האינדקס נעול' }) }),
         },
       }),
     );
-    await runUnifiedSearch(harness);
+    await runPluginSearch(harness);
     [...harness.shell.querySelectorAll<HTMLElement>('.result-card-body')].at(-1)?.click();
     await vi.waitFor(() => expect(harness.host.countOf('ui.showError')).toBe(1));
     expect(harness.host.lastPayload('ui.showError')).toEqual({ message: 'האינדקס נעול' });
@@ -731,8 +629,8 @@ describe('פתיחת תוצאה', () => {
   });
 
   it('מקש Enter על כרטיס פותח את התוצאה', async () => {
-    const harness = await bootHarness(unifiedConfig());
-    await runUnifiedSearch(harness);
+    const harness = await bootHarness(pluginSearchConfig());
+    await runPluginSearch(harness);
     harness.shell
       .querySelector<HTMLElement>('.result-card-body')
       ?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
@@ -749,8 +647,8 @@ describe('פעולות בכרטיס ההיברובוקס', () => {
   }
 
   it('פותח את דף הספר באתר היברובוקס', async () => {
-    const harness = await bootHarness(unifiedConfig());
-    await runUnifiedSearch(harness);
+    const harness = await bootHarness(pluginSearchConfig());
+    await runPluginSearch(harness);
     harness.shell
       .querySelector<HTMLButtonElement>('[aria-label="פתח באתר היברובוקס"]')
       ?.click();
@@ -765,8 +663,8 @@ describe('פעולות בכרטיס ההיברובוקס', () => {
   it('מעתיק את פרטי הספר ללוח ומודיע למשתמש', async () => {
     const writeText = vi.fn(() => Promise.resolve());
     stubClipboard(writeText);
-    const harness = await bootHarness(unifiedConfig());
-    await runUnifiedSearch(harness);
+    const harness = await bootHarness(pluginSearchConfig());
+    await runPluginSearch(harness);
     harness.shell.querySelector<HTMLButtonElement>('[aria-label="העתק את פרטי הספר"]')?.click();
     await vi.waitFor(() => expect(harness.host.countOf('ui.showMessage')).toBe(1));
     expect(writeText).toHaveBeenCalledWith('קובץ שיטות קמאי, מחבר, ירושלים, תשס"ד');
@@ -777,8 +675,8 @@ describe('פעולות בכרטיס ההיברובוקס', () => {
     stubClipboard(() => Promise.reject(new Error('הקשר לא מאובטח')));
     const execCommand = vi.fn(() => true);
     Object.defineProperty(document, 'execCommand', { value: execCommand, configurable: true });
-    const harness = await bootHarness(unifiedConfig());
-    await runUnifiedSearch(harness);
+    const harness = await bootHarness(pluginSearchConfig());
+    await runPluginSearch(harness);
     harness.shell.querySelector<HTMLButtonElement>('[aria-label="העתק את פרטי הספר"]')?.click();
     await vi.waitFor(() => expect(harness.host.countOf('ui.showMessage')).toBe(1));
     expect(execCommand).toHaveBeenCalledWith('copy');
@@ -792,8 +690,8 @@ describe('פעולות בכרטיס ההיברובוקס', () => {
       value: vi.fn(() => false),
       configurable: true,
     });
-    const harness = await bootHarness(unifiedConfig());
-    await runUnifiedSearch(harness);
+    const harness = await bootHarness(pluginSearchConfig());
+    await runPluginSearch(harness);
     harness.shell.querySelector<HTMLButtonElement>('[aria-label="העתק את פרטי הספר"]')?.click();
     await vi.waitFor(() => expect(harness.host.countOf('ui.showError')).toBe(1));
     expect(harness.host.lastPayload('ui.showError')).toEqual({
@@ -846,8 +744,8 @@ describe('מסך הפתיחה ומצב השירות', () => {
   });
 
   it('חזרה מהתוצאות מציגה שוב את מסך הפתיחה', async () => {
-    const harness = await bootHarness(unifiedConfig());
-    await runUnifiedSearch(harness);
+    const harness = await bootHarness(pluginSearchConfig());
+    await runPluginSearch(harness);
     harness.shell.querySelector<HTMLButtonElement>('[aria-label="חזרה למסך הפתיחה"]')?.click();
     expect(harness.shell.querySelector('.library-screen')?.classList.contains('hidden')).toBe(false);
     expect(harness.shell.querySelector('.results-screen')?.classList.contains('hidden')).toBe(true);
@@ -856,7 +754,7 @@ describe('מסך הפתיחה ומצב השירות', () => {
 
   it('שירות ישן מהנדרש מודיע ואינו חוסם, ונוקב בגרסאות ובדרך לתקן', async () => {
     const harness = await bootHarness(
-      unifiedConfig({
+      pluginSearchConfig({
         network: {
           '/health': () => ({
             body: JSON.stringify({
@@ -879,7 +777,7 @@ describe('מסך הפתיחה ומצב השירות', () => {
       'שירות החיפוש מחובר',
     );
     expect(harness.shell.querySelector('.informative-state')).toBeNull();
-    await runUnifiedSearch(harness);
+    await runPluginSearch(harness);
     expect(harness.shell.querySelectorAll('.result-card').length).toBeGreaterThan(0);
   });
 

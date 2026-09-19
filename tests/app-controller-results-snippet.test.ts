@@ -26,8 +26,24 @@ vi.mock('pdfjs-dist/legacy/build/pdf.mjs', () => ({
 }));
 
 const { AppController } = await import('../src/app-controller');
+const { defaultSearchOptions } = await import('../src/models');
 const { bootPayload, createMockHost, hebrewBooksNdjson, hebrewBooksRow } = await import('./helpers/mock-host');
 type MockHostConfig = import('./helpers/mock-host').MockHostConfig;
+type SearchOptions = import('../src/models').SearchOptions;
+
+/// התוסף מחפש בעצמו ומציג במסך שלו — המסלול שהדיאלוג נופל אליו
+/// כשלמארח אין טאב חיפוש מובנה.
+function search(
+  controller: InstanceType<typeof AppController>,
+  query: string,
+  options: Partial<SearchOptions> = {},
+): void {
+  void (
+    controller as unknown as {
+      performSearch(query: string, options: SearchOptions): Promise<void>;
+    }
+  ).performSearch(query, { ...defaultSearchOptions, ...options });
+}
 
 const visible: { callback?: IntersectionObserverCallback } = {};
 class DeferredIntersectionObserver {
@@ -52,9 +68,9 @@ async function boot(config: MockHostConfig = {}) {
   document.body.append(shell);
   const controller = new AppController(host.bridge, shell);
   await controller.boot(bootPayload());
-  host.emit('search.requested', { itemId: 'tab-1', request: { query: 'ברכת המזון', mode: 'exact', distance: 5 } });
+  search(controller, 'ברכת המזון', { proximity: 6 });
   await vi.waitFor(() => expect(shell.querySelector('.hebrewbooks-snippet')).not.toBeNull());
-  return { host, shell };
+  return { host, shell, controller };
 }
 
 function reveal(shell: HTMLElement): void {
@@ -100,7 +116,7 @@ describe('מסך התוצאות — איתור עצלני של עמוד לגזי
 
   it('כשל /inbook מוצג ומאפשר ניסיון חוזר בכרטיס חדש', async () => {
     let attempts = 0;
-    const { host, shell } = await boot({ network: {
+    const { host, shell, controller } = await boot({ network: {
       '/inbook': () => ++attempts === 1
         ? { status: 500, ok: false, body: JSON.stringify({ error: 'האינדקס נעול' }) }
         : { body: JSON.stringify({ hitCount: 1, pages: [12], matchedTerms: ['ברכת'] }) },
@@ -109,7 +125,7 @@ describe('מסך התוצאות — איתור עצלני של עמוד לגזי
     await vi.waitFor(() => expect(shell.querySelector('.hebrewbooks-snippet')?.textContent).toBe('לא ניתן היה לאתר את עמוד ההתאמה כרגע'));
     expect(inBookCalls(host)).toHaveLength(1);
     expect(pdf.opens).toHaveLength(0);
-    host.emit('search.requested', { itemId: 'tab-1', request: { query: 'ברכת המזון', mode: 'exact', distance: 5 } });
+    search(controller, 'ברכת המזון', { proximity: 6 });
     await vi.waitFor(() => expect(shell.querySelector('.hebrewbooks-snippet')?.textContent).toContain('מאתר עמוד'));
     reveal(shell);
     await vi.waitFor(() => expect(shell.querySelector('.hebrewbooks-snippet')?.textContent).toContain('עמוד 12 ·'));
@@ -132,12 +148,12 @@ describe('מסך התוצאות — איתור עצלני של עמוד לגזי
 
   it('תוצאת חיפוש ישנה אינה פותחת PDF לאחר שהחיפוש הוחלף', async () => {
     let release: ((value: { body: string }) => void) | undefined;
-    const { host, shell } = await boot({ network: {
+    const { host, shell, controller } = await boot({ network: {
       '/inbook': () => new Promise((resolve) => { release = resolve; }),
     } });
     reveal(shell);
     await vi.waitFor(() => expect(inBookCalls(host)).toHaveLength(1));
-    host.emit('search.requested', { itemId: 'tab-1', request: { query: 'מילה אחרת', mode: 'exact' } });
+    search(controller, 'מילה אחרת');
     await vi.waitFor(() => expect(shell.querySelector('.hebrewbooks-snippet')?.textContent).toContain('מאתר עמוד'));
     release?.({ body: JSON.stringify({ hitCount: 1, pages: [12], matchedTerms: ['ברכת'] }) });
     await Promise.resolve();

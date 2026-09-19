@@ -77,16 +77,20 @@ describe('/inbook — displayQuery', () => {
         // רשימת עמודים ריקה מכריחה את הניסיון החוזר בהגדרות ברירת המחדל.
         '/inbook': () => ({ body: JSON.stringify({ hitCount: 0, pages: [], matchedTerms: [] }) }),
       },
-      searchQuery: () => [],
     });
     const shell = document.createElement('div');
     document.body.append(shell);
     const controller = new AppController(host.bridge, shell);
     await controller.boot(bootPayload());
-    host.emit('search.requested', {
-      itemId: 'tab-1',
-      // limit שאינו ברירת המחדל מבדיל את הטביעה, ולכן הניסיון החוזר באמת יוצא.
-      request: { query: 'ברכת המזון ארוכה', mode: 'exact', wordMatchMode: 'anyWord', limit: 5 },
+    // הגדרות שאינן ברירת המחדל מבדילות את הטביעה, ולכן הניסיון החוזר באמת יוצא.
+    void (
+      controller as unknown as {
+        performSearch(query: string, options: typeof defaultSearchOptions): Promise<void>;
+      }
+    ).performSearch('ברכת המזון ארוכה', {
+      ...defaultSearchOptions,
+      proximity: 1,
+      requireWordOrder: true,
     });
     await vi.waitFor(() => expect(shell.querySelectorAll('.result-card').length).toBeGreaterThan(0));
     shell.querySelector<HTMLElement>('.result-card-body')?.click();
@@ -94,6 +98,6 @@ describe('/inbook — displayQuery', () => {
 
     const bodies = inBookBodies(host);
     expect(bodies.every((body) => body.displayQuery === 'ברכת המזון ארוכה')).toBe(true);
-    expect(bodies.some((body) => String(body.q).includes(' or '))).toBe(true);
+    expect(bodies.map((body) => body.proximity)).toEqual([1, 30]);
   });
 });

@@ -27,7 +27,8 @@ import {
 interface ResultsHandlers {
   readonly onBack: () => void;
   readonly onEditSearch: () => void;
-  readonly onLoadMore: () => void;
+  /// דפדוף הוא רשות: בלי מטפל לא מוצג כפתור "טען עוד".
+  readonly onLoadMore?: () => void;
   readonly onOpenResult: (result: UnifiedSearchResult) => void;
   readonly onOpenWebsite: (result: HebrewBooksResult) => void;
   readonly onCopyDetails: (result: HebrewBooksResult) => void;
@@ -239,7 +240,7 @@ export class ResultsScreen {
     if (response.truncated) content.append(buildTruncatedBanner());
     const list = element('ol', 'results-list');
     visible.forEach((result, index) => list.append(this.buildResultCard(result, index)));
-    if (response.nextCursor) list.append(this.buildLoadMoreRow());
+    if (response.nextCursor && this.handlers.onLoadMore) list.append(this.buildLoadMoreRow());
     content.append(list);
 
     layout.append(content);
@@ -461,7 +462,7 @@ export class ResultsScreen {
       text: this.loadingMore ? 'טוען תוצאות נוספות…' : 'טען עוד תוצאות',
       variant: 'neutral',
       icon: 'arrow_download_24_regular',
-      onClick: this.handlers.onLoadMore,
+      onClick: () => this.handlers.onLoadMore?.(),
     });
     button.disabled = this.loadingMore;
     this.loadMoreButton = button;

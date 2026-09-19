@@ -8,14 +8,11 @@ import type {
   HealthStatus,
   HebrewBooksResult,
   HebrewBooksSearchPage,
-  HostSearchRequest,
-  HostSearchRequestedEvent,
   InBookLocations,
   InBookSearchRequestedEvent,
   ResultSnippet,
   SearchOptions,
   SearchSnapshot,
-  UnifiedSearchResponse,
   UnifiedSearchResult,
 } from './models';
 import { defaultSearchOptions } from './models';
@@ -30,8 +27,6 @@ import { ViewerScreen } from './screens/viewer-screen';
 import { mapHebrewBooksCategory } from './services/hb-category-mapper';
 import { LatestRequest } from './services/latest-request';
 import {
-  mergeUnifiedSearchResponses,
-  UnifiedSearchService,
   sanitizedGlobalOptions,
   sanitizedMatchPolicy,
   sanitizedWordOptions,
@@ -161,7 +156,6 @@ export class AppController {
   private readonly snippets = new HebrewBooksSnippetRepository(3);
   private readonly otzariaRepository: OtzariaSearchRepository;
   private readonly catalogMapping: CatalogMappingRepository;
-  private readonly unifiedSearch: UnifiedSearchService;
   private readonly library: LibraryScreen;
   private readonly results: ResultsScreen;
   private readonly viewer: ViewerScreen;
@@ -178,21 +172,12 @@ export class AppController {
   // פתיחת ספר תלויה לעיתים ב-/inbook. אסור שתשובה מאוחרת תפתח ספר שכבר
   // נזנח, או תחזיר את הקורא אחרי שהמשתמש חזר למסך התוצאות.
   private readonly latestResultOpen = new LatestRequest();
-  private unifiedRequest: HostSearchRequest | null = null;
-  private unifiedResponse: UnifiedSearchResponse | null = null;
-  private unifiedRequestId: number | null = null;
-  private loadingMore = false;
   private activeSearchCancellation: AbortController | null = null;
 
   constructor(private readonly bridge: HostBridge, shell: HTMLElement) {
     this.repository = new HebrewBooksRepository(bridge);
     this.otzariaRepository = new OtzariaSearchRepository(bridge);
     this.catalogMapping = new CatalogMappingRepository(bridge);
-    this.unifiedSearch = new UnifiedSearchService(
-      this.repository,
-      this.otzariaRepository,
-      this.catalogMapping,
-    );
 
     this.library = new LibraryScreen({
       onSearch: () => this.dialog.open(displayQueryOf(this.snapshot)),
@@ -208,7 +193,6 @@ export class AppController {
         if (this.snapshot) this.dialog.setOptions(this.snapshot.options);
         this.dialog.open(displayQueryOf(this.snapshot));
       },
-      onLoadMore: () => void this.loadMoreUnifiedSearch(),
       onOpenResult: (result) => void this.openResult(result),
       onOpenWebsite: (result) => void this.openWebsite(result),
       onCopyDetails: (result) => void this.copyDetails(result),
@@ -240,10 +224,6 @@ export class AppController {
         .openSearchTab(request.query, request.options)
         .catch(() => this.performSearch(request.query, request.options));
     });
-
-    this.bridge.on('search.requested', ((payload: HostSearchRequestedEvent) => {
-      void this.performUnifiedSearch(payload);
-    }) as (payload: never) => void);
 
     // נרשם כאן ולא ב-boot: כשאוצריא מעירה את התוסף דרך פתיחת הדף כדי למסור
     // אירוע ממוקד, האירוע עלול להגיע לפני ש-boot רץ — מאזין שנרשם רק שם
@@ -773,7 +753,6 @@ export class AppController {
     this.invalidateResultOpen();
     const cancellation = this.replaceSearchCancellation();
     const requestId = this.latestSearch.begin();
-    this.clearUnifiedSearch();
     this.snapshot = { query, options, fingerprint: createFingerprint(query, options) };
     this.showScreen('results');
     this.results.setSearch(query, null, true, undefined, false, hebrewBooksSearchTerms(options));
@@ -856,107 +835,6 @@ export class AppController {
     }
   }
 
-  private async performUnifiedSearch(event: HostSearchRequestedEvent): Promise<void> {
-    const request = event?.request;
-    if (!isHostSearchRequest(request)) {
-      await this.showHostError('בקשת החיפוש מאוצריא אינה תקינה');
-      return;
-    }
-    this.invalidateResultOpen();
-    const cancellation = this.replaceSearchCancellation();
-    const requestId = this.latestSearch.begin();
-    this.unifiedRequest = request;
-    this.unifiedResponse = null;
-    this.unifiedRequestId = requestId;
-    this.loadingMore = false;
-    this.snapshot = toHebrewBooksSnapshot(request);
-    this.showScreen('results');
-    this.results.setSearch(request.query, null, false, undefined, false, otzariaSearchTerms(request));
-    this.results.showLoading();
-    try {
-      const response = await this.unifiedSearch.search(
-        request,
-        undefined,
-        (partial) => {
-          if (!this.latestSearch.isCurrent(requestId)) return false;
-          this.results.setSearch(request.query, partial.results.length, false, undefined, false, otzariaSearchTerms(request));
-          this.results.showPartialResults(partial, 'מוצגות תוצאות שהתקבלו; החיפוש ממשיך…');
-          return true;
-        },
-        cancellation.signal,
-      );
-      if (!this.latestSearch.isCurrent(requestId)) return;
-      // כמו בחיפוש מהתוסף: תשובה של חיפוש שבוטל אינה תמונה סופית.
-      if (cancellation.signal.aborted) return;
-      this.unifiedResponse = response;
-      this.resultList = response.results
-        .filter((result): result is Extract<UnifiedSearchResult, { source: 'hebrewbooks' }> => result.source === 'hebrewbooks')
-        .map((result) => result.hit);
-      this.results.setSearch(
-        request.query,
-        response.results.length,
-        false,
-        response.otzariaTotal + response.hebrewBooksTotal,
-        response.totalIsLowerBound,
-        otzariaSearchTerms(request),
-      );
-      // רשימה ריקה שנושאת אזהרות אינה "אין תוצאות": מנוע נפל באמצע, ואין
-      // לדעת מה היה מוצא. "לא ניתן להשלים את החיפוש" נאמן למה שקרה, ומשאיר
-      // למשתמש סיבה לנסות שוב.
-      if (response.results.length === 0) {
-        if (response.warnings.length > 0) this.results.showError(response.warnings.join('\n'));
-        else this.results.showNoResults();
-      } else this.results.showResults(response);
-    } catch (error) {
-      if (!this.latestSearch.isCurrent(requestId)) return;
-      this.resultList = [];
-      this.results.setSearch(request.query, 0, false, undefined, false, otzariaSearchTerms(request));
-      this.results.showError(messageOf(error));
-    } finally {
-      this.releaseSearchCancellation(cancellation);
-    }
-  }
-
-  private async loadMoreUnifiedSearch(): Promise<void> {
-    const request = this.unifiedRequest;
-    const current = this.unifiedResponse;
-    const requestId = this.unifiedRequestId;
-    const cursor = current?.nextCursor;
-    if (!request || !current || !cursor || requestId === null || this.loadingMore) return;
-
-    this.loadingMore = true;
-    this.results.setLoadingMore(true);
-    const cancellation = this.replaceSearchCancellation();
-    try {
-      const page = await this.unifiedSearch.search(request, cursor, undefined, cancellation.signal);
-      if (!this.latestSearch.isCurrent(requestId)) return;
-      const response = mergeUnifiedSearchResponses(current, page);
-      this.unifiedResponse = response;
-      this.resultList = response.results
-        .filter(
-          (result): result is Extract<UnifiedSearchResult, { source: 'hebrewbooks' }> =>
-            result.source === 'hebrewbooks',
-        )
-        .map((result) => result.hit);
-      this.results.setSearch(
-        request.query,
-        response.results.length,
-        false,
-        response.otzariaTotal + response.hebrewBooksTotal,
-        response.totalIsLowerBound,
-        otzariaSearchTerms(request),
-      );
-      this.results.showResults(response);
-    } catch (error) {
-      if (!this.latestSearch.isCurrent(requestId)) return;
-      this.results.setLoadingMore(false);
-      await this.showHostError(messageOf(error));
-    } finally {
-      this.releaseSearchCancellation(cancellation);
-      if (this.latestSearch.isCurrent(requestId)) this.loadingMore = false;
-    }
-  }
-
   private replaceSearchCancellation(): AbortController {
     this.activeSearchCancellation?.abort();
     const cancellation = new AbortController();
@@ -966,13 +844,6 @@ export class AppController {
 
   private releaseSearchCancellation(cancellation: AbortController): void {
     if (this.activeSearchCancellation === cancellation) this.activeSearchCancellation = null;
-  }
-
-  private clearUnifiedSearch(): void {
-    this.unifiedRequest = null;
-    this.unifiedResponse = null;
-    this.unifiedRequestId = null;
-    this.loadingMore = false;
   }
 
   private async openResult(result: UnifiedSearchResult): Promise<void> {
@@ -1141,10 +1012,6 @@ function hebrewBooksSearchTerms(options: SearchOptions): SearchTerms {
   return { source: 'hebrewbooks', options };
 }
 
-function otzariaSearchTerms(request: HostSearchRequest): SearchTerms {
-  return { source: 'otzaria', request };
-}
-
 function normalizeTitle(value: string): string {
   return value
     .normalize('NFKC')
@@ -1183,16 +1050,6 @@ function metaLineOf(result: HebrewBooksResult): string | undefined {
     .map((part) => part?.trim() ?? '')
     .filter((part) => part !== '');
   return parts.length > 0 ? parts.join(' · ') : undefined;
-}
-
-function isHostSearchRequest(value: unknown): value is HostSearchRequest {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
-  const request = value as Record<string, unknown>;
-  return (
-    typeof request.query === 'string' &&
-    request.query.trim() !== '' &&
-    (request.mode === 'exact' || request.mode === 'advanced')
-  );
 }
 
 /// ה-WebView אינו תמיד בהקשר מאובטח, ולכן נשמר גם המסלול הישן של execCommand.
