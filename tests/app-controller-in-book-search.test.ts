@@ -81,6 +81,31 @@ describe('ספק חיפוש-בתוך-ספר', () => {
     expect(host.hasListener('reader.inBookSearch.requested')).toBe(true);
   });
 
+  it('נרשם לפני בדיקת /health, ולא רק אחרי שהיא נענתה', async () => {
+    // ספר היברובוקס שנפתח דרך "מהדורה מקבילה" בזמן שהשירות המקומי אינו עונה
+    // הופיע ללא חיפוש בתוך הספר: הרישום המתין לסיום הבדיקה.
+    let releaseHealth: ((reply: { body: string }) => void) | null = null;
+    const host = createMockHost({
+      network: {
+        '/health': () =>
+          new Promise<{ body: string }>((resolve) => {
+            releaseHealth = resolve;
+          }),
+      },
+    });
+    const controller = new AppController(host.bridge, document.createElement('div'));
+    const booting = controller.boot(bootPayload());
+
+    await vi.waitFor(() => expect(releaseHealth).not.toBeNull());
+    expect(host.countOf('reader.registerInBookSearchProvider')).toBe(1);
+    expect(host.countOf('reader.registerExternalSearchProvider')).toBe(1);
+
+    releaseHealth!({
+      body: JSON.stringify({ ok: true, service: 'hbsearch', apiVersion: 1, serverVersion: '1.4.0' }),
+    });
+    await booting;
+  });
+
   it('מחזיר את עמודי ההתאמה, המונחים והשאילתה', async () => {
     const host = await bootController({ network: locatedPages });
     host.emit('reader.inBookSearch.requested', {

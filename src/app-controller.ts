@@ -11,7 +11,7 @@ import type {
 import { CatalogMappingRepository } from './repositories/catalog-mapping-repository';
 import { HebrewBooksRepository } from './repositories/hebrewbooks-repository';
 import { HebrewBooksSnippetRepository } from './repositories/hebrewbooks-snippet-repository';
-import { OtzariaSearchRepository } from './repositories/otzaria-search-repository';
+import { OtzariaSearchRepository, otzariaTabBlocker } from './repositories/otzaria-search-repository';
 import { LibraryScreen } from './screens/library-screen';
 import { ResultsScreen, type SearchTerms } from './screens/results-screen';
 import { SearchDialog } from './screens/search-dialog';
@@ -105,6 +105,14 @@ export class AppController {
 
     this.dialog = new SearchDialog((request) => {
       this.dialog.close();
+      // בחירה שהטאב אינו יכול לכבד אינה נבלעת: החיפוש נשאר כאן, במסך שבו
+      // האפשרויות שנבחרו חלות בפועל, והמשתמש מקבל את הסיבה.
+      const blocker = otzariaTabBlocker(request.options);
+      if (blocker !== null) {
+        void this.bridge.call('ui.showMessage', { message: blocker });
+        void this.performSearch(request.query, request.options);
+        return;
+      }
       // חיפוש מהתוסף נפתח בכרטיסיית חיפוש מובנית של אוצריא (המדור החיצוני
       // מציג שם את התוצאות); מארח ישן שאינו מכיר את ה-API נופל למסך התוסף.
       void this.otzariaRepository
@@ -119,6 +127,9 @@ export class AppController {
   }
 
   async boot(payload: OtzariaBootPayload): Promise<void> {
+    // הרישום ראשון ולפני כל המתנה: קורא שפותח ספר היברובוקס בינתיים (למשל
+    // "מהדורה מקבילה") בודק את הספקים בזמן הבנייה, ובלעדיהם אין חיפוש בספר.
+    void this.server.registerProviders();
     applyTheme(payload.theme);
     this.bridge.on('theme.changed', ((theme: OtzariaTheme) => applyTheme(theme)) as (payload: never) => void);
     this.bridge.on('settings.changed', ((eventPayload: { key?: string; newValue?: string }) => {
@@ -132,7 +143,6 @@ export class AppController {
       }
     }) as (payload: never) => void);
     await this.checkHealth();
-    void this.server.registerProviders();
   }
 
   private async checkHealth(): Promise<void> {
