@@ -655,7 +655,7 @@ describe('Otzaria match policy as a hbsearch query', () => {
     expect(queryOf({ wordMatchMode: 'mostWords', proximityScope: 'sameSection' }, 'ברוך אתה השם')).toBe(
       '(ברוך w/300 אתה) or (ברוך w/300 השם) or (אתה w/300 השם)',
     );
-    // גם חלון הסעיף מסוגר במפורש.
+    // גם חלון הסעיף מסוגר במפורש, ונדחה באותה תקרה.
     expect(queryOf({ wordMatchMode: 'mostWords', proximityScope: 'sameSection' }, 'א ב ג ד')).toBe(
       '((א w/300 ב) w/300 ג) or ((א w/300 ב) w/300 ד)'
         + ' or ((א w/300 ג) w/300 ד) or ((ב w/300 ג) w/300 ד)',
@@ -722,6 +722,18 @@ describe('Otzaria match policy as a hbsearch query', () => {
     // C(5,2)=10 עוד נכנס בתקרה, C(6,2)=15 כבר לא.
     expect(cap('א ב ג ד ה', 2)).toBeUndefined();
     expect(cap('א ב ג ד ה ו', 2)).toContain('אינו נתמך');
+  });
+
+  it('refuses a query too large for the engine to parse, whatever the mode', () => {
+    const long = Array.from({ length: 2_000 }, (_, index) => `מילה${index}`).join(' ');
+
+    for (const policy of [{}, { wordMatchMode: 'anyWord' as const }]) {
+      const snapshot = toHebrewBooksSnapshot({ query: long, ...policy });
+      expect(snapshot.unsupportedPolicy).toContain('ארוכה מדי');
+      expect(snapshot.query).toBe(long);
+    }
+    expect(toHebrewBooksSnapshot({ query: 'ברוך אתה', wordMatchMode: 'anyWord' }).unsupportedPolicy)
+      .toBeUndefined();
   });
 
   it('strips gershayim like the hbsearch query builder does, and never splits one word', () => {

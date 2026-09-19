@@ -6,6 +6,7 @@ import {
   hebrewBooksMatchQuery,
   maximumMatchCombinations,
   maximumProximity,
+  maximumQueryCharacters,
   minimumProximity,
   paragraphProximity,
   scopeProximity,
@@ -132,6 +133,19 @@ describe('hebrewBooksMatchQuery', () => {
     // C(5,2)=10 בדיוק בתקרה, C(6,2)=15 מעליה.
     expect(atLeastTwo(words.join(' ')).unsupported).toBeUndefined();
     expect(atLeastTwo([...words, 'וו'].join(' ')).unsupported).toContain('אינו נתמך');
+  });
+
+  it('שאילתה ארוכה מהתקרה נדחית בהודעה — גם כשאין בה צירופים כלל', () => {
+    const long = Array.from({ length: 1_500 }, (_, index) => `מילה${index}`).join(' ');
+    expect(long.length).toBeGreaterThan(maximumQueryCharacters);
+
+    for (const wordMatchMode of ['all', 'anyWord'] as const) {
+      const translation = hebrewBooksMatchQuery(long, { wordMatchMode });
+      expect(translation.query).toBe('');
+      expect(translation.unsupported).toContain('ארוכה מדי');
+    }
+    expect(hebrewBooksMatchQuery(words.join(' '), { wordMatchMode: 'anyWord' }).unsupported)
+      .toBeUndefined();
   });
 
   it('מעל התקרה המדיניות נדחית, ואינה מתורגמת לחיפוש רחב יותר', () => {

@@ -60,6 +60,11 @@ export function scopeProximity(scope: SearchProximityScope | undefined): number 
 /// שניות לכל היותר.
 export const maximumMatchCombinations = 10;
 
+/// תקרת האורך של השאילתה הנשלחת. dtSearch מפסיק לנתח בקשה גדולה מדי
+/// ומחזיר אפס תוצאות בלי שגיאה: נמדד ש-68,739 תווים התקבלו ו-71,483 נדחו
+/// בשקט. התקרה כאן קטנה בהרבה — שאילתה לגיטימית רחוקה ממנה בסדר גודל.
+export const maximumQueryCharacters = 8_000;
+
 /// כמה ממילות השאילתה חייבות להופיע, ביחידות של המנוע של אוצריא (על
 /// המילים הייחודיות): רוב = n/2+1 בחלוקה שלמה, "לפחות X" נחתך ל-[1, n].
 export function requiredWordCount(
@@ -93,23 +98,36 @@ export function hebrewBooksMatchQuery(query: string, policy: SearchMatchPolicy):
   const words = matchWords(query);
   // "כל המילים" הוא השאילתה הרגילה בחלון של הטווח, עם ההרחבות שהבנאי של
   // hbsearch מוסיף לה — שאילתת אופרטורים הייתה מוותרת עליהן.
-  if (words.length < 2 || mode === 'all') return { query: '' };
+  const plain = query.trim();
+  if (words.length < 2 || mode === 'all') return withinSizeBudget('', plain);
   const required = requiredWordCount(words.length, mode, policy.wordMatchCount);
-  if (required >= words.length) return { query: '' };
-  if (required <= 1) return { query: words.join(' or ') };
+  if (required >= words.length) return withinSizeBudget('', plain);
+  if (required <= 1) return withinSizeBudget(words.join(' or '));
   if (combinationCount(words.length, required) > maximumMatchCombinations) {
     return { query: '', unsupported: unsupportedMatchMessage(required, words.length) };
   }
   const proximity = scopeProximity(policy.proximityScope);
-  return {
-    query: combinations(words, required).map((group) => proximityGroup(group, proximity)).join(' or '),
-  };
+  return withinSizeBudget(
+    combinations(words, required).map((group) => proximityGroup(group, proximity)).join(' or '),
+  );
 }
 
 /// כל w/N נבנה במפורש עם מילה בודדת מימינו. dtSearch דוחה w/N ששני צדדיו
 /// ביטויי טווח, והבנאי שלו מאזן שרשרת ארוכה בדיוק לצורה האסורה הזו.
 function proximityGroup(group: string[], proximity: number): string {
   return group.reduce((left, word) => (left === '' ? word : `(${left} w/${proximity} ${word})`), '');
+}
+
+/// בקשה גדולה מדי מוחזרת מ-dtSearch כאפס תוצאות בלי שגיאה, ולכן עדיף
+/// לסרב בהודעה. [sent] הוא מה שייצא בפועל כששאילתת האופרטורים ריקה.
+function withinSizeBudget(query: string, sent = query): MatchQueryTranslation {
+  if (sent.length > maximumQueryCharacters) return { query: '', unsupported: tooLongMessage() };
+  return { query };
+}
+
+function tooLongMessage(): string {
+  return `השאילתה ארוכה מדי לחיפוש בהיברובוקס: מעל ${maximumQueryCharacters} תווים `
+    + 'מנוע החיפוש מחזיר אותה כחיפוש ללא תוצאות. אפשר לקצר את השאילתה.';
 }
 
 /// ל-dtSearch אין "לפחות k מתוך n", ופירוק לצירופים הוא הביטוי המדויק
