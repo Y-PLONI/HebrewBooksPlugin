@@ -28,10 +28,8 @@ export class LibraryScreen {
 
   setHebrewBooksPath(path: string | null): void {
     this.currentHebrewBooksPath = path;
-    const el = this.body.querySelector('.library-hebrewbooks-path-status');
-    if (el) {
-      el.textContent = formatHebrewBooksPathStatus(path);
-    }
+    const el = this.body.querySelector<HTMLElement>('.library-hebrewbooks-path-status');
+    if (el) applyPathStatus(el, path);
   }
 
   showReady(statusText: string, hebrewBooksPath?: string | null, warning?: string | null): void {
@@ -61,13 +59,7 @@ export class LibraryScreen {
     );
     view.append(element('p', 'library-status', statusText));
     if (warning) view.append(element('p', 'library-version-warning', warning));
-    view.append(
-      element(
-        'p',
-        'library-hebrewbooks-path-status',
-        formatHebrewBooksPathStatus(this.currentHebrewBooksPath),
-      ),
-    );
+    view.append(this.pathStatusElement());
     view.append(pathGuidance());
     this.body.replaceChildren(view);
   }
@@ -82,16 +74,24 @@ export class LibraryScreen {
       message,
       action: { text: 'בדוק שוב', icon: 'search_24_regular', onClick: this.handlers.onRetry },
     });
-    infoState.append(
-      element(
-        'p',
-        'library-hebrewbooks-path-status',
-        formatHebrewBooksPathStatus(this.currentHebrewBooksPath),
-      ),
-    );
+    infoState.append(this.pathStatusElement());
     infoState.append(pathGuidance());
     this.body.replaceChildren(infoState);
   }
+
+  private pathStatusElement(): HTMLElement {
+    const el = element('p', 'library-hebrewbooks-path-status');
+    applyPathStatus(el, this.currentHebrewBooksPath);
+    return el;
+  }
+}
+
+/// השורה נשארת ב-DOM גם כשהנתיב אינו ידוע, כדי ש-settings.changed שיגיע
+/// אחר כך יוכל לעדכן אותה בלי לבנות את המסך מחדש.
+function applyPathStatus(el: HTMLElement, path: string | null): void {
+  const text = formatHebrewBooksPathStatus(path);
+  el.textContent = text ?? '';
+  el.classList.toggle('hidden', text === null);
 }
 
 function pathGuidance(): HTMLElement {
@@ -113,9 +113,11 @@ function pathGuidance(): HTMLElement {
   return guidance;
 }
 
-export function formatHebrewBooksPathStatus(path: string | null | undefined): string {
+/// null כשהנתיב אינו ידוע: מ-0.9.97 אוצריא חוסמת קריאת הגדרות שבשמן `path`,
+/// והנתיב מגיע רק ב-settings.changed — "לא הוגדר" היה טענה שאין לנו בסיס לה.
+export function formatHebrewBooksPathStatus(path: string | null | undefined): string | null {
   if (typeof path === 'string' && path.trim() !== '') {
-    return `מיקום ספרי היברובוקס באוצריא: הוגדר (${path.trim()})`;
+    return `מיקום ספרי היברובוקס באוצריא: ${path.trim()}`;
   }
-  return 'מיקום ספרי היברובוקס באוצריא: לא הוגדר';
+  return null;
 }

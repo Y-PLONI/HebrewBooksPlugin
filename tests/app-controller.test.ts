@@ -7,13 +7,12 @@ import type { HostBridge } from '../src/bridge';
 describe('AppController HebrewBooks path setting integration', () => {
   afterEach(() => vi.unstubAllGlobals());
 
-  it('fetches key-hebrew-books-path setting on boot and updates home page', async () => {
+  it('never reads the blocked path setting, and shows the path only once settings.changed carries it', async () => {
     const listeners: Record<string, (payload: unknown) => void> = {};
+    const methods: string[] = [];
     const mockBridge: HostBridge = {
-      call: vi.fn(async (method: string, payload?: Record<string, unknown>) => {
-        if (method === 'settings.get' && payload?.key === 'key-hebrew-books-path') {
-          return { success: true, data: '/configured/hebrewbooks/path', error: null };
-        }
+      call: vi.fn(async (method: string) => {
+        methods.push(method);
         return { success: true, data: null, error: null };
       }) as unknown as HostBridge['call'],
       on: (event: string, callback: (payload: never) => void) => {
@@ -35,25 +34,27 @@ describe('AppController HebrewBooks path setting integration', () => {
       permissions: ['settings.read', 'events.subscribe:settings.changed'],
     });
 
+    // מ-0.9.97 המפתח חסום ו-settings.get עליו נדחה ב-error.forbidden.
+    expect(methods).not.toContain('settings.get');
     const statusEl = shell.querySelector('.library-hebrewbooks-path-status');
-    expect(statusEl?.textContent).toBe(
-      'מיקום ספרי היברובוקס באוצריא: הוגדר (/configured/hebrewbooks/path)',
-    );
+    expect(statusEl?.textContent).toBe('');
+    expect(statusEl?.classList.contains('hidden')).toBe(true);
 
-    // Simulate settings.changed event from host
     listeners['settings.changed']?.({
       key: 'key-hebrew-books-path',
       newValue: '/new/updated/path',
     });
 
-    expect(statusEl?.textContent).toBe('מיקום ספרי היברובוקס באוצריא: הוגדר (/new/updated/path)');
+    expect(statusEl?.textContent).toBe('מיקום ספרי היברובוקס באוצריא: /new/updated/path');
+    expect(statusEl?.classList.contains('hidden')).toBe(false);
 
     listeners['settings.changed']?.({
       key: 'key-hebrew-books-path',
       newValue: '',
     });
 
-    expect(statusEl?.textContent).toBe('מיקום ספרי היברובוקס באוצריא: לא הוגדר');
+    expect(statusEl?.textContent).toBe('');
+    expect(statusEl?.classList.contains('hidden')).toBe(true);
   });
 
   it('מתעלם מבקשות חיפוש שאינן מיועדות לספק hebrewbooks', async () => {
@@ -331,13 +332,15 @@ describe('AppController HebrewBooks path setting integration', () => {
     );
   });
 
-  it('does not let a delayed settings.get response overwrite a newer settings.changed event', async () => {
+  it('keeps a settings.changed path that arrived while boot was still running', async () => {
     const listeners: Record<string, (payload: unknown) => void> = {};
-    let resolveSetting!: (value: { success: boolean; data: string | null; error: null }) => void;
+    let releaseHealth: () => void = () => undefined;
     const mockBridge: HostBridge = {
-      call: vi.fn((method: string, payload?: Record<string, unknown>) => {
-        if (method === 'settings.get' && payload?.key === 'key-hebrew-books-path') {
-          return new Promise((resolve) => { resolveSetting = resolve; });
+      call: vi.fn((method: string) => {
+        if (method === 'network.fetchStream') {
+          return new Promise((resolve) => {
+            releaseHealth = () => resolve({ success: true, data: null, error: null });
+          });
         }
         return Promise.resolve({ success: true, data: null, error: null });
       }) as unknown as HostBridge['call'],
@@ -358,12 +361,14 @@ describe('AppController HebrewBooks path setting integration', () => {
       permissions: ['settings.read', 'events.subscribe:settings.changed'],
     });
 
+    // המאזין נרשם לפני בדיקת השירות, ולכן אירוע באמצע boot אינו אובד —
+    // המסך שנבנה בסוף הבדיקה כבר נושא את הנתיב.
     listeners['settings.changed']?.({ key: 'key-hebrew-books-path', newValue: '/newer/path' });
-    resolveSetting({ success: true, data: '/stale/path', error: null });
+    releaseHealth();
     await boot;
 
     expect(shell.querySelector('.library-hebrewbooks-path-status')?.textContent).toBe(
-      'מיקום ספרי היברובוקס באוצריא: הוגדר (/newer/path)',
+      'מיקום ספרי היברובוקס באוצריא: /newer/path',
     );
   });
 });

@@ -168,8 +168,9 @@ export class AppController {
   private readonly dialog: SearchDialog;
 
   private healthStatus: HealthStatus | null = null;
+  // מ-0.9.97 אין דרך לקרוא את הנתיב: מדיניות ההגדרות חוסמת כל מפתח שבשמו
+  // `path`. הוא נודע רק כשהמשתמש משנה אותו, דרך settings.changed.
   private hebrewBooksPath: string | null = null;
-  private hebrewBooksPathVersion = 0;
   private snapshot: SearchSnapshot | null = null;
   private resultList: HebrewBooksResult[] = [];
   private selectedResult: HebrewBooksResult | null = null;
@@ -271,11 +272,9 @@ export class AppController {
             ? eventPayload.newValue.trim()
             : null;
         this.hebrewBooksPath = path;
-        this.hebrewBooksPathVersion += 1;
         this.library.setHebrewBooksPath(path);
       }
     }) as (payload: never) => void);
-    await this.fetchHebrewBooksPath();
     await this.checkHealth();
     void this.otzariaRepository
       .registerInBookSearchProvider()
@@ -734,24 +733,6 @@ export class AppController {
     // כישלון אינו נשמר — הבקשה הבאה לאותו ספר תנסה שוב.
     request.catch(() => this.inBookLocationsCache.delete(key));
     return request;
-  }
-
-  private async fetchHebrewBooksPath(): Promise<void> {
-    const versionAtRequest = this.hebrewBooksPathVersion;
-    try {
-      const response = await this.bridge.call<string | null>('settings.get', {
-        key: 'key-hebrew-books-path',
-      });
-      if (versionAtRequest === this.hebrewBooksPathVersion) {
-        this.hebrewBooksPath =
-          response.success && typeof response.data === 'string' && response.data.trim() !== ''
-            ? response.data.trim()
-            : null;
-      }
-    } catch {
-      if (versionAtRequest === this.hebrewBooksPathVersion) this.hebrewBooksPath = null;
-    }
-    this.library.setHebrewBooksPath(this.hebrewBooksPath);
   }
 
   private async checkHealth(): Promise<void> {
