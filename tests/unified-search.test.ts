@@ -214,9 +214,7 @@ describe('UnifiedSearchService', () => {
     expect(toHebrewBooksSnapshot({ ...request, distance: 5000 }).options.proximity).toBe(30);
   });
 
-  it('falls back to the global options when the host tokenization differs (hyphen)', () => {
-    // 'בית-דין' נטוקנן באוצריא לשתי מילים ('בית_0', 'דין_1') — המפתחות לא
-    // מתאימים לפירוק לפי רווחים; המפה הגלובלית שומרת על האפשרות פעילה.
+  it('maps SDK tokens for hyphenated queries with global options', () => {
     const snapshot = toHebrewBooksSnapshot({
       ...request,
       query: 'בית-דין צדק',
@@ -231,7 +229,7 @@ describe('UnifiedSearchService', () => {
     expect(snapshot.options.hybur).toBe(true);
   });
 
-  it('without the global map a tokenization mismatch keeps the option off (conservative)', () => {
+  it('maps SDK tokens for hyphenated queries without requiring global options', () => {
     const snapshot = toHebrewBooksSnapshot({
       ...request,
       query: 'בית-דין צדק',
@@ -243,7 +241,29 @@ describe('UnifiedSearchService', () => {
       },
     });
 
-    expect(snapshot.options.hybur).toBe(false);
+    expect(snapshot.options.hybur).toBe(true);
+  });
+
+  it('uses SDK option keys consistently for ordinary and partial search', () => {
+    const query = 'בית-דין בית רמב״ם תוס׳ שלו* שלום';
+    const wordOptions = Object.fromEntries(
+      ['בית_0', 'דין_1', 'בית_2', 'רמב"ם_3', "תוס'_4", 'שלו_5', 'שלום_6']
+        .map((key) => [key, { 'כתיב מלא/חסר': true }]),
+    );
+    const snapshot = toHebrewBooksSnapshot({ query, mode: 'advanced', wordOptions });
+    expect(snapshot.options.spelling).toBe(true);
+    expect(snapshot.unsupportedPolicy).toBeUndefined();
+    const partial = toHebrewBooksSnapshot({ query, mode: 'advanced', wordOptions, wordMatchMode: 'anyWord' });
+    expect(partial.unsupportedPolicy).toContain('כתיב מלא/חסר');
+
+    const overridden = { ...wordOptions, 'בית_2': {} };
+    expect(toHebrewBooksSnapshot({
+      query, mode: 'advanced', wordOptions: overridden, options: { 'כתיב מלא/חסר': true },
+    }).options.spelling).toBe(false);
+    expect(toHebrewBooksSnapshot({
+      query, mode: 'advanced', wordOptions: overridden, options: { 'כתיב מלא/חסר': true },
+      wordMatchMode: 'anyWord',
+    }).unsupportedPolicy).toBeUndefined();
   });
 
   it('sanitizedGlobalOptions keeps true values only and rejects malformed payloads', () => {

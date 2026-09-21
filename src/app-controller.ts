@@ -365,7 +365,11 @@ export class AppController {
       // התאמה ולכן נפתחים מתחילת הספר — כמו במסך התוצאות של אוצריא.
       const anchored = snapshot.options.firstWord || snapshot.options.lastWord;
       const initialPage = anchored ? 1 : locations.pages[0] ?? 1;
-      await this.viewer.openBook(result.bookName, this.repository.pdfUrl(result.fileId), locations.pages, initialPage);
+      await this.repository.withPdfAccess(result.fileId, async (url) => {
+        // A token refresh can finish after the user has opened a different result.
+        if (!this.isCurrentResultOpen(openRequestId) || this.snapshot !== snapshot) return;
+        await this.viewer.openBook(result.bookName, url, locations.pages, initialPage);
+      });
     } catch (error) {
       if (!this.isCurrentResultOpen(openRequestId)) return;
       this.showScreen('results');

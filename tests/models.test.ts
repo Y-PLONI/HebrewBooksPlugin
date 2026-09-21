@@ -9,11 +9,13 @@ import {
   maximumProximity,
   maximumQueryCharacters,
   minimumProximity,
+  otzariaQueryWords,
   paragraphProximity,
   plainSearchQuery,
   requiredWordCount,
   scopeProximity,
   sectionProximity,
+  sharedOptionEnabled,
   unsupportedScope,
 } from '../src/models';
 
@@ -170,6 +172,20 @@ describe('hebrewBooksMatchQuery', () => {
     }
   });
 
+  it('rejects operators exposed by punctuation, transparent characters, or quote removal', () => {
+    for (const text of ['and,', 'candy-and', 'OR!', 'foo|Not', 'con.tains', 'x\u200bfilter', "a'n'd"]) {
+      for (const wordMatchMode of ['anyWord', 'mostWords', 'atLeast'] as const) {
+        const translation = hebrewBooksMatchQuery(`ברוך ${text} אתה מלך`, { wordMatchMode });
+        expect(translation.query).toBe('');
+        expect(translation.unsupported).toContain('אופרטור של מנוע החיפוש');
+      }
+    }
+    expect(hebrewBooksMatchQuery('ברוך candy-and אתה מלך', { wordMatchMode: 'all' }))
+      .toEqual({ query: '' });
+    expect(hebrewBooksMatchQuery('ברוך candy andalusia מלך', { wordMatchMode: 'anyWord' }))
+      .toEqual({ query: 'ברוך or candy or andalusia or מלך' });
+  });
+
   it('תו מיוחד שדבוק למילה נשאר — כך בדיוק נשלחת אותה מילה ב"כל המילים"', () => {
     // `(שלום w/30 בראש*)` נמדד חי: 560 אלפיות ותוצאות אמיתיות.
     for (const word of ['בראש*', 'שלו*']) {
@@ -256,6 +272,21 @@ describe('hebrewBooksMatchQuery', () => {
       .toEqual({ query: '' });
   });
 
+  it('rejects partial-match expansions keyed by the SDK tokens rather than whitespace', () => {
+    for (const wordMatchMode of ['anyWord', 'mostWords', 'atLeast'] as const) {
+      const translation = hebrewBooksMatchQuery('בית-דין שלום', {
+        wordMatchMode,
+        wordOptions: {
+          'בית_0': { 'כתיב מלא/חסר': true },
+          'דין_1': { 'כתיב מלא/חסר': true },
+          'שלום_2': { 'כתיב מלא/חסר': true },
+        },
+      });
+      expect(translation.query).toBe('');
+      expect(translation.unsupported).toContain('כתיב מלא/חסר');
+    }
+  });
+
   it('התקרה היא גבול מדוד: עשרה צירופים נשלחים, חמישה־עשר נדחים', () => {
     const atLeastTwo = (text: string): MatchQueryTranslation =>
       hebrewBooksMatchQuery(text, { wordMatchMode: 'atLeast', wordMatchCount: 2 });
@@ -285,6 +316,53 @@ describe('hebrewBooksMatchQuery', () => {
     expect(translation.query).toBe('');
     expect(translation.unsupported).toContain(String(maximumMatchCombinations));
     expect(translation.unsupported).toContain('אינו נתמך');
+  });
+});
+
+describe('otzariaQueryWords', () => {
+  it.each<[string, string[]]>([
+    ['בית-דין בית־דין שלום,עולם', ['בית', 'דין', 'בית', 'דין', 'שלום', 'עולם']],
+    ['רמב״ם רמב“ם רמב”ם רמב\'\'ם', ['רמב"ם', 'רמב"ם', 'רמב"ם', 'רמב"ם']],
+    ["תוס׳ ג’ורג‘ וכו'' רמב\"", ["תוס'", "ג'ורג'", "וכו'", 'רמב']],
+    ['א""ב א\'\'\'ב א\'"ב א\'" ', ['א', 'ב', 'א', 'ב', 'א', 'ב', "א'"]],
+    ['א*ב שלו* פ.ב.י יב[ע]ר שלום\\עולם', ['אב', 'שלו', 'פבי', 'יבער', 'שלוםעולם']],
+    ['א\u200bב א\u202eב א\ufeffב', ['אב', 'אב', 'אב']],
+    ['\u0345 שָׁמַ֣ע כלת̇ום א׀ב א׃ב א׆ב', ['שָׁמַ֣ע', 'כלת̇ום', 'א', 'ב', 'א', 'ב', 'א', 'ב']],
+    ['* ... \u05b0 !!!', []],
+  ])('preserves SDK token spelling and positions for %s', (query, words) => {
+    expect(otzariaQueryWords(query)).toEqual(words);
+  });
+});
+
+describe('sharedOptionEnabled', () => {
+  it('keeps duplicate positions, canonical quotes and stripped wildcards in option keys', () => {
+    const request = {
+      query: 'בית-דין בית רמב״ם תוס׳ שלו* שלום',
+      wordOptions: Object.fromEntries(
+        ['בית_0', 'דין_1', 'בית_2', 'רמב"ם_3', "תוס'_4", 'שלו_5', 'שלום_6']
+          .map((key) => [key, { 'כתיב מלא/חסר': true }]),
+      ),
+    };
+    expect(sharedOptionEnabled(request, 'כתיב מלא/חסר')).toBe(true);
+    expect(hebrewBooksMatchQuery(request.query, { ...request, wordMatchMode: 'anyWord' }).unsupported)
+      .toContain('כתיב מלא/חסר');
+    request.wordOptions['בית_2'] = { 'כתיב מלא/חסר': false };
+    expect(sharedOptionEnabled(request, 'כתיב מלא/חסר')).toBe(false);
+    expect(hebrewBooksMatchQuery(request.query, { ...request, wordMatchMode: 'anyWord' }).unsupported)
+      .toBeUndefined();
+  });
+
+  it('replaces global options with each explicit word map, including an empty map', () => {
+    const request = { query: 'בית-דין שלום', options: { 'כתיב מלא/חסר': true } };
+    expect(sharedOptionEnabled(request, 'כתיב מלא/חסר')).toBe(true);
+    const overrides: Array<Record<string, boolean>> = [{}, { 'כתיב מלא/חסר': false }];
+    for (const override of overrides) {
+      const overridden = { ...request, wordOptions: { 'דין_1': override } };
+      expect(sharedOptionEnabled(overridden, 'כתיב מלא/חסר')).toBe(false);
+      expect(hebrewBooksMatchQuery(request.query, { ...overridden, wordMatchMode: 'anyWord' }).unsupported)
+        .toBeUndefined();
+    }
+    expect(sharedOptionEnabled({ ...request, query: '... !!!' }, 'כתיב מלא/חסר')).toBe(false);
   });
 });
 

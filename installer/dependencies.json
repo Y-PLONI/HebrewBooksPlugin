@@ -1,11 +1,11 @@
 {
   "runtime": {
-    "version": "3.0.115",
-    "commit": "7f9abb0",
+    "version": "3.0.116",
+    "commit": "816aaf4",
     "archive": "hbsearch-win-x86.zip",
     "release": {
       "repo": "Y-PLONI/hbsearch",
-      "tag": "build-7f9abb0",
+      "tag": "build-816aaf4",
       "asset": "hbsearch-win-x86.zip"
     }
   },

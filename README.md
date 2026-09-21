@@ -86,7 +86,7 @@ node tools/screenshot.mjs "http://127.0.0.1:8080/?screen=viewer" shot.png 1400 9
 הקבצים. לפרסום בחנות יש להגדיר ב־GitHub את הסודות `OTZARIA_USER`
 ו־`OTZARIA_PASSWORD`; לפני כל פרסום יש להעלות את הגרסה ב־`manifest.json`.
 
-המתקין מוריד את `hbsearch-win-x86.zip` מה־Release `latest` של מאגר השירות
+המתקין מוריד את `hbsearch-win-x86.zip` מה־Release הקבוע שמוצמד ב־`dependencies.json` של מאגר השירות
 `Y-PLONI/hbsearch`, לפי `installer/dependencies.json`. המאגר פרטי, ולכן נדרש
 טוקן ב־`GH_TOKEN` (ב־CI: `secrets.ANGINE_PRIVATE`). לבנייה מקומית ללא טוקן אפשר
 להעביר `-RuntimeArchive <path>` עם עותק מקומי של הארכיון.
@@ -106,11 +106,11 @@ node tools/screenshot.mjs "http://127.0.0.1:8080/?screen=viewer" shot.png 1400 9
 `-AllowUnverifiedRuntime`; גרסה ישנה שזוהתה בוודאות אינה ניתנת לעקיפה.
 
 אלא שמספר הגרסה של המנוע אינו זז בכל קומיט: שתי בניות שנבדלות בתיקונים אמיתיים
-מדווחות שתיהן `3.0.115`, ולכן `runtime.version` לבדו אינו יכול לדרוש בנייה מסוימת.
+מדווחות שתיהן אותה גרסה, ולכן `runtime.version` לבדו אינו יכול לדרוש בנייה מסוימת.
 לשם כך יש ב־`dependencies.json` שדה רשות `runtime.commit`, שמכיל את ה־SHA של קומיט
 המנוע הנדרש (7 עד 40 תווים הקסדצימליים; קידומת קצרה מספיקה). כשהוא קיים,
 `Prepare-Installer.ps1` קורא את מטא־נתוני הבנייה מתוך ה־`ProductVersion` שנפרש —
-הצורה המלאה היא `3.0.115+<full sha>` — ומכשיל את הבנייה אם ה־SHA המוצהר אינו קידומת
+הצורה המלאה היא `<version>+<full sha>` — ומכשיל את הבנייה אם ה־SHA המוצהר אינו קידומת
 שלו (ההשוואה אינה תלוית רישיות). קומיט אחר הוא מנוע שגוי בוודאות ואינו ניתן לעקיפה;
 היעדר מטא־נתוני בנייה הוא מקרה של "אי אפשר לאמת", ורק אותו עוקף
 `-AllowUnverifiedRuntime`.

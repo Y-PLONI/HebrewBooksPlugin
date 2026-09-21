@@ -18,6 +18,7 @@ import {
   plainSearchQuery,
   proximityForOtzariaDistance,
   scopeProximity,
+  sharedOptionEnabled,
 } from '../models';
 import { otzariaOpenableCorpus } from '../repositories/otzaria-search-repository';
 import { expansionsHonoured } from '../search-option-support';
@@ -305,17 +306,6 @@ export function toHebrewBooksSnapshot(request: HostSearchRequest): SearchSnapsho
     options,
     fingerprint: `${query}\u0000${JSON.stringify(options)}`,
   };
-}
-
-function sharedOptionEnabled(request: HostSearchRequest, option: string): boolean {
-  const words = request.query.trim().split(/\s+/).filter(Boolean);
-  return words.length > 0 && words.every((word, index) => {
-    // ב-SDK של אוצריא מפת wordOptions מחליפה את options עבור אותה מילה,
-    // ולא מתמזגת בה. HebrewBooks תומך באפשרות לכל השאילתה בלבד, ולכן
-    // מפעילים אותה רק אם היא פעילה באופן זהה בכל מילות השאילתה.
-    const effectiveOptions = request.wordOptions?.[`${word}_${index}`] ?? request.options;
-    return effectiveOptions?.[option] === true;
-  });
 }
 
 function initialCursor(request: HostSearchRequest): UnifiedSearchCursor {

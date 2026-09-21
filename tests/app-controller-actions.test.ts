@@ -322,6 +322,38 @@ describe('דיאלוג החיפוש של התוסף', () => {
     }
   });
 
+  it('refreshes the personal viewer PDF token after a service restart', async () => {
+    let token = 'before-restart';
+    const openBook = vi.spyOn(ViewerScreen.prototype, 'openBook')
+      .mockRejectedValueOnce(new Error('Unexpected server response (404)'))
+      .mockResolvedValue(undefined);
+    try {
+      const harness = await bootHarness(pluginSearchConfig({ network: {
+        '/health': () => ({ body: JSON.stringify({
+          ok: true, service: 'hbsearch', apiVersion: 1,
+          serverVersion: requiredServiceVersion, pdfToken: token,
+        }) }),
+        '/search': () => ({ body: hebrewBooksNdjson([
+          hebrewBooksRow({ fileId: '1000000000042', sourceType: 'Personal' }),
+        ]) }),
+      } }));
+      await submitFromDialog(harness, 'ברכת המזון', () => {
+        const row = [...dialogRoot().querySelectorAll<HTMLLabelElement>('.checkbox-row')]
+          .find((candidate) => candidate.textContent?.includes('אוסף אישי'));
+        row?.querySelector<HTMLInputElement>('input')?.click();
+      });
+      await vi.waitFor(() => expect(harness.shell.querySelectorAll('.result-card')).toHaveLength(1));
+      token = 'after-restart';
+      harness.shell.querySelector<HTMLElement>('.result-card-body')?.click();
+      await vi.waitFor(() => expect(openBook).toHaveBeenCalledTimes(2));
+      expect(String(openBook.mock.calls[0]?.[1])).toContain('pdfToken=before-restart');
+      expect(String(openBook.mock.calls[1]?.[1])).toContain('pdfToken=after-restart');
+      expect(harness.host.countOf('ui.showError')).toBe(0);
+    } finally {
+      openBook.mockRestore();
+    }
+  });
+
   it('שרת ישן בלי מזהה מספרי לספר אישי נכשל בהודעה ברורה', async () => {
     const harness = await bootHarness(
       pluginSearchConfig({

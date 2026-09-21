@@ -124,7 +124,7 @@ export function hebrewBooksMatchQuery(query: string, policy: SearchMatchPolicy):
   if (required >= words.length) return withinSizeBudget('', plain);
   const expansion = unhonouredExpansion(query, policy);
   if (expansion !== undefined) return { query: '', unsupported: expansionMessage(expansion) };
-  const operator = operatorWord(query);
+  const operator = operatorWord(query) ?? words.find((word) => dtSearchOperator.test(word));
   if (operator !== undefined) return { query: '', unsupported: operatorWordMessage(operator) };
   if (required <= 1) return withinSizeBudget(words.join(' or '));
   if (combinationCount(words.length, required) > maximumMatchCombinations) {
@@ -189,11 +189,17 @@ function metacharacterWordMessage(word: string): string {
 /// `sharedOptionEnabled`: היברובוקס מיישמת אפשרות רק כשכל המילים נושאות אותה.
 function unhonouredExpansion(query: string, policy: SearchMatchPolicy): string | undefined {
   if (expansionsHonoured(true)) return undefined;
-  const words = query.trim().split(/\s+/).filter(Boolean);
-  if (words.length === 0) return undefined;
-  return honouredExpansions.find((option) => words.every((word, index) => (
-    (policy.wordOptions?.[`${word}_${index}`] ?? policy.options)?.[option.hostKey] === true
-  )))?.hostKey;
+  return honouredExpansions.find((option) => sharedOptionEnabled({ ...policy, query }, option.hostKey))?.hostKey;
+}
+
+/// מפתחות האפשרויות נבנים מטוקני אוצריא, כולל כפילויות, אינדקסים וגרשיים.
+/// מפה פר-מילה מחליפה את המפה הגלובלית, ואינה מתמזגת בה.
+export function sharedOptionEnabled(request: SearchMatchPolicy & { query: string }, option: string): boolean {
+  const words = otzariaQueryWords(request.query);
+  return words.length > 0 && words.every((word, index) => {
+    const effectiveOptions = request.wordOptions?.[`${word}_${index}`] ?? request.options;
+    return effectiveOptions?.[option] === true;
+  });
 }
 
 function expansionMessage(option: string): string {
@@ -203,7 +209,8 @@ function expansionMessage(option: string): string {
 }
 
 /// נבדק על המילים כפי שהמשתמש הפריד אותן ברווח: הטוקנייזר שובר `w/5`
-/// לשתי מילים, ואז האופרטור היה חומק מהבדיקה.
+/// לשתי מילים, ואז האופרטור היה חומק מהבדיקה. בנוסף נבדקים הטוקנים
+/// שנפלטו בפועל, כי פיסוק או הסרת גרשיים יכולים לחשוף אופרטור חדש.
 function operatorWord(query: string): string | undefined {
   return query
     .trim()
@@ -248,6 +255,12 @@ function matchWords(query: string): string[] {
   )];
 }
 
+/// טוקני ה-SDK לפני הסרת גרשיים ואיחוד כפילויות. בניגוד לשאילתת
+/// היברובוקס, אוצריא מוחקת גם כוכביות כתווים שקופים לפני חלוקת המילים.
+export function otzariaQueryWords(query: string): string[] {
+  return splitQueryWords(sanitizeQuery(query).replace(/\*/g, ''));
+}
+
 /// מפרידי המילה של `sanitize_query` באוצריא — מקף עברי, מקף, קו אנכי
 /// ופיסוק דבוק; מכאן ש`בית-דין` נספר כשתי מילים, כמו במנוע של אוצריא.
 const wordSeparators = /[־\-|,;:!?(){}]/g;
@@ -279,6 +292,7 @@ function continuesWord(character: string): boolean {
 
 /// חלוקת המילים של `split_query_words` באוצריא: מילה נפתחת באות או בספרה,
 /// וגרש/גרשיים בין אותיות נשארים בתוכה — `רמב"ם` היא מילה אחת, לא שתיים.
+/// זוג גרשים פנימי הופך לגרשיים, וגרש סוגר יחיד נכלל במילה.
 function splitQueryWords(text: string): string[] {
   const characters = [...text];
   const words: string[] = [];
@@ -290,28 +304,28 @@ function splitQueryWords(text: string): string[] {
     for (;;) {
       while (end < characters.length && continuesWord(characters[end] as string)) end += 1;
       const quoted = quoteRunEnd(characters, end);
-      if (quoted === end || !continuesWord(characters[quoted] ?? '')) break;
-      end = quoted;
+      if (quoted === end) break;
+      if (continuesWord(characters[quoted] ?? '')) {
+        if (!/^(?:'{1,2}|")$/.test(characters.slice(end, quoted).join(''))) break;
+        end = quoted;
+      } else {
+        if (characters[end] === "'") end += 1;
+        break;
+      }
     }
-    words.push(characters.slice(start, end).join(''));
+    words.push(characters.slice(start, end).join('').replace(/''/g, '"'));
     start = end;
   }
   return words;
 }
 
-/// סוף רצף הגרשים שאחרי [end] כשהוא רצף פנימי — גרש בודד, זוג גרשים או
-/// גרשיים בודדות; כל צירוף אחר מפריד, ואז מוחזר [end] עצמו.
+/// סוף רצף הגרשים שאחרי [end]; הסורק מחליט אם הוא פנימי או סוגר.
 function quoteRunEnd(characters: string[], end: number): number {
-  let geresh = 0;
-  let gershayim = 0;
   let position = end;
   while (position < characters.length && (characters[position] === '"' || characters[position] === "'")) {
-    if (characters[position] === "'") geresh += 1;
-    else gershayim += 1;
     position += 1;
   }
-  const internal = (geresh <= 2 && gershayim === 0) || (geresh === 0 && gershayim === 1);
-  return internal && position > end ? position : end;
+  return position;
 }
 
 function combinationCount(words: number, size: number): number {
