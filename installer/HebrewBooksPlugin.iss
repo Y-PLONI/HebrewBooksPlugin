@@ -301,13 +301,15 @@ begin
   CloseServiceHandle(Manager);
 end;
 
-function HealthBody(var Body: String): Boolean;
+function HealthBody(var Body: String; var Failure: String): Boolean;
 var
   Http: Variant;
 begin
   Result := False;
   try
     Http := CreateOleObject('WinHttp.WinHttpRequest.5.1');
+    // חיבור ישיר (HTTPREQUEST_PROXYSETTING_DIRECT): פרוקסי WinHTTP במחשב אינו מגיע ל-127.0.0.1 של המשתמש.
+    Http.SetProxy(1);
     // חייב זמן קצוב: פורט 8080 עלול להיות בידי תהליך שפותח חיבור ולא עונה.
     Http.SetTimeouts(2000, 2000, 2000, 4000);
     Http.Open('GET', HealthUrl, False);
@@ -316,9 +318,11 @@ begin
     begin
       Body := Http.ResponseText;
       Result := True;
-    end;
+    end
+    else
+      Failure := 'HTTP ' + IntToStr(Http.Status);
   except
-    Result := False;
+    Failure := Trim(GetExceptionMessage);
   end;
 end;
 
@@ -338,6 +342,7 @@ var
   Attempt: Integer;
   Started: Cardinal;
   Body: String;
+  Failure: String;
   Reason: String;
 begin
   Started := GetTickCount();
@@ -346,8 +351,8 @@ begin
   begin
     if ServiceIsRunning() then
     begin
-      Reason := 'שירות החיפוש פועל, אך אינו עונה בכתובת ' + HealthUrl + '.';
-      if HealthBody(Body) then
+      Failure := '';
+      if HealthBody(Body, Failure) then
       begin
         Body := CompactJson(Body);
         // בלי זיהוי השירות, כל תהליך אחר שמחזיק את פורט 8080 ייראה כהצלחה.
@@ -360,7 +365,10 @@ begin
           Log('HebrewBooks: health check passed on attempt ' + IntToStr(Attempt) + '.');
           Exit;
         end;
-      end;
+      end
+      else
+        // השגיאה עצמה, כי בלעדיה יומן השירות מראה שירות תקין ואין ממה לאבחן.
+        Reason := 'שירות החיפוש פועל, אך אינו עונה בכתובת ' + HealthUrl + ' (' + Failure + ').';
     end;
     if GetTickCount() - Started >= HealthBudgetMs then
       Break;
